@@ -15,9 +15,9 @@ export class HealthService {
   }
 
   async getReadiness() {
-    const dbHealthy = await this.db.checkHealth();
+    const dbResult = await this.db.checkHealth();
 
-    const isReady = dbHealthy;
+    const isReady = dbResult.healthy;
 
     return {
       status: isReady ? 'ready' : 'degraded',
@@ -25,7 +25,7 @@ export class HealthService {
       version: '1.0.0',
       timestamp: new Date().toISOString(),
       checks: {
-        database: dbHealthy ? 'healthy' : 'unreachable',
+        database: dbResult.healthy ? 'healthy' : `unreachable: ${dbResult.error || 'unknown'}`,
       },
     };
   }

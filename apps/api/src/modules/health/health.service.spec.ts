@@ -8,7 +8,7 @@ describe('HealthService', () => {
 
   beforeEach(() => {
     mockDb = {
-      checkHealth: vi.fn().mockResolvedValue(true),
+      checkHealth: vi.fn().mockResolvedValue({ healthy: true }),
     };
     service = new HealthService(mockDb as DatabaseService);
   });
@@ -28,9 +28,9 @@ describe('HealthService', () => {
   });
 
   it('should return readiness degraded when database is unreachable', async () => {
-    mockDb.checkHealth = vi.fn().mockResolvedValue(false);
+    mockDb.checkHealth = vi.fn().mockResolvedValue({ healthy: false, error: 'connection refused' });
     const readiness = await service.getReadiness();
     expect(readiness.status).toBe('degraded');
-    expect(readiness.checks.database).toBe('unreachable');
+    expect(readiness.checks.database).toContain('unreachable');
   });
 });
