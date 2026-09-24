@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
-from typing import List
+from pydantic import Field, field_validator
+from typing import List, Union
+import json
 
 
 class Settings(BaseSettings):
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     WORKERS: int = 4
 
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: Union[str, List[str]] = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:4000",
@@ -31,6 +32,19 @@ class Settings(BaseSettings):
     DEFAULT_TIMEOUT_SECONDS: int = 120
     MAX_FINDINGS_PER_ANALYSIS: int = 1000
     ENFORCE_CONFIDENCE_DEMOTION: bool = True
+
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
 
 def get_settings() -> Settings:
