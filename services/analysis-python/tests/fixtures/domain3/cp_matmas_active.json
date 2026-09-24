@@ -1,0 +1,354 @@
+{
+  "description": "Golden positive MATMAS change pointer configuration with 100% field coverage",
+  "message_type": "MATMAS",
+  "target_message_type": "MATMAS",
+  "change_document_object": "MATERIAL",
+  "bd61_active": true,
+  "bd61": true,
+  "bd50_msg_types": [
+    "MATMAS",
+    "DEBMAS"
+  ],
+  "bd50": [
+    {
+      "mestype": "MATMAS",
+      "active": true,
+      "description": "Material Master active"
+    },
+    {
+      "mestype": "DEBMAS",
+      "active": true,
+      "description": "Customer Master active"
+    }
+  ],
+  "bd52_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "GROES"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ],
+    [
+      "MARA",
+      "BRGEW"
+    ],
+    [
+      "MARA",
+      "NTGEW"
+    ],
+    [
+      "MARA",
+      "GEWEI"
+    ],
+    [
+      "MARA",
+      "VOLUM"
+    ],
+    [
+      "MARA",
+      "VOLEH"
+    ],
+    [
+      "MARA",
+      "MTART"
+    ],
+    [
+      "MARA",
+      "MBRSH"
+    ],
+    [
+      "MARA",
+      "BISMT"
+    ],
+    [
+      "MARA",
+      "SPART"
+    ],
+    [
+      "MARA",
+      "PRDHA"
+    ],
+    [
+      "MARA",
+      "MSTAE"
+    ],
+    [
+      "MARA",
+      "MSTAV"
+    ],
+    [
+      "MARC",
+      "WERKS"
+    ],
+    [
+      "MARC",
+      "EKGRP"
+    ],
+    [
+      "MARC",
+      "DISPO"
+    ],
+    [
+      "MARC",
+      "DISMM"
+    ],
+    [
+      "MARC",
+      "PLIFZ"
+    ],
+    [
+      "MARC",
+      "PERKZ"
+    ],
+    [
+      "MARC",
+      "MTVFP"
+    ],
+    [
+      "MARC",
+      "PRCTR"
+    ],
+    [
+      "MVKE",
+      "VKORG"
+    ],
+    [
+      "MVKE",
+      "VTWEG"
+    ],
+    [
+      "MVKE",
+      "DWERK"
+    ],
+    [
+      "MVKE",
+      "KONDM"
+    ],
+    [
+      "MVKE",
+      "KTGRM"
+    ],
+    [
+      "MVKE",
+      "SKTOF"
+    ],
+    [
+      "MBEW",
+      "BWKEY"
+    ],
+    [
+      "MBEW",
+      "BKLAS"
+    ],
+    [
+      "MBEW",
+      "VPRSV"
+    ],
+    [
+      "MBEW",
+      "VERPR"
+    ],
+    [
+      "MBEW",
+      "STPRS"
+    ],
+    [
+      "MBEW",
+      "PEINH"
+    ]
+  ],
+  "expected_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "GROES"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ],
+    [
+      "MARA",
+      "BRGEW"
+    ],
+    [
+      "MARA",
+      "NTGEW"
+    ],
+    [
+      "MARA",
+      "GEWEI"
+    ],
+    [
+      "MARA",
+      "VOLUM"
+    ],
+    [
+      "MARA",
+      "VOLEH"
+    ],
+    [
+      "MARA",
+      "MTART"
+    ],
+    [
+      "MARA",
+      "MBRSH"
+    ],
+    [
+      "MARA",
+      "BISMT"
+    ],
+    [
+      "MARA",
+      "SPART"
+    ],
+    [
+      "MARA",
+      "PRDHA"
+    ],
+    [
+      "MARA",
+      "MSTAE"
+    ],
+    [
+      "MARA",
+      "MSTAV"
+    ],
+    [
+      "MARC",
+      "WERKS"
+    ],
+    [
+      "MARC",
+      "EKGRP"
+    ],
+    [
+      "MARC",
+      "DISPO"
+    ],
+    [
+      "MARC",
+      "DISMM"
+    ],
+    [
+      "MARC",
+      "PLIFZ"
+    ],
+    [
+      "MARC",
+      "PERKZ"
+    ],
+    [
+      "MARC",
+      "MTVFP"
+    ],
+    [
+      "MARC",
+      "PRCTR"
+    ],
+    [
+      "MVKE",
+      "VKORG"
+    ],
+    [
+      "MVKE",
+      "VTWEG"
+    ],
+    [
+      "MVKE",
+      "DWERK"
+    ],
+    [
+      "MVKE",
+      "KONDM"
+    ],
+    [
+      "MVKE",
+      "KTGRM"
+    ],
+    [
+      "MVKE",
+      "SKTOF"
+    ],
+    [
+      "MBEW",
+      "BWKEY"
+    ],
+    [
+      "MBEW",
+      "BKLAS"
+    ],
+    [
+      "MBEW",
+      "VPRSV"
+    ],
+    [
+      "MBEW",
+      "VERPR"
+    ],
+    [
+      "MBEW",
+      "STPRS"
+    ],
+    [
+      "MBEW",
+      "PEINH"
+    ]
+  ],
+  "dd04l_metadata": {
+    "MARA-MATKL": {
+      "change_document_flag": true,
+      "data_element": "MATKL"
+    },
+    "MARA-GROES": {
+      "change_document_flag": true,
+      "data_element": "GROES"
+    },
+    "MARA-MEINS": {
+      "change_document_flag": true,
+      "data_element": "MEINS"
+    },
+    "MARA-BRGEW": {
+      "change_document_flag": true,
+      "data_element": "BRGEW"
+    },
+    "MARA-NTGEW": {
+      "change_document_flag": true,
+      "data_element": "NTGEW"
+    },
+    "MARC-WERKS": {
+      "change_document_flag": true,
+      "data_element": "WERKS"
+    },
+    "MBEW-STPRS": {
+      "change_document_flag": true,
+      "data_element": "STPRS"
+    }
+  },
+  "bdcp2_samples": [
+    {
+      "message_type": "MATMAS",
+      "table": "MARA",
+      "field": "MATKL",
+      "process_status": "X",
+      "count": 50
+    },
+    {
+      "message_type": "MATMAS",
+      "table": "MARA",
+      "field": "GROES",
+      "process_status": "X",
+      "count": 30
+    }
+  ]
+}

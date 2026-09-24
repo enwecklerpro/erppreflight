@@ -1,0 +1,255 @@
+{
+  "playbooksPresent": {
+    "frontend-design-system.md": true,
+    "data-table-and-large-list.md": true,
+    "dependency-graph.md": true,
+    "engine-authoring.md": true,
+    "sap-evidence.md": true,
+    "release-aware-knowledge.md": true,
+    "secure-file-parser.md": true,
+    "multi-tenant-security.md": true
+  },
+  "structuralElements": {
+    "frontend-design-system.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 549
+    },
+    "data-table-and-large-list.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 375
+    },
+    "dependency-graph.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 448
+    },
+    "engine-authoring.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 277
+    },
+    "sap-evidence.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 228
+    },
+    "release-aware-knowledge.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 156
+    },
+    "secure-file-parser.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 209
+    },
+    "multi-tenant-security.md": {
+      "hasTriggers": true,
+      "hasInvariants": true,
+      "hasAntiPatterns": true,
+      "lineCount": 210
+    }
+  },
+  "syntaxChecks": {
+    "typescript": [
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 0,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 1,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 3,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 4,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 5,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "frontend-design-system.md",
+        "blockIndex": 6,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "data-table-and-large-list.md",
+        "blockIndex": 1,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "data-table-and-large-list.md",
+        "blockIndex": 2,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "data-table-and-large-list.md",
+        "blockIndex": 3,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "dependency-graph.md",
+        "blockIndex": 0,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "dependency-graph.md",
+        "blockIndex": 1,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "dependency-graph.md",
+        "blockIndex": 2,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "dependency-graph.md",
+        "blockIndex": 3,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "dependency-graph.md",
+        "blockIndex": 4,
+        "lang": "tsx",
+        "valid": true
+      },
+      {
+        "file": "sap-evidence.md",
+        "blockIndex": 1,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "sap-evidence.md",
+        "blockIndex": 2,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "sap-evidence.md",
+        "blockIndex": 3,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "multi-tenant-security.md",
+        "blockIndex": 0,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "multi-tenant-security.md",
+        "blockIndex": 2,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "multi-tenant-security.md",
+        "blockIndex": 4,
+        "lang": "typescript",
+        "valid": true
+      },
+      {
+        "file": "multi-tenant-security.md",
+        "blockIndex": 5,
+        "lang": "typescript",
+        "valid": true
+      }
+    ],
+    "python": [
+      {
+        "file": "engine-authoring.md",
+        "blockIndex": 0,
+        "valid": true
+      },
+      {
+        "file": "engine-authoring.md",
+        "blockIndex": 1,
+        "valid": true
+      },
+      {
+        "file": "engine-authoring.md",
+        "blockIndex": 2,
+        "valid": true
+      },
+      {
+        "file": "secure-file-parser.md",
+        "blockIndex": 0,
+        "valid": true
+      },
+      {
+        "file": "secure-file-parser.md",
+        "blockIndex": 1,
+        "valid": true
+      },
+      {
+        "file": "secure-file-parser.md",
+        "blockIndex": 2,
+        "valid": true
+      },
+      {
+        "file": "secure-file-parser.md",
+        "blockIndex": 3,
+        "valid": true
+      }
+    ],
+    "json": [
+      {
+        "file": "release-aware-knowledge.md",
+        "blockIndex": 0,
+        "valid": true
+      }
+    ]
+  },
+  "agentsMdChecks": {
+    "hasAxiom1": true,
+    "hasAxiom2": true,
+    "has14Points": true,
+    "referencedPlaybooks": [
+      "frontend-design-system.md",
+      "data-table-and-large-list.md",
+      "accessibility.md",
+      "sap-evidence.md",
+      "dependency-graph.md",
+      "engine-authoring.md",
+      "secure-file-parser.md",
+      "release-aware-knowledge.md",
+      "multi-tenant-security.md"
+    ]
+  },
+  "issues": [
+    "AGENTS.md references non-existent playbook: accessibility.md"
+  ]
+}

@@ -1,0 +1,22 @@
+Step,COND_DocumentType,COND_PurchasingOrg,COND_CompanyCode,COND_Supplier,COND_Channel,RESULT
+Output Type,NB,*,*,*,*,PURCHASE_ORDER
+Output Type,FO,*,*,*,*,BLANKET_ORDER
+Output Type,*,*,*,*,*,STANDARD_ORDER
+Receiver,NB,*,*,*,*,SUPPLIER_100045
+Receiver,FO,*,*,*,*,SUPPLIER_DEFAULT
+Receiver,*,*,*,*,*,SUPPLIER_DEFAULT
+Channel,NB,*,*,*,*,EMAIL
+Channel,FO,*,*,*,*,PRINT
+Channel,*,*,*,*,*,PRINT
+Printer,NB,*,*,*,PRINT,LP01
+Printer,*,*,*,*,PRINT,DEFAULT_QUEUE
+Email Recipient,*,DE01,*,100045,*,orders@supplier45.de
+Email Recipient,*,1010,*,100045,*,orders-us@supplier45.de
+Email Sender,*,*,1000,*,*,procurement@acme.corp
+Email Sender,*,*,*,*,*,no-reply@acme.corp
+Form Template,NB,*,*,*,*,MM_PURCHASE_ORDER_DEFAULT
+Form Template,FO,*,*,*,*,MM_PURCHASE_ORDER_DEFAULT
+Form Template,*,*,*,*,*,MM_PURCHASE_ORDER_DEFAULT
+Output Relevance,NB,*,*,*,*,TRUE
+Output Relevance,FO,*,*,*,*,TRUE
+Output Relevance,*,*,*,*,*,TRUE

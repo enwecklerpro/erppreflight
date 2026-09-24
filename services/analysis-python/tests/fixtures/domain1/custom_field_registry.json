@@ -1,0 +1,30 @@
+{
+  "field_name": "YY1_PROJECT_CODE",
+  "data_type": "CHAR",
+  "length": 20,
+  "business_contexts": [
+    "MM_PURCHASE_ORDER_ITEM",
+    "MM_SUPPLIER_INVOICE_ITEM",
+    "FI_JOURNAL_ENTRY_ITEM"
+  ],
+  "hops": [
+    {
+      "source_context": "MM_PURCHASE_ORDER_ITEM",
+      "target_context": "MM_SUPPLIER_INVOICE_ITEM",
+      "extension_scenario": "MM_PO_TO_INVOICE",
+      "expected_status": "SUPPORTED"
+    },
+    {
+      "source_context": "MM_SUPPLIER_INVOICE_ITEM",
+      "target_context": "FI_JOURNAL_ENTRY_ITEM",
+      "extension_scenario": "INVOICE_TO_JOURNAL_ENTRY",
+      "expected_status": "CUSTOM_LOGIC",
+      "required_badi": "BADI_FINS_ACDOC_EXT_PERSISTENCE"
+    }
+  ],
+  "field_definitions": {
+    "MM_PURCHASE_ORDER_ITEM": { "type": "CHAR", "length": 20 },
+    "MM_SUPPLIER_INVOICE_ITEM": { "type": "CHAR", "length": 20 },
+    "FI_JOURNAL_ENTRY_ITEM": { "type": "CHAR", "length": 20 }
+  }
+}

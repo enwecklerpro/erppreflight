@@ -1,0 +1,14 @@
+{
+  "http_response": {
+    "status_code": 200,
+    "method": "GET",
+    "url": "/sap/opu/odata/sap/C_CUSTOMER_CDS/$metadata"
+  },
+  "icf_services": [
+    {
+      "service_path": "/sap/opu/odata/sap/C_CUSTOMER_CDS",
+      "is_active": true
+    }
+  ],
+  "su53_traces": []
+}

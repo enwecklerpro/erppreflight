@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@erppreflight/schemas": ["packages/schemas/src/index.ts"],
+      "@erppreflight/schemas/*": ["packages/schemas/src/*"],
+      "@erppreflight/database": ["packages/database/src/index.ts"],
+      "@erppreflight/database/*": ["packages/database/src/*"],
+      "@erppreflight/tenancy": ["packages/tenancy/src/index.ts"],
+      "@erppreflight/tenancy/*": ["packages/tenancy/src/*"],
+      "@erppreflight/auth": ["packages/auth/src/index.ts"],
+      "@erppreflight/auth/*": ["packages/auth/src/*"],
+      "@erppreflight/evidence": ["packages/evidence/src/index.ts"],
+      "@erppreflight/evidence/*": ["packages/evidence/src/*"]
+    }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".next",
+    "services/analysis-python"
+  ]
+}

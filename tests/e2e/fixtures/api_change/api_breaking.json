@@ -1,0 +1,22 @@
+{
+  "paths": {
+    "/api/v1/purchase-orders": [
+      "get",
+      "post"
+    ]
+  },
+  "components": {
+    "schemas": {
+      "PurchaseOrder": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "supplier": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

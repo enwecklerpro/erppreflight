@@ -1,0 +1,13 @@
+{
+  "target_user": "TEST_RETIRED_USER",
+  "users": [
+    {
+      "bname": "TEST_RETIRED_USER",
+      "user_type": "A",
+      "lock_status": 128
+    }
+  ],
+  "jobs": [],
+  "rfc_destinations": [],
+  "work_items": []
+}

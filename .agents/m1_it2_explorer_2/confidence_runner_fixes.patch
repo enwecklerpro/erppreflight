@@ -1,0 +1,164 @@
+diff --git a/services/analysis-python/src/models/finding.py b/services/analysis-python/src/models/finding.py
+--- a/services/analysis-python/src/models/finding.py
++++ b/services/analysis-python/src/models/finding.py
+@@ -19,3 +19,4 @@
+     technical_details: Dict[str, Any] = Field(default_factory=dict, description="Engine-specific debug details")
+     affected_objects: List[str] = Field(default_factory=list, description="Names of impacted SAP objects")
+     fingerprint: Optional[str] = None
++    is_ai_generated: bool = Field(default=False, description="Flag indicating LLM or probabilistic generation")
+diff --git a/services/analysis-python/src/platform/confidence.py b/services/analysis-python/src/platform/confidence.py
+--- a/services/analysis-python/src/platform/confidence.py
++++ b/services/analysis-python/src/platform/confidence.py
+@@ -1,4 +1,4 @@
+-from src.models.enums import ConfidenceClass
++from src.models.enums import ConfidenceClass, TrustLevel
+ from src.models.finding import Finding
+ 
+ CONFIDENCE_SCORE_MAP = {
+@@ -13,24 +13,44 @@
+ class ConfidenceClassifier:
+     """Enforces epistemic reliability rules and non-negotiable demotion invariants."""
+ 
+-    @staticmethod
+-    def classify_finding(finding: Finding, is_ai_generated: bool = False, missing_evidence: bool = False) -> Finding:
+-        # Rule 1: Non-negotiable LLM Boundary
+-        # If an LLM or probabilistic model was involved, finding can NEVER exceed INFERRED (0.60)
+-        if is_ai_generated:
++    @classmethod
++    def classify(
++        cls,
++        finding: Finding,
++        is_ai_generated: bool = False,
++        missing_evidence: bool = False,
++    ) -> Finding:
++        # Determine effective AI generation from explicit parameter, finding attributes, or evidence provenance
++        effective_ai = (
++            is_ai_generated
++            or getattr(finding, "is_ai_generated", False)
++            or bool(finding.technical_details.get("is_ai_generated"))
++            or bool(finding.technical_details.get("ai_generated"))
++            or any(
++                e.provenance == ConfidenceClass.INFERRED or e.source_type == TrustLevel.INFERRED
++                for e in (finding.evidence or [])
++            )
++        )
++
++        # Invariant 1: Missing mandatory evidence demotes unconditionally to UNKNOWN (0.30).
++        # Missing evidence takes strict precedence over AI classification.
++        has_no_evidence = missing_evidence or not finding.evidence or len(finding.evidence) == 0
++        if has_no_evidence:
++            finding.confidence = ConfidenceClass.UNKNOWN
++            finding.confidence_score = CONFIDENCE_SCORE_MAP[ConfidenceClass.UNKNOWN]
++            return finding
++
++        # Invariant 2: Non-negotiable LLM / AI Boundary
++        # If an LLM, probabilistic model, or inferred evidence was involved, finding can NEVER exceed INFERRED (0.60)
++        if effective_ai:
+             if finding.confidence in (ConfidenceClass.VERIFIED, ConfidenceClass.RULE_DERIVED):
+                 finding.confidence = ConfidenceClass.INFERRED
+-            finding.confidence_score = min(finding.confidence_score, 0.60)
+-
+-        # Rule 2: Missing mandatory evidence demotes to UNKNOWN
+-        if missing_evidence or (not finding.evidence and finding.confidence == ConfidenceClass.VERIFIED):
+-            finding.confidence = ConfidenceClass.UNKNOWN
+-            finding.confidence_score = 0.30
++            finding.confidence_score = min(finding.confidence_score, CONFIDENCE_SCORE_MAP[ConfidenceClass.INFERRED])
+ 
+-        # Sync confidence score to default map if not demoted lower
+-        default_score = CONFIDENCE_SCORE_MAP.get(finding.confidence, 0.30)
+-        if not is_ai_generated and not missing_evidence:
++        # Invariant 3: Score synchronization to canonical epistemic map
++        default_score = CONFIDENCE_SCORE_MAP.get(finding.confidence, CONFIDENCE_SCORE_MAP[ConfidenceClass.UNKNOWN])
++        if not effective_ai:
+             finding.confidence_score = default_score
+         else:
+             finding.confidence_score = min(finding.confidence_score, default_score)
+ 
+         return finding
++
++    # Alias for backward compatibility with existing callers
++    classify_finding = classify
+diff --git a/services/analysis-python/src/core/runner.py b/services/analysis-python/src/core/runner.py
+--- a/services/analysis-python/src/core/runner.py
++++ b/services/analysis-python/src/core/runner.py
+@@ -2,7 +2,7 @@
+ from src.models.request import AnalysisRequest
+ from src.models.response import AnalysisResponse, AnalysisMetrics
+-from src.models.enums import AnalysisStatus
++from src.models.enums import AnalysisStatus, ConfidenceClass, TrustLevel
+ from src.core.registry import EngineRegistry
+ from src.platform.confidence import ConfidenceClassifier
+ 
+@@ -24,8 +24,28 @@
+             if response.metrics is None:
+                 response.metrics = AnalysisMetrics()
+             response.metrics.execution_time_ms = elapsed_ms
+ 
++            # Check request-level and engine-level AI provenance indicators
++            is_request_ai = bool(
++                request.configuration.get("is_ai_generated", False)
++                or request.options.custom_params.get("is_ai_generated", False)
++                or getattr(engine, "is_ai_engine", False)
++            )
++
+             # Enforce epistemic confidence invariants on all findings
+             for finding in response.findings:
+-                ConfidenceClassifier.classify_finding(finding)
++                finding_is_ai = (
++                    is_request_ai
++                    or getattr(finding, "is_ai_generated", False)
++                    or bool(finding.technical_details.get("is_ai_generated"))
++                    or bool(finding.technical_details.get("ai_generated"))
++                    or any(
++                        e.provenance == ConfidenceClass.INFERRED or e.source_type == TrustLevel.INFERRED
++                        for e in (finding.evidence or [])
++                    )
++                )
++                has_no_evidence = not finding.evidence or len(finding.evidence) == 0
++                ConfidenceClassifier.classify(
++                    finding,
++                    is_ai_generated=finding_is_ai,
++                    missing_evidence=has_no_evidence,
++                )
+ 
+             return response
+diff --git a/services/analysis-python/tests/adversarial/test_m1_challenges.py b/services/analysis-python/tests/adversarial/test_m1_challenges.py
+--- a/services/analysis-python/tests/adversarial/test_m1_challenges.py
++++ b/services/analysis-python/tests/adversarial/test_m1_challenges.py
+@@ -266,5 +266,5 @@
+         classified = ConfidenceClassifier.classify_finding(finding, missing_evidence=False)
+-        assert classified.confidence == ConfidenceClass.RULE_DERIVED
+-        assert classified.confidence_score == 0.85
++        assert classified.confidence == ConfidenceClass.UNKNOWN
++        assert classified.confidence_score == 0.30
+ 
+     def test_challenge_ai_generated_with_missing_evidence_demotion_ordering(self):
+@@ -288,5 +288,5 @@
+         classified = ConfidenceClassifier.classify_finding(finding, is_ai_generated=True, missing_evidence=False)
+-        assert classified.confidence == ConfidenceClass.INFERRED
+-        assert classified.confidence_score == 0.60
++        assert classified.confidence == ConfidenceClass.UNKNOWN
++        assert classified.confidence_score == 0.30
+ 
+     def test_challenge_engine_runner_ai_flag_passthrough(self):
+@@ -317,4 +317,4 @@
+         classified = ConfidenceClassifier.classify_finding(finding)
+-        assert classified.confidence == ConfidenceClass.VERIFIED
+-        assert classified.confidence_score == 1.0
++        assert classified.confidence == ConfidenceClass.INFERRED
++        assert classified.confidence_score <= 0.60
+diff --git a/services/analysis-python/tests/unit/test_adversarial_challenge.py b/services/analysis-python/tests/unit/test_adversarial_challenge.py
+--- a/services/analysis-python/tests/unit/test_adversarial_challenge.py
++++ b/services/analysis-python/tests/unit/test_adversarial_challenge.py
+@@ -36,4 +36,4 @@
+-        is_bug_present = (result.confidence == ConfidenceClass.RULE_DERIVED)
+-        assert is_bug_present, "Expected bug behavior: RULE_DERIVED is NOT demoted when evidence=[]"
++        assert result.confidence == ConfidenceClass.UNKNOWN
++        assert result.confidence_score == 0.30
+ 
+     def test_bug_ai_generated_without_evidence_gets_inferred_instead_of_unknown(self):
+@@ -55,4 +55,4 @@
+-        is_bug_present = (result.confidence == ConfidenceClass.INFERRED and result.confidence_score == 0.60)
+-        assert is_bug_present, "Expected bug behavior: AI finding without evidence gets INFERRED instead of UNKNOWN"
++        assert result.confidence == ConfidenceClass.UNKNOWN
++        assert result.confidence_score == 0.30

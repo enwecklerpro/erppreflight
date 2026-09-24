@@ -1,0 +1,14 @@
+{
+  "collections": [
+    "SC_FINANCE",
+    "SC_SALES"
+  ],
+  "dependencies": {
+    "SC_FINANCE": [
+      "SC_SALES"
+    ],
+    "SC_SALES": [
+      "SC_FINANCE"
+    ]
+  }
+}

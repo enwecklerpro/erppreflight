@@ -1,0 +1,21 @@
+{
+  "scenario": {
+    "DocumentType": "NB",
+    "CompanyCode": "1000",
+    "PurchasingOrg": "DE01",
+    "Supplier": "100045",
+    "Currency": "EUR",
+    "DispatchTime": "1"
+  },
+  "target_release": "S4HC_2408",
+  "expected_determination": {
+    "Output Type": "PURCHASE_ORDER",
+    "Receiver": "SUPPLIER_100045",
+    "Channel": "EMAIL",
+    "Printer": "LP01",
+    "Email Recipient": "orders@supplier45.de",
+    "Email Sender": "procurement@acme.corp",
+    "Form Template": "MM_PURCHASE_ORDER_DEFAULT",
+    "Output Relevance": "TRUE"
+  }
+}

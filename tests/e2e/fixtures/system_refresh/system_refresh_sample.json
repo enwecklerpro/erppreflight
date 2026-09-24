@@ -1,0 +1,11 @@
+{
+  "pre_refresh_rfcs": {
+    "SAP_PAYMENT_GW": "prod-bank.corp.internal",
+    "SAP_ARIBA_B2B": "prod-ariba.corp.internal"
+  },
+  "post_refresh_rfcs": {
+    "SAP_PAYMENT_GW": "prod-bank.corp.internal",
+    "SAP_ARIBA_B2B": "qa-ariba.corp.internal"
+  },
+  "scot_outbound_active": true
+}

@@ -1,0 +1,18 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000098231",
+      "wi_type": "B",
+      "wi_stat": "ERROR",
+      "wi_rh_task": "TS00007988"
+    }
+  ],
+  "logs": [
+    {
+      "wi_id": "0000098231",
+      "retcode": 4,
+      "exception": "CX_SY_OPEN_SQL_DB: Duplicate key insert into VBKOK"
+    }
+  ],
+  "agent_traces": []
+}

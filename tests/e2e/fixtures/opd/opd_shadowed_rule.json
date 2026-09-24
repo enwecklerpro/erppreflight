@@ -1,0 +1,18 @@
+{
+  "tables": {
+    "Channel": [
+      {
+        "COND_DocumentType": "*",
+        "RESULT": "PRINT"
+      },
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "EMAIL"
+      },
+      {
+        "COND_DocumentType": "FO",
+        "RESULT": "EDI"
+      }
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+[
+  {
+    "playbook": "data-table-and-large-list.md",
+    "referencedFile": "apps/web/src/components/data-table/use-table-url-sync.ts"
+  },
+  {
+    "playbook": "data-table-and-large-list.md",
+    "referencedFile": "apps/web/src/components/data-table/data-table-virtual.ts"
+  },
+  {
+    "playbook": "data-table-and-large-list.md",
+    "referencedFile": "apps/web/src/components/data-table/export-handler.ts"
+  },
+  {
+    "playbook": "dependency-graph.md",
+    "referencedFile": "apps/web/src/components/dependency-graph/graph-loader.ts"
+  },
+  {
+    "playbook": "dependency-graph.md",
+    "referencedFile": "apps/web/src/components/dependency-graph/elk-layout.worker.ts"
+  },
+  {
+    "playbook": "dependency-graph.md",
+    "referencedFile": "apps/web/src/components/dependency-graph/use-elk-layout.ts"
+  },
+  {
+    "playbook": "dependency-graph.md",
+    "referencedFile": "apps/web/src/components/dependency-graph/sap-object-node.ts"
+  },
+  {
+    "playbook": "dependency-graph.md",
+    "referencedFile": "apps/web/src/components/dependency-graph/dependency-table-fallback.ts"
+  },
+  {
+    "playbook": "engine-authoring.md",
+    "referencedFile": "services/analysis-python/src/models/evidence.py"
+  },
+  {
+    "playbook": "engine-authoring.md",
+    "referencedFile": "services/analysis-python/tests/engines/test_opd_guard.py"
+  },
+  {
+    "playbook": "engine-authoring.md",
+    "referencedFile": "services/analysis-python/src/engines/opd_guard.py"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/lib/utils.ts"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/components/ui/dialog.ts"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/components/ui/severity-badge.ts"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/components/ui/accessible-motion.ts"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/components/command-palette.ts"
+  },
+  {
+    "playbook": "frontend-design-system.md",
+    "referencedFile": "apps/web/src/components/heavy-component-boundary.ts"
+  },
+  {
+    "playbook": "multi-tenant-security.md",
+    "referencedFile": "packages/database/src/rls.ts"
+  },
+  {
+    "playbook": "multi-tenant-security.md",
+    "referencedFile": "apps/web/src/hooks/use-tenant-switch.ts"
+  },
+  {
+    "playbook": "multi-tenant-security.md",
+    "referencedFile": "apps/api/test/security/cross-tenant-isolation.e2e-spec.ts"
+  },
+  {
+    "playbook": "multi-tenant-security.md",
+    "referencedFile": "packages/database/migrations/0004_tenant_rls_policies.sql"
+  },
+  {
+    "playbook": "sap-evidence.md",
+    "referencedFile": "packages/evidence/src/classifier.ts"
+  },
+  {
+    "playbook": "sap-evidence.md",
+    "referencedFile": "packages/evidence/src/verifier.ts"
+  },
+  {
+    "playbook": "sap-evidence.md",
+    "referencedFile": "packages/evidence/src/classifier.ts"
+  },
+  {
+    "playbook": "secure-file-parser.md",
+    "referencedFile": "services/analysis-python/src/parsers/safe_archive.py"
+  },
+  {
+    "playbook": "secure-file-parser.md",
+    "referencedFile": "services/analysis-python/src/parsers/safe_xml.py"
+  },
+  {
+    "playbook": "secure-file-parser.md",
+    "referencedFile": "services/analysis-python/src/platform/redaction.py"
+  }
+]

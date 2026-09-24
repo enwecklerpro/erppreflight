@@ -1,0 +1,9 @@
+{
+  "status_code": 403,
+  "su53_failed_objects": [
+    "S_SERVICE",
+    "S_START"
+  ],
+  "icf_inactive_paths": [],
+  "is_post_without_csrf": false
+}

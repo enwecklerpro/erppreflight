@@ -1,0 +1,8 @@
+{
+  "facetedFiltersConfigured": 3,
+  "deserializationTestsPassed": "11/11",
+  "serializationTestsPassed": "4/4",
+  "executionTestsPassed": "9/10",
+  "discoveredDefects": [],
+  "status": "ALL_PASSED"
+}

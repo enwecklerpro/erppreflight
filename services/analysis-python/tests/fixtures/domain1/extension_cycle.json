@@ -1,0 +1,17 @@
+{
+  "project_id": "proj-cycle-domain1",
+  "dependencies": {
+    "CDS_VIEW_HEADER": [
+      "CDS_VIEW_ITEMS"
+    ],
+    "CDS_VIEW_ITEMS": [
+      "CDS_VIEW_BILLING"
+    ],
+    "CDS_VIEW_BILLING": [
+      "CDS_VIEW_HEADER"
+    ],
+    "API_EXTERNAL_REPORTING": [
+      "CDS_VIEW_HEADER"
+    ]
+  }
+}

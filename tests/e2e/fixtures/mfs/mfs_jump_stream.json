@@ -1,0 +1,40 @@
+{
+  "telegrams": [
+    {
+      "type": "MOVE",
+      "hu_id": "HU_8811",
+      "cp": "CP01",
+      "time_sec": 10.0
+    },
+    {
+      "type": "ACK",
+      "hu_id": "HU_8811",
+      "cp": "CP01",
+      "time_sec": 10.2
+    },
+    {
+      "type": "MOVE",
+      "hu_id": "HU_8811",
+      "cp": "CP05",
+      "time_sec": 12.5
+    }
+  ],
+  "conveyor_edges": [
+    [
+      "CP01",
+      "CP02"
+    ],
+    [
+      "CP02",
+      "CP03"
+    ],
+    [
+      "CP03",
+      "CP04"
+    ],
+    [
+      "CP04",
+      "CP05"
+    ]
+  ]
+}

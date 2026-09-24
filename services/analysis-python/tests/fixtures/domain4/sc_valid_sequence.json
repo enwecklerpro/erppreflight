@@ -1,0 +1,41 @@
+{
+  "description": "Two clean independent or linearly sequenced Key-User Software Collections in SAP S/4HANA Cloud",
+  "export_id": "EXP_2026_09_001",
+  "target_release": "S4HC_2408",
+  "collections": [
+    {
+      "collection_id": "SC_CORE",
+      "name": "Core Foundation Extensibility",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_CUSTOMER_CLASSIFICATION",
+          "item_type": "CUSTOM_FIELD",
+          "status": "PUBLISHED",
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "collection_id": "SC_SALES",
+      "name": "Sales Cloud Key User Extensions",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_CDS_SALES_ORDER_HEADER",
+          "item_type": "CDS_VIEW",
+          "status": "PUBLISHED",
+          "dependencies": [
+            "SC_CORE:YY1_CUSTOMER_CLASSIFICATION"
+          ]
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "SC_CORE": [],
+    "SC_SALES": [
+      "SC_CORE"
+    ]
+  }
+}

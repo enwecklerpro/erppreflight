@@ -1,0 +1,63 @@
+{
+  "chart_of_accounts": "CA01",
+  "company_code": "1000",
+  "obyc_rules": [
+    {
+      "chart_of_accounts": "CA01",
+      "transaction_key": "BSX",
+      "valuation_class": "3000",
+      "gl_account": "140000"
+    },
+    {
+      "chart_of_accounts": "CA01",
+      "transaction_key": "WRX",
+      "valuation_class": "3000",
+      "gl_account": "211000"
+    }
+  ],
+  "vkoa_rules": [
+    {
+      "chart_of_accounts": "CA01",
+      "sales_org": "1010",
+      "customer_aag": "01",
+      "material_aag": "01",
+      "account_key": "ERL",
+      "gl_account": "800000"
+    }
+  ],
+  "ska1_accounts": [
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "140000",
+      "xsperr": false
+    },
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "211000",
+      "xsperr": false
+    },
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "800000",
+      "xsperr": false
+    }
+  ],
+  "skb1_accounts": [
+    {
+      "company_code": "1000",
+      "gl_account": "140000",
+      "xsperr": false
+    },
+    {
+      "company_code": "1000",
+      "gl_account": "211000",
+      "xsperr": false
+    },
+    {
+      "company_code": "1000",
+      "gl_account": "800000",
+      "xsperr": false
+    }
+  ],
+  "valuation_classes": []
+}

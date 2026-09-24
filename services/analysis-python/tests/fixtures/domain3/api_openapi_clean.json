@@ -1,0 +1,259 @@
+{
+  "baseline": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "SAP S/4HANA Purchase Order API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/purchase-orders": {
+        "get": {
+          "summary": "List Purchase Orders",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Success",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PurchaseOrder"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "summary": "Create Purchase Order",
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseOrderInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Created"
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "PurchaseOrder": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "companyCode": {
+              "type": "string",
+              "maxLength": 4
+            },
+            "supplier": {
+              "type": "string"
+            },
+            "totalAmount": {
+              "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "PENDING",
+                "APPROVED",
+                "REJECTED"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "companyCode",
+            "supplier"
+          ]
+        },
+        "PurchaseOrderInput": {
+          "type": "object",
+          "properties": {
+            "companyCode": {
+              "type": "string",
+              "maxLength": 4
+            },
+            "supplier": {
+              "type": "string"
+            },
+            "totalAmount": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "companyCode",
+            "supplier"
+          ]
+        }
+      }
+    }
+  },
+  "candidate": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "SAP S/4HANA Purchase Order API",
+      "version": "1.1.0"
+    },
+    "paths": {
+      "/purchase-orders": {
+        "get": {
+          "summary": "List Purchase Orders",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Success",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PurchaseOrder"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "summary": "Create Purchase Order",
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseOrderInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Created"
+            }
+          }
+        }
+      },
+      "/purchase-orders/{id}/tracking": {
+        "get": {
+          "summary": "Track Purchase Order Delivery",
+          "responses": {
+            "200": {
+              "description": "Tracking details"
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "PurchaseOrder": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "companyCode": {
+              "type": "string",
+              "maxLength": 4
+            },
+            "supplier": {
+              "type": "string"
+            },
+            "totalAmount": {
+              "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "PENDING",
+                "APPROVED",
+                "REJECTED",
+                "EXPRESS_HOLD"
+              ]
+            },
+            "deliveryInstructions": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "companyCode",
+            "supplier"
+          ]
+        },
+        "PurchaseOrderInput": {
+          "type": "object",
+          "properties": {
+            "companyCode": {
+              "type": "string",
+              "maxLength": 4
+            },
+            "supplier": {
+              "type": "string"
+            },
+            "totalAmount": {
+              "type": "number"
+            },
+            "deliveryInstructions": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyCode",
+            "supplier"
+          ]
+        }
+      }
+    }
+  },
+  "integrations": [
+    {
+      "integration_id": "SALESFORCE_INTEGRATION_01",
+      "name": "Salesforce SCM Connector",
+      "consumed_endpoints": [
+        "/purchase-orders"
+      ],
+      "consumed_fields": {
+        "PurchaseOrder": [
+          "id",
+          "supplier",
+          "totalAmount"
+        ]
+      }
+    }
+  ]
+}

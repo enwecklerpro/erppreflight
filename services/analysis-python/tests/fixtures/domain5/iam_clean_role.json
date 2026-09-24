@@ -1,0 +1,47 @@
+{
+  "roles": [
+    {
+      "role_name": "Z_EMPLOYEE_SELF_SERVICE",
+      "description": "Pure Employee Self-Service",
+      "catalogs": [
+        "SAP_BC_ESS_STANDARD"
+      ],
+      "assigned_users": [
+        "EMP_001",
+        "EMP_002"
+      ],
+      "authorizations": []
+    }
+  ],
+  "catalogs": [
+    {
+      "catalog_id": "SAP_BC_ESS_STANDARD",
+      "catalog_name": "Standard ESS Services",
+      "apps": [
+        "CATS",
+        "F1234",
+        "F1311"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "user_id": "EMP_001",
+      "assigned_roles": [
+        "Z_EMPLOYEE_SELF_SERVICE"
+      ]
+    },
+    {
+      "user_id": "EMP_002",
+      "assigned_roles": [
+        "Z_EMPLOYEE_SELF_SERVICE"
+      ]
+    }
+  ],
+  "price_categories": {
+    "CATS": "SELF_SERVICE",
+    "F1234": "SELF_SERVICE",
+    "F1311": "SELF_SERVICE"
+  },
+  "usage_records": []
+}

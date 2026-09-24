@@ -1,0 +1,14 @@
+{
+  "totalRecords": 10000,
+  "validRecords": 10000,
+  "invalidRecords": 0,
+  "successRate": 100,
+  "genDurationMs": 23.257000000000005,
+  "parseDurationMs": 67.39840000000004,
+  "throughputOpsPerSec": 148371,
+  "avgPerItemMs": 0.0067,
+  "heapUsedMB": 39.5421142578125,
+  "heapDeltaMB": 12.252090454101562,
+  "rssMB": 115.38671875,
+  "corruptRejectionScore": "5/5"
+}

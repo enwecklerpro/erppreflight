@@ -1,0 +1,385 @@
+{
+  "roles": [
+    {
+      "role_name": "Z_FI_INVOICE_PROCESSOR",
+      "description": "Invoice Entry and Display Clerks",
+      "catalogs": [
+        "Z_CAT_FI_CLERK"
+      ],
+      "assigned_users": [
+        "FI_USER_01",
+        "FI_USER_02",
+        "FI_USER_03",
+        "FI_USER_04",
+        "FI_USER_05",
+        "FI_USER_06",
+        "FI_USER_07",
+        "FI_USER_08",
+        "FI_USER_09",
+        "FI_USER_10",
+        "FI_USER_11",
+        "FI_USER_12",
+        "FI_USER_13",
+        "FI_USER_14",
+        "FI_USER_15",
+        "FI_USER_16",
+        "FI_USER_17",
+        "FI_USER_18",
+        "FI_USER_19",
+        "FI_USER_20",
+        "FI_USER_21",
+        "FI_USER_22",
+        "FI_USER_23",
+        "FI_USER_24",
+        "FI_USER_25",
+        "FI_USER_26",
+        "FI_USER_27",
+        "FI_USER_28",
+        "FI_USER_29",
+        "FI_USER_30",
+        "FI_USER_31",
+        "FI_USER_32",
+        "FI_USER_33",
+        "FI_USER_34",
+        "FI_USER_35",
+        "FI_USER_36",
+        "FI_USER_37",
+        "FI_USER_38",
+        "FI_USER_39",
+        "FI_USER_40",
+        "FI_USER_41",
+        "FI_USER_42",
+        "FI_USER_43",
+        "FI_USER_44",
+        "FI_USER_45",
+        "FI_USER_46",
+        "FI_USER_47",
+        "FI_USER_48",
+        "FI_USER_49",
+        "FI_USER_50"
+      ],
+      "authorizations": []
+    }
+  ],
+  "catalogs": [
+    {
+      "catalog_id": "Z_CAT_FI_CLERK",
+      "catalog_name": "Accounts Payable Operations",
+      "apps": [
+        "FB03",
+        "F0842",
+        "CATS",
+        "FB08"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "user_id": "FI_USER_01",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_02",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_03",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_04",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_05",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_06",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_07",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_08",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_09",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_10",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_11",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_12",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_13",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_14",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_15",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_16",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_17",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_18",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_19",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_20",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_21",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_22",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_23",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_24",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_25",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_26",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_27",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_28",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_29",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_30",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_31",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_32",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_33",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_34",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_35",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_36",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_37",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_38",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_39",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_40",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_41",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_42",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_43",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_44",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_45",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_46",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_47",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_48",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_49",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    },
+    {
+      "user_id": "FI_USER_50",
+      "assigned_roles": [
+        "Z_FI_INVOICE_PROCESSOR"
+      ]
+    }
+  ],
+  "price_categories": {
+    "FB08": "ADVANCED",
+    "FB03": "CORE",
+    "F0842": "CORE",
+    "CATS": "SELF_SERVICE"
+  },
+  "usage_records": []
+}

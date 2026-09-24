@@ -1,0 +1,22 @@
+{
+  "target_user": "BATCH_ADMIN",
+  "batch_jobs": [
+    {
+      "job_name": "SAP_BILLING_NIGHTLY",
+      "auth_user": "BATCH_ADMIN",
+      "status": "SCHEDULED"
+    },
+    {
+      "job_name": "SAP_INDEX_CLEANUP",
+      "auth_user": "SYSTEM",
+      "status": "SCHEDULED"
+    }
+  ],
+  "rfc_destinations": [
+    {
+      "destination": "SAP_B2B_GATEWAY",
+      "logon_user": "BATCH_ADMIN",
+      "active": true
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "scenario": {
+    "DocumentType": "NB",
+    "CompanyCode": "1000",
+    "PurchasingOrg": "DE01",
+    "Supplier": "100045"
+  },
+  "tables": {
+    "Output Type": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "PURCHASE_ORDER"
+      }
+    ],
+    "Receiver": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "SUPPLIER_100045"
+      }
+    ],
+    "Channel": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "EMAIL"
+      }
+    ],
+    "Printer": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "LP01"
+      }
+    ],
+    "Email Recipient": [
+      {
+        "COND_PurchasingOrg": "DE01",
+        "RESULT": "orders@supplier45.de"
+      }
+    ],
+    "Email Sender": [
+      {
+        "COND_CompanyCode": "1000",
+        "RESULT": "procurement@acme.corp"
+      }
+    ],
+    "Form Template": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "MM_PURCHASE_ORDER_DEFAULT"
+      }
+    ],
+    "Output Relevance": [
+      {
+        "COND_DocumentType": "NB",
+        "RESULT": "TRUE"
+      }
+    ]
+  }
+}

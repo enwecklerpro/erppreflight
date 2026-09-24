@@ -1,0 +1,20 @@
+{
+  "target_user": "RFC_B2B_GW",
+  "users": [
+    {
+      "bname": "RFC_B2B_GW",
+      "user_type": "C",
+      "lock_status": 0
+    }
+  ],
+  "jobs": [],
+  "rfc_destinations": [
+    {
+      "destination": "SAP_ARIBA_B2B",
+      "dest_type": "3",
+      "username": "RFC_B2B_GW",
+      "target_host": "ariba-integration.corp.local"
+    }
+  ],
+  "work_items": []
+}

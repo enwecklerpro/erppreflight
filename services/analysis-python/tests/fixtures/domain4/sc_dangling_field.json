@@ -1,0 +1,28 @@
+{
+  "description": "App variant referencing a custom field marked as DELETED or unresolvable",
+  "export_id": "EXP_2026_09_DANGLING",
+  "target_release": "S4HC_2408",
+  "collections": [
+    {
+      "collection_id": "SC_UI_ADAPTATIONS",
+      "name": "Fiori UI Adaptation Collection",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_OBSOLETE_DISCOUNT",
+          "item_type": "CUSTOM_FIELD",
+          "status": "DELETED",
+          "dependencies": []
+        },
+        {
+          "item_id": "APP_VAR_SO_CREATE",
+          "item_type": "APP_VARIANT",
+          "status": "PUBLISHED",
+          "dependencies": [
+            "YY1_OBSOLETE_DISCOUNT"
+          ]
+        }
+      ]
+    }
+  ]
+}

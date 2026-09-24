@@ -1,0 +1,357 @@
+{
+  "playbooksOnDisk": [
+    "data-table-and-large-list.md",
+    "dependency-graph.md",
+    "engine-authoring.md",
+    "frontend-design-system.md",
+    "multi-tenant-security.md",
+    "release-aware-knowledge.md",
+    "sap-evidence.md",
+    "secure-file-parser.md"
+  ],
+  "routingTableChecks": {
+    "primaryPlaybooks": [
+      {
+        "role": "Frontend UI / Design System Engineer",
+        "primary": "frontend-design-system.md"
+      },
+      {
+        "role": "Data Grid & Large List Engineer",
+        "primary": "data-table-and-large-list.md"
+      },
+      {
+        "role": "Dependency Graph & Impact Specialist",
+        "primary": "dependency-graph.md"
+      },
+      {
+        "role": "SAP Preflight Engine Author (Python/TS)",
+        "primary": "engine-authoring.md"
+      },
+      {
+        "role": "SAP Knowledge & Evidence Specialist",
+        "primary": "sap-evidence.md"
+      },
+      {
+        "role": "Release Intelligence & Governance Engineer",
+        "primary": "release-aware-knowledge.md"
+      },
+      {
+        "role": "Security & Ingestion Pipeline Engineer",
+        "primary": "secure-file-parser.md"
+      },
+      {
+        "role": "Multi-Tenant Backend & Security Engineer",
+        "primary": "multi-tenant-security.md"
+      }
+    ],
+    "secondaryPlaybooks": [
+      {
+        "role": "Frontend UI / Design System Engineer",
+        "secondary": "data-table-and-large-list.md"
+      },
+      {
+        "role": "Frontend UI / Design System Engineer",
+        "secondary": "accessibility.md"
+      },
+      {
+        "role": "Data Grid & Large List Engineer",
+        "secondary": "frontend-design-system.md"
+      },
+      {
+        "role": "Data Grid & Large List Engineer",
+        "secondary": "sap-evidence.md"
+      },
+      {
+        "role": "Dependency Graph & Impact Specialist",
+        "secondary": "frontend-design-system.md"
+      },
+      {
+        "role": "Dependency Graph & Impact Specialist",
+        "secondary": "sap-evidence.md"
+      },
+      {
+        "role": "SAP Preflight Engine Author (Python/TS)",
+        "secondary": "sap-evidence.md"
+      },
+      {
+        "role": "SAP Preflight Engine Author (Python/TS)",
+        "secondary": "secure-file-parser.md"
+      },
+      {
+        "role": "SAP Knowledge & Evidence Specialist",
+        "secondary": "release-aware-knowledge.md"
+      },
+      {
+        "role": "SAP Knowledge & Evidence Specialist",
+        "secondary": "engine-authoring.md"
+      },
+      {
+        "role": "Release Intelligence & Governance Engineer",
+        "secondary": "sap-evidence.md"
+      },
+      {
+        "role": "Release Intelligence & Governance Engineer",
+        "secondary": "engine-authoring.md"
+      },
+      {
+        "role": "Security & Ingestion Pipeline Engineer",
+        "secondary": "multi-tenant-security.md"
+      },
+      {
+        "role": "Multi-Tenant Backend & Security Engineer",
+        "secondary": "secure-file-parser.md"
+      }
+    ],
+    "allReferenced": [
+      "frontend-design-system.md",
+      "data-table-and-large-list.md",
+      "accessibility.md",
+      "sap-evidence.md",
+      "dependency-graph.md",
+      "engine-authoring.md",
+      "secure-file-parser.md",
+      "release-aware-knowledge.md",
+      "multi-tenant-security.md"
+    ],
+    "missingReferenced": [
+      "accessibility.md"
+    ],
+    "unreferencedPlaybooks": [],
+    "compositeRulesPlaybooks": [
+      {
+        "compName": "Stateless & Decoupled",
+        "playbookRefs": [],
+        "raw": "Has zero direct database access to the SaaS database (PostgreSQL user/billing tables)"
+      },
+      {
+        "compName": "Findings Inspector View",
+        "playbookRefs": [],
+        "raw": "`data-table-and-large-list"
+      },
+      {
+        "compName": "SAP Connector & Ingestion Upload",
+        "playbookRefs": [],
+        "raw": "`secure-file-parser"
+      },
+      {
+        "compName": "Transport Dependency Graph",
+        "playbookRefs": [],
+        "raw": "`dependency-graph"
+      },
+      {
+        "compName": "New Preflight Engine Pipeline",
+        "playbookRefs": [],
+        "raw": "`engine-authoring"
+      },
+      {
+        "compName": "Zero Mocking in Production Paths",
+        "playbookRefs": [],
+        "raw": "Production endpoints, services, and engines must contain real logic"
+      },
+      {
+        "compName": "Zero Hardcoded Identifiers",
+        "playbookRefs": [],
+        "raw": "Never hardcode customer names, tenant IDs, system IDs, SAP credentials, API keys, or absolute local machine paths"
+      },
+      {
+        "compName": "Deterministic Pure Engines",
+        "playbookRefs": [],
+        "raw": "Analysis engines must produce identical findings for identical inputs"
+      },
+      {
+        "compName": "No LLM-Only Engines",
+        "playbookRefs": [],
+        "raw": "An engine that consists solely of an LLM prompt is prohibited"
+      },
+      {
+        "compName": "Confidence Ceiling",
+        "playbookRefs": [],
+        "raw": "Findings derived with AI involvement can **never** exceed `INFERRED` confidence (score <= 0"
+      },
+      {
+        "compName": "Demotion on Missing Evidence",
+        "playbookRefs": [],
+        "raw": "Any finding lacking verifiable file pointers, line numbers, and SHA-256 hashes must be demoted to `UNKNOWN` (score <= 0"
+      },
+      {
+        "compName": "Finding Immutability",
+        "playbookRefs": [],
+        "raw": "Historical findings are immutable records tied to an exact knowledge snapshot"
+      },
+      {
+        "compName": "SSR QueryClient Isolation",
+        "playbookRefs": [],
+        "raw": "In Next"
+      },
+      {
+        "compName": "Tenant Cache Eviction",
+        "playbookRefs": [],
+        "raw": "Switching organizations or logging out in the web application must immediately trigger `queryClient"
+      },
+      {
+        "compName": "PostgreSQL RLS",
+        "playbookRefs": [],
+        "raw": "All tenant tables must enforce PostgreSQL RLS policies checking `organization_id = NULLIF(current_setting('app"
+      },
+      {
+        "compName": "Storage Scoping",
+        "playbookRefs": [],
+        "raw": "All customer artifacts in S3/MinIO must reside under `/tenants/{organization_id}/projects/{project_id}/`"
+      },
+      {
+        "compName": "Magic Bytes Validation",
+        "playbookRefs": [],
+        "raw": "File extensions must never be trusted"
+      },
+      {
+        "compName": "Archive Protection",
+        "playbookRefs": [],
+        "raw": "Decompression routines must enforce: maximum 100:1 expansion ratio, maximum 500MB total uncompressed volume, maximum 2 nested archive levels, and path traversal validation (rejecting `"
+      },
+      {
+        "compName": "Defused XML",
+        "playbookRefs": [],
+        "raw": "All XML parsing (Python and TypeScript) must disable external DTDs, external entity resolution, and parameter entities (`defusedxml`)"
+      },
+      {
+        "compName": "Secret Scrubbing",
+        "playbookRefs": [],
+        "raw": "Raw customer files and logs must pass through secret redaction (regex + entropy scanning) before snippets are stored in evidence databases"
+      }
+    ],
+    "missingCompositeReferenced": []
+  },
+  "cardinalAxiomsChecks": {
+    "agentsMdHasAxiom1": true,
+    "agentsMdHasAxiom2": true,
+    "playbookAxiomReferences": {
+      "data-table-and-large-list.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "dependency-graph.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "engine-authoring.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "frontend-design-system.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "multi-tenant-security.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "release-aware-knowledge.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "sap-evidence.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      },
+      "secure-file-parser.md": {
+        "mentionsAxiom1": false,
+        "mentionsAxiom2": false,
+        "mentionsAgentsMd": false,
+        "mentionsTwoCardinalAxioms": false
+      }
+    },
+    "axiom1CriteriaCoverage": {},
+    "axiom2PointsCoverage": {},
+    "localAxiomsFound": {
+      "data-table-and-large-list.md": [
+        "Two-Tier Execution Axiom"
+      ],
+      "dependency-graph.md": [],
+      "engine-authoring.md": [],
+      "frontend-design-system.md": [],
+      "multi-tenant-security.md": [],
+      "release-aware-knowledge.md": [
+        "Snapshot Immutability Axiom",
+        "The Finding Stability Axiom"
+      ],
+      "sap-evidence.md": [
+        "Non-Generalization Axiom",
+        "The Non-Generalization Axiom",
+        "Direct violation of the Non-Generalization Axiom"
+      ],
+      "secure-file-parser.md": []
+    }
+  },
+  "noDependencySoupChecks": {
+    "agentsMdCategories": [],
+    "playbookMentions": {},
+    "packageJsonStatus": {}
+  },
+  "tanstackCoverage": {
+    "tanstackQuery": {
+      "data-table-and-large-list.md": false,
+      "dependency-graph.md": false,
+      "engine-authoring.md": false,
+      "frontend-design-system.md": false,
+      "multi-tenant-security.md": true,
+      "release-aware-knowledge.md": false,
+      "sap-evidence.md": false,
+      "secure-file-parser.md": false
+    },
+    "tanstackTable": {
+      "data-table-and-large-list.md": true,
+      "dependency-graph.md": false,
+      "engine-authoring.md": false,
+      "frontend-design-system.md": false,
+      "multi-tenant-security.md": false,
+      "release-aware-knowledge.md": false,
+      "sap-evidence.md": false,
+      "secure-file-parser.md": false
+    },
+    "tanstackVirtual": {
+      "data-table-and-large-list.md": true,
+      "dependency-graph.md": false,
+      "engine-authoring.md": false,
+      "frontend-design-system.md": false,
+      "multi-tenant-security.md": false,
+      "release-aware-knowledge.md": false,
+      "sap-evidence.md": false,
+      "secure-file-parser.md": false
+    },
+    "tanstackForm": {
+      "data-table-and-large-list.md": false,
+      "dependency-graph.md": false,
+      "engine-authoring.md": false,
+      "frontend-design-system.md": false,
+      "multi-tenant-security.md": false,
+      "release-aware-knowledge.md": false,
+      "sap-evidence.md": false,
+      "secure-file-parser.md": false
+    },
+    "tanstackPacer": {
+      "data-table-and-large-list.md": false,
+      "dependency-graph.md": false,
+      "engine-authoring.md": false,
+      "frontend-design-system.md": false,
+      "multi-tenant-security.md": false,
+      "release-aware-knowledge.md": false,
+      "sap-evidence.md": false,
+      "secure-file-parser.md": false
+    },
+    "playbooksCoveringForms": []
+  }
+}

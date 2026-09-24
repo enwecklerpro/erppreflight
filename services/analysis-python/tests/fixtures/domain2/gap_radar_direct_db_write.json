@@ -1,0 +1,9 @@
+{
+  "requirement_id": "REQ-FIN-666",
+  "title": "Direct Accounting Ledger Status Override",
+  "requirement": "Directly update BSEG database table and line items in ACDOCA via custom SQL trigger",
+  "description": "Directly update BSEG database table and line items in ACDOCA via custom SQL trigger",
+  "target_edition": "Public",
+  "target_release": "2408",
+  "module": "FI"
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+    <template>
+        <subform name="InvoiceForm" dataRef="$.Invoice">
+            <field name="InvoiceNum">
+                <bind match="dataRef" ref="$.Header.InvoiceID"/>
+            </field>
+            <field name="SupplierTax">
+                <bind match="dataRef" ref="$.Header.Supplier.TaxNumber"/>
+            </field>
+        </subform>
+    </template>
+</xdp:xdp>

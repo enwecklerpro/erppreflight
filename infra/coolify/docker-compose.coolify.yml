@@ -1,0 +1,193 @@
+# ==============================================================================
+# ERP Preflight — Production Coolify / Hostinger Docker Compose Orchestration
+# ==============================================================================
+# Target Domain: erppreflight.com / api.erppreflight.com
+# Compatible with Coolify v4+, Hostinger VPS (Ubuntu 22.04 / 24.04 LTS), Traefik
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 16 with pgvector extension & RLS
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: erppreflight-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erppreflight}
+      POSTGRES_USER: ${POSTGRES_USER:-erppreflight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erppreflight_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - erppreflight-net
+
+  # ----------------------------------------------------------------------------
+  # Redis 7 (Cache, Distributed Locks & BullMQ Job Queues)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: erppreflight-redis
+    restart: always
+    command: redis-server --appendonly yes --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - erppreflight-net
+
+  # ----------------------------------------------------------------------------
+  # MinIO S3-Compatible Object Store (Quarantine, Clean & Reports Buckets)
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-01-31T20-20-33Z
+    container_name: erppreflight-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - erppreflight-net
+
+  # ----------------------------------------------------------------------------
+  # Python 3.13 FastAPI Stateless Analysis Microservice (18 SAP Engines + MFS)
+  # ----------------------------------------------------------------------------
+  analysis-python:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.analysis
+    container_name: erppreflight-analysis
+    restart: always
+    environment:
+      PORT: 8000
+      PYTHONUNBUFFERED: 1
+      SERVICE_VERSION: "1.0.0"
+      CORS_ORIGINS: "http://api:4000,http://web:3000,https://erppreflight.com,https://api.erppreflight.com"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - erppreflight-net
+
+  # ----------------------------------------------------------------------------
+  # NestJS 11 Core API SaaS Backend (Auth, Ingestion, Tenancy, BullMQ, Reports)
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: erppreflight-api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      analysis-python:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      API_PORT: 4000
+      AUTO_MIGRATE: "true"
+      DATABASE_URL: postgres://${POSTGRES_USER:-erppreflight}:${POSTGRES_PASSWORD:-erppreflight_secret}@postgres:5432/${POSTGRES_DB:-erppreflight}
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ANALYSIS_SERVICE_URL: http://analysis-python:8000
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_REGION: us-east-1
+      S3_BUCKET_QUARANTINE: erppreflight-quarantine
+      S3_BUCKET_CLEAN: erppreflight-clean
+      S3_BUCKET_REPORTS: erppreflight-reports
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-must-be-at-least-32-chars-long-erppreflight}
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: "https://erppreflight.com,http://localhost:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:4000/health/liveness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    networks:
+      - erppreflight-net
+    labels:
+      - "coolify.managed=true"
+      - "traefik.enable=true"
+      - "traefik.http.routers.erppreflight-api.rule=Host(`api.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-api.entrypoints=websecure"
+      - "traefik.http.routers.erppreflight-api.tls=true"
+      - "traefik.http.routers.erppreflight-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.erppreflight-api.loadbalancer.server.port=4000"
+
+  # ----------------------------------------------------------------------------
+  # Next.js 15 Web Application (App Router, Base UI, TanStack Suite)
+  # ----------------------------------------------------------------------------
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: erppreflight-web
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.erppreflight.com}
+      NEXT_TELEMETRY_DISABLED: 1
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - erppreflight-net
+    labels:
+      - "coolify.managed=true"
+      - "traefik.enable=true"
+      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`, `www.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-web.entrypoints=websecure"
+      - "traefik.http.routers.erppreflight-web.tls=true"
+      - "traefik.http.routers.erppreflight-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.erppreflight-web.loadbalancer.server.port=3000"
+
+volumes:
+  postgres_data:
+    name: erppreflight_postgres_data
+  redis_data:
+    name: erppreflight_redis_data
+  minio_data:
+    name: erppreflight_minio_data
+
+networks:
+  erppreflight-net:
+    name: erppreflight-network
+    driver: bridge

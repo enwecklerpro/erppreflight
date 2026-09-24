@@ -1,0 +1,25 @@
+{
+  "work_items": [
+    {
+      "id": "0000045012",
+      "task": "TS00008267",
+      "status": "READY",
+      "agents": []
+    },
+    {
+      "id": "0000045015",
+      "task": "TS00008268",
+      "status": "COMPLETED",
+      "agents": [
+        "USER01"
+      ]
+    },
+    {
+      "id": "0000045020",
+      "task": "TS00008270",
+      "status": "ERROR",
+      "dump": true,
+      "exception_class": "CX_SY_REF_IS_INITIAL"
+    }
+  ]
+}

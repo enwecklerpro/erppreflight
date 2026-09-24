@@ -1,0 +1,161 @@
+{
+  "Headless UI Primitives": {
+    "approved": "Base UI",
+    "forbidden": [
+      "Radix UI",
+      "Ark UI",
+      "Chakra UI",
+      "MUI",
+      "Ant Design"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "frontend-design-system.md",
+        "approvedFound": true,
+        "forbiddenMatches": [
+          "Radix UI",
+          "Ark UI",
+          "Chakra UI",
+          "MUI",
+          "Ant Design"
+        ]
+      }
+    ]
+  },
+  "Form Management": {
+    "approved": "TanStack Form",
+    "forbidden": [
+      "React Hook Form",
+      "Formik"
+    ],
+    "mentionedInPlaybooks": []
+  },
+  "Server State & Caching": {
+    "approved": "TanStack Query",
+    "forbidden": [
+      "RTK Query",
+      "SWR",
+      "Apollo Client"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "multi-tenant-security.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      }
+    ]
+  },
+  "Client State Management": {
+    "approved": "URL Parameters",
+    "forbidden": [
+      "Redux",
+      "MobX",
+      "Recoil"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "data-table-and-large-list.md",
+        "approvedFound": false,
+        "forbiddenMatches": [
+          "Redux"
+        ]
+      }
+    ]
+  },
+  "Application Router": {
+    "approved": "Next.js App Router",
+    "forbidden": [
+      "TanStack Router",
+      "TanStack Start"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "multi-tenant-security.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      }
+    ]
+  },
+  "Database ORM": {
+    "approved": "Drizzle ORM",
+    "forbidden": [
+      "Prisma",
+      "TypeORM",
+      "Sequelize"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "multi-tenant-security.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      }
+    ]
+  },
+  "Interactive Graph Canvas": {
+    "approved": "@xyflow/react",
+    "forbidden": [
+      "Cytoscape",
+      "Vis.js",
+      "mxGraph"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "dependency-graph.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      },
+      {
+        "playbook": "frontend-design-system.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      }
+    ]
+  },
+  "Analytics & Charts": {
+    "approved": "Apache ECharts",
+    "forbidden": [
+      "Chart.js",
+      "Recharts",
+      "Victory"
+    ],
+    "mentionedInPlaybooks": []
+  },
+  "Job Queue & Background Tasks": {
+    "approved": "BullMQ",
+    "forbidden": [
+      "Kue",
+      "Bee-Queue",
+      "Celery"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "multi-tenant-security.md",
+        "approvedFound": true,
+        "forbiddenMatches": []
+      }
+    ]
+  },
+  "Runtime Validation": {
+    "approved": "Zod 4",
+    "forbidden": [
+      "Joi",
+      "Yup"
+    ],
+    "mentionedInPlaybooks": [
+      {
+        "playbook": "data-table-and-large-list.md",
+        "approvedFound": false,
+        "forbiddenMatches": [
+          "Joi"
+        ]
+      },
+      {
+        "playbook": "secure-file-parser.md",
+        "approvedFound": false,
+        "forbiddenMatches": [
+          "Joi"
+        ]
+      }
+    ]
+  }
+}

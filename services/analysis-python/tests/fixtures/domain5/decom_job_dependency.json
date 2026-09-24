@@ -1,0 +1,22 @@
+{
+  "target_user": "BATCH_FIN_01",
+  "users": [
+    {
+      "bname": "BATCH_FIN_01",
+      "user_type": "B",
+      "lock_status": 0
+    }
+  ],
+  "jobs": [
+    {
+      "job_name": "SAP_FI_MONTH_END_CLOSE",
+      "job_count": "00000001",
+      "scheduler": "BATCH_FIN_01",
+      "exec_user": "BATCH_FIN_01",
+      "status": "SCHEDULED",
+      "periodic": true
+    }
+  ],
+  "rfc_destinations": [],
+  "work_items": []
+}

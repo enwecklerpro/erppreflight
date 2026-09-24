@@ -1,0 +1,14 @@
+{
+  "sid": "QAS",
+  "client": "100",
+  "rfc_destinations": [
+    {
+      "destination": "SAP_PROD_CENTRAL",
+      "target_host": "prd-app01.erp.corp.internal"
+    }
+  ],
+  "scot": {
+    "smtp_active": false,
+    "redirect_all_to": "test@corp.internal"
+  }
+}

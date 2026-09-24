@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js Build Outputs
+.next/
+out/
+
+# TypeScript Build Outputs
+dist/
+*.tsbuildinfo
+
+# Python & Pytest
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Turborepo
+.turbo/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs & Diagnostics
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS Artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Coverage
+coverage/
+.nyc_output/

@@ -1,0 +1,68 @@
+{
+  "version": "1.0.0",
+  "environment": "PRODUCTION",
+  "integrations": [
+    {
+      "integration_id": "SALESFORCE_INTEGRATION_01",
+      "name": "Salesforce Sales & Service Cloud",
+      "system_type": "SALESFORCE",
+      "consumed_endpoints": [
+        "/A_PurchaseOrder",
+        "/A_PurchaseOrder('{PurchaseOrder}')"
+      ],
+      "consumed_entity_sets": [
+        "A_PurchaseOrder",
+        "A_BusinessPartnerAddress"
+      ],
+      "consumed_fields": {
+        "PurchaseOrder": [
+          "PurchaseOrderID",
+          "TaxJurisdictionCode",
+          "CompanyCode"
+        ],
+        "A_BusinessPartnerAddressType": [
+          "PostalCode",
+          "Country"
+        ]
+      },
+      "consumed_operations": {
+        "/A_PurchaseOrder('{PurchaseOrder}')": [
+          "DELETE",
+          "GET"
+        ]
+      }
+    },
+    {
+      "integration_id": "SHOPIFY_SYNC_APP",
+      "name": "Shopify B2C Global Webstore",
+      "system_type": "SHOPIFY",
+      "consumed_endpoints": [
+        "/orders"
+      ],
+      "consumed_fields": {
+        "SalesOrder": [
+          "orderId",
+          "orderStatus"
+        ]
+      }
+    },
+    {
+      "integration_id": "WMS_MANHATTAN_GATEWAY",
+      "name": "Manhattan Warehouse Management System",
+      "system_type": "WMS",
+      "consumed_endpoints": [
+        "/orders/{id}"
+      ],
+      "consumed_operations": {
+        "/orders/{id}": [
+          "DELETE"
+        ]
+      },
+      "consumed_fields": {
+        "SalesOrder": [
+          "orderId"
+        ]
+      }
+    }
+  ]
+}

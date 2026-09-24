@@ -1,0 +1,29 @@
+{
+  "paths": {
+    "/api/v1/purchase-orders": [
+      "get",
+      "post"
+    ],
+    "/api/v1/purchase-orders/{id}": [
+      "get",
+      "delete"
+    ]
+  },
+  "components": {
+    "schemas": {
+      "PurchaseOrder": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "supplier": {
+            "type": "string"
+          },
+          "taxJurisdiction": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

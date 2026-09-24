@@ -1,0 +1,104 @@
+[
+  {
+    "status": "RELEASE_PREMATURE",
+    "isAligned": false,
+    "penalty": 0.4,
+    "message": "Feature requires release >= S4HC_2408, but target is S4HC_2308."
+  },
+  {
+    "status": "RELEASE_ALIGNED",
+    "isAligned": true,
+    "penalty": 1.0,
+    "message": "Evidence is release-aligned."
+  },
+  {
+    "status": "RELEASE_FUTURE",
+    "isAligned": true,
+    "penalty": 0.8,
+    "message": "Feature is valid from S4HC_2402, but target S4HC_2502 is 2 or more releases ahead."
+  },
+  {
+    "status": "RELEASE_ALIGNED",
+    "isAligned": true,
+    "penalty": 1.0,
+    "message": "Evidence is release-aligned."
+  },
+  {
+    "status": "RELEASE_ALIGNED",
+    "isAligned": true,
+    "penalty": 1.0,
+    "message": "Evidence is release-aligned."
+  },
+  {
+    "status": "RELEASE_FUTURE",
+    "isAligned": true,
+    "penalty": 0.8,
+    "message": "Feature is valid from S4H_2020, but target S4H_2022 is 2 or more releases ahead."
+  },
+  {
+    "status": "RELEASE_FUTURE",
+    "isAligned": true,
+    "penalty": 0.8,
+    "message": "Feature is valid from S4H_2020, but target S4H_2023 is 2 or more releases ahead."
+  },
+  {
+    "status": "RELEASE_PREMATURE",
+    "isAligned": false,
+    "penalty": 0.4,
+    "message": "Feature requires release >= S4H_2023, but target is S4H_2020."
+  },
+  {
+    "status": "RELEASE_DEPRECATED",
+    "isAligned": false,
+    "penalty": 0.0,
+    "message": "Feature was deprecated or removed after release S4H_2021. Target is S4H_2023."
+  },
+  {
+    "status": "RELEASE_MISMATCH",
+    "isAligned": false,
+    "penalty": 0.5,
+    "message": "Evidence release family (ON_PREMISE) does not match target family (S4HANA_CLOUD)."
+  },
+  {
+    "status": "RELEASE_MISMATCH",
+    "isAligned": false,
+    "penalty": 0.5,
+    "message": "Evidence release family (S4HANA_CLOUD) does not match target family (ON_PREMISE)."
+  },
+  {
+    "status": "UNKNOWN",
+    "isAligned": false,
+    "penalty": 0.3,
+    "message": "Target release is missing or empty."
+  },
+  {
+    "status": "UNKNOWN",
+    "isAligned": false,
+    "penalty": 0.3,
+    "message": "Evidence validFrom release is empty or invalid."
+  },
+  {
+    "status": "UNKNOWN",
+    "isAligned": false,
+    "penalty": 0.3,
+    "message": "Evidence validTo release is empty or invalid."
+  },
+  {
+    "status": "UNKNOWN",
+    "isAligned": false,
+    "penalty": 0.3,
+    "message": "Evidence validFrom release 'GARBAGE' cannot be identified or parsed."
+  },
+  {
+    "status": "UNKNOWN",
+    "isAligned": false,
+    "penalty": 0.3,
+    "message": "Target release 'GARBAGE' cannot be identified or parsed."
+  },
+  {
+    "status": "RELEASE_ALIGNED",
+    "isAligned": true,
+    "penalty": 1.0,
+    "message": "Evidence is release-aligned."
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "transports": {
+    "DEVK900101": [
+      "CLAS ZCL_ORDER_HANDLER",
+      "TABL ZORDERS"
+    ],
+    "DEVK900105": [
+      "CLAS ZCL_ORDER_HANDLER",
+      "PROG ZREPORT"
+    ],
+    "DEVK900090": [
+      "TABL ZCONFIG"
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "field_name": "YY1_PROJECT_CODE",
+  "hops": [
+    [
+      "MM_PURCHASE_ORDER_ITEM",
+      "MM_SUPPLIER_INVOICE_ITEM"
+    ],
+    [
+      "MM_SUPPLIER_INVOICE_ITEM",
+      "FI_JOURNAL_ENTRY_ITEM"
+    ]
+  ],
+  "field_definitions": {
+    "MM_PURCHASE_ORDER_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    },
+    "MM_SUPPLIER_INVOICE_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    },
+    "FI_JOURNAL_ENTRY_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    }
+  }
+}

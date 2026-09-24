@@ -1,0 +1,8 @@
+{
+  "status_code": 403,
+  "su53_failed_objects": [],
+  "icf_inactive_paths": [
+    "/sap/opu/odata/sap/C_SALESORDER_CDS/"
+  ],
+  "is_post_without_csrf": false
+}

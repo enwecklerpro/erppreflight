@@ -1,0 +1,52 @@
+# Multi-stage hardened non-root Dockerfile for NestJS API
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.20.0 --activate
+
+# Copy monorepo configuration
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/api/ ./apps/api/
+
+# Install dependencies and build API & internal packages
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @erppreflight/api build
+RUN pnpm --filter @erppreflight/database build
+
+# Runner stage
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=4000
+ENV AUTO_MIGRATE=true
+
+# Security: create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
+
+# Install production dependencies only
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/api/package.json ./apps/api/
+RUN corepack enable && corepack prepare pnpm@10.20.0 --activate && \
+    pnpm install --prod --frozen-lockfile
+
+# Copy built artifacts
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages/database/dist ./packages/database/dist
+COPY --from=builder /app/packages/database/migrations ./packages/database/migrations
+COPY --from=builder /app/packages/schemas/dist ./packages/schemas/dist
+COPY --from=builder /app/packages/evidence/dist ./packages/evidence/dist
+COPY --from=builder /app/packages/auth/dist ./packages/auth/dist
+COPY --from=builder /app/packages/tenancy/dist ./packages/tenancy/dist
+
+USER nestjs
+
+EXPOSE 4000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health/liveness || exit 1
+
+CMD ["node", "apps/api/dist/main.js"]

@@ -1,0 +1,69 @@
+{
+  "description": "Negative test: Expected business-critical fields omitted from BD52 table linkage",
+  "message_type": "MATMAS",
+  "target_message_type": "MATMAS",
+  "change_document_object": "MATERIAL",
+  "bd61_active": true,
+  "bd61": true,
+  "bd50_msg_types": [
+    "MATMAS"
+  ],
+  "bd52_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ],
+    [
+      "MARA",
+      "MTART"
+    ]
+  ],
+  "expected_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ],
+    [
+      "MARA",
+      "MTART"
+    ],
+    [
+      "MARA",
+      "GROES"
+    ],
+    [
+      "MARA",
+      "BRGEW"
+    ]
+  ],
+  "dd04l_metadata": {
+    "MARA-MATKL": {
+      "change_document_flag": true,
+      "data_element": "MATKL"
+    },
+    "MARA-MEINS": {
+      "change_document_flag": true,
+      "data_element": "MEINS"
+    },
+    "MARA-MTART": {
+      "change_document_flag": true,
+      "data_element": "MTART"
+    },
+    "MARA-GROES": {
+      "change_document_flag": true,
+      "data_element": "GROES"
+    },
+    "MARA-BRGEW": {
+      "change_document_flag": true,
+      "data_element": "BRGEW"
+    }
+  }
+}

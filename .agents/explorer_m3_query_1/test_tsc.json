@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "typeRoots": [
+      "../../apps/web/node_modules/@types",
+      "../../node_modules/@types"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@tanstack/react-query": ["../../apps/web/node_modules/@tanstack/react-query"],
+      "@tanstack/react-query-devtools": ["../../apps/web/node_modules/@tanstack/react-query-devtools"],
+      "@erppreflight/schemas": ["../../packages/schemas/src"],
+      "react": ["../../apps/web/node_modules/@types/react"],
+      "react/jsx-runtime": ["../../apps/web/node_modules/@types/react/jsx-runtime"],
+      "next/navigation": ["../../apps/web/node_modules/next/navigation"]
+    }
+  },
+  "include": [
+    "./proposed_query_client.ts",
+    "./proposed_query_keys.ts",
+    "./proposed_query_provider.tsx",
+    "./test_query_architecture.ts"
+  ]
+}

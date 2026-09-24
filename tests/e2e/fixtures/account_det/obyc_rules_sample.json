@@ -1,0 +1,38 @@
+{
+  "rules": [
+    {
+      "transaction_key": "BSX",
+      "valuation_class": "3000",
+      "gl_account": "140000"
+    },
+    {
+      "transaction_key": "WRX",
+      "valuation_class": "3000",
+      "gl_account": "211000"
+    },
+    {
+      "transaction_key": "PRD",
+      "valuation_class": "3000",
+      "gl_account": ""
+    },
+    {
+      "transaction_key": "GBB",
+      "valuation_class": "3000",
+      "gl_account": "999999"
+    }
+  ],
+  "chart_of_accounts": {
+    "140000": {
+      "name": "Inventory Raw Materials",
+      "blocked_for_posting": false
+    },
+    "211000": {
+      "name": "GR/IR Clearing Account",
+      "blocked_for_posting": false
+    },
+    "999999": {
+      "name": "Obsolete Suspense",
+      "blocked_for_posting": true
+    }
+  }
+}

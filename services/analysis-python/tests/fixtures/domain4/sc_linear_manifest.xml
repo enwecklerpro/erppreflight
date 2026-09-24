@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<software_collections export_id="EXP_2026_09_001" target_release="S4HC_2408">
+  <target_system>
+    <collection id="SC_FOUNDATION" />
+    <item id="I_JOURNALENTRY" />
+  </target_system>
+  <collection id="SC_CORE" name="Core Foundation Extensibility" version="1.0">
+    <item id="YY1_CUSTOMER_TYPE" type="CUSTOM_FIELD" status="PUBLISHED" />
+  </collection>
+  <collection id="SC_SALES" name="Sales Key User Extensions" version="1.0">
+    <item id="YY1_CDS_SALES_ORDER" type="CDS_VIEW" status="PUBLISHED">
+      <dependency id="YY1_CUSTOMER_TYPE" collection="SC_CORE" />
+    </item>
+  </collection>
+</software_collections>

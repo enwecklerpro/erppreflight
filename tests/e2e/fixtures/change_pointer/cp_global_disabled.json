@@ -1,0 +1,18 @@
+{
+  "bd61_active": false,
+  "bd50_msg_types": [
+    "MATMAS"
+  ],
+  "bd52_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ]
+  ],
+  "expected_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ]
+  ]
+}

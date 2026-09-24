@@ -1,0 +1,20 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000012345",
+      "wi_type": "W",
+      "wi_stat": "READY",
+      "wi_rh_task": "TS00008001"
+    }
+  ],
+  "agent_traces": [
+    {
+      "wi_id": "0000012345",
+      "resolved_agents": [
+        "USER_MGR_01"
+      ],
+      "resolved_count": 1
+    }
+  ],
+  "logs": []
+}

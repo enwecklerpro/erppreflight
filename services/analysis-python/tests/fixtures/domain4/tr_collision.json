@@ -1,0 +1,74 @@
+{
+  "description": "Multiple open transports modifying the same ABAP class and table",
+  "transports": {
+    "DEVK900101": [
+      "CLAS ZCL_ORDER_HANDLER",
+      "TABL ZORDERS"
+    ],
+    "DEVK900105": [
+      "CLAS ZCL_ORDER_HANDLER",
+      "PROG ZREPORT"
+    ],
+    "DEVK900090": [
+      "TABL ZCONFIG"
+    ]
+  },
+  "e070": [
+    {
+      "trkorr": "DEVK900101",
+      "trfunction": "K",
+      "trstatus": "D",
+      "as4user": "DEV1",
+      "as4date": "20260901",
+      "as4time": "100000"
+    },
+    {
+      "trkorr": "DEVK900105",
+      "trfunction": "K",
+      "trstatus": "D",
+      "as4user": "DEV2",
+      "as4date": "20260902",
+      "as4time": "140000"
+    },
+    {
+      "trkorr": "DEVK900090",
+      "trfunction": "K",
+      "trstatus": "R",
+      "as4user": "ADMIN",
+      "as4date": "20260830",
+      "as4time": "080000"
+    }
+  ],
+  "e071": [
+    {
+      "trkorr": "DEVK900101",
+      "pgmid": "R3TR",
+      "object": "CLAS",
+      "obj_name": "ZCL_ORDER_HANDLER"
+    },
+    {
+      "trkorr": "DEVK900101",
+      "pgmid": "R3TR",
+      "object": "TABL",
+      "obj_name": "ZORDERS"
+    },
+    {
+      "trkorr": "DEVK900105",
+      "pgmid": "R3TR",
+      "object": "CLAS",
+      "obj_name": "ZCL_ORDER_HANDLER"
+    },
+    {
+      "trkorr": "DEVK900105",
+      "pgmid": "R3TR",
+      "object": "PROG",
+      "obj_name": "ZREPORT"
+    },
+    {
+      "trkorr": "DEVK900090",
+      "pgmid": "R3TR",
+      "object": "TABL",
+      "obj_name": "ZCONFIG"
+    }
+  ]
+}
