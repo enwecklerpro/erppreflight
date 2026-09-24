@@ -164,6 +164,7 @@ services:
       API_PORT: 3001
       AUTO_MIGRATE: "true"
       STRICT_MIGRATIONS: ${STRICT_MIGRATIONS:-false}
+      MIGRATIONS_DIR: /app/packages/database/migrations
       DATABASE_URL: postgres://${POSTGRES_USER:-erppreflight}:${POSTGRES_PASSWORD:-erppreflight_secret}@postgres:5432/${POSTGRES_DB:-erppreflight}
       REDIS_URL: redis://redis:6379
       REDIS_HOST: redis

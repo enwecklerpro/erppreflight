@@ -40,9 +40,19 @@ export async function runMigrations(
     const appliedSet = new Set(appliedRows.map((r) => r.name));
 
     // 3. Locate migration directory
-    const dir = migrationsDir || path.resolve(__dirname, '../migrations');
-    if (!fs.existsSync(dir)) {
-      throw new Error(`Migrations directory not found: ${dir}`);
+    const candidates = [
+      migrationsDir,
+      process.env.MIGRATIONS_DIR,
+      path.resolve(__dirname, '../migrations'),
+      path.resolve(__dirname, '../../migrations'),
+      path.resolve(process.cwd(), 'packages/database/migrations'),
+      path.resolve(process.cwd(), '../packages/database/migrations'),
+      '/app/packages/database/migrations',
+    ].filter(Boolean) as string[];
+
+    const dir = candidates.find((c) => fs.existsSync(c));
+    if (!dir) {
+      throw new Error(`Migrations directory not found. Checked: ${candidates.join(', ')}`);
     }
 
     const files = fs

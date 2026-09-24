@@ -51,6 +51,11 @@ COPY --from=builder /app/packages/evidence/dist ./packages/evidence/dist
 COPY --from=builder /app/packages/auth/dist ./packages/auth/dist
 COPY --from=builder /app/packages/tenancy/dist ./packages/tenancy/dist
 
+# Ensure main.js is accessible at both dist/src/main.js and dist/main.js
+RUN if [ -f ./apps/api/dist/src/main.js ] && [ ! -f ./apps/api/dist/main.js ]; then \
+      cp ./apps/api/dist/src/main.js ./apps/api/dist/main.js; \
+    fi
+
 # Copy automated migration runner and container entrypoint
 COPY infra/docker/api-entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh && chown -R nestjs:nodejs /app
