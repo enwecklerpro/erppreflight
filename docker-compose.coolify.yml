@@ -132,7 +132,7 @@ services:
       PORT: 8000
       PYTHONUNBUFFERED: 1
       SERVICE_VERSION: "1.0.0"
-      CORS_ORIGINS: "http://api:3001,http://web:3000,http://localhost:3001,http://localhost:3000,https://erppreflight.com,https://api.erppreflight.com"
+      CORS_ORIGINS: "http://api:3001,http://web:3000,http://localhost:3001,http://localhost:3000,https://erppreflight.com,https://www.erppreflight.com,https://api.erppreflight.com,http://erppreflight.com,http://api.erppreflight.com"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s
@@ -193,7 +193,7 @@ services:
       S3_BUCKET_REPORTS: ${S3_BUCKET_REPORTS:-erppreflight-reports}
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-must-be-at-least-32-chars-long-erppreflight}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://erppreflight.com,http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://erppreflight.com,https://www.erppreflight.com,http://erppreflight.com,http://www.erppreflight.com,http://localhost:3000}
       CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       CLAMAV_PORT: ${CLAMAV_PORT:-3310}
       CLAMAV_MOCK_MODE: ${CLAMAV_MOCK_MODE:-true}
@@ -222,8 +222,16 @@ services:
       - "coolify.managed=true"
       - "traefik.enable=true"
       - "traefik.docker.network=coolify"
+      # HTTPS Router (Let's Encrypt TLS)
       - "traefik.http.routers.erppreflight-api.rule=Host(`api.erppreflight.com`)"
-      - "traefik.http.routers.erppreflight-api.entrypoints=http,https"
+      - "traefik.http.routers.erppreflight-api.entrypoints=https"
+      - "traefik.http.routers.erppreflight-api.tls=true"
+      - "traefik.http.routers.erppreflight-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.erppreflight-api.service=erppreflight-api"
+      # HTTP Router (Plain HTTP & ACME validation fallback)
+      - "traefik.http.routers.erppreflight-api-http.rule=Host(`api.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-api-http.entrypoints=http"
+      - "traefik.http.routers.erppreflight-api-http.service=erppreflight-api"
       - "traefik.http.services.erppreflight-api.loadbalancer.server.port=3001"
 
   # ----------------------------------------------------------------------------
@@ -266,8 +274,16 @@ services:
       - "coolify.managed=true"
       - "traefik.enable=true"
       - "traefik.docker.network=coolify"
-      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`) || Host(`b1jbemmdf9uioi0w2fdnnlb2.187.124.174.130.sslip.io`)"
-      - "traefik.http.routers.erppreflight-web.entrypoints=http,https"
+      # HTTPS Router (Let's Encrypt TLS)
+      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-web.entrypoints=https"
+      - "traefik.http.routers.erppreflight-web.tls=true"
+      - "traefik.http.routers.erppreflight-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.erppreflight-web.service=erppreflight-web"
+      # HTTP Router (Plain HTTP & ACME validation fallback)
+      - "traefik.http.routers.erppreflight-web-http.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`) || Host(`b1jbemmdf9uioi0w2fdnnlb2.187.124.174.130.sslip.io`)"
+      - "traefik.http.routers.erppreflight-web-http.entrypoints=http"
+      - "traefik.http.routers.erppreflight-web-http.service=erppreflight-web"
       - "traefik.http.services.erppreflight-web.loadbalancer.server.port=3000"
 
 # ------------------------------------------------------------------------------

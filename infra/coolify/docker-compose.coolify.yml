@@ -203,10 +203,16 @@ services:
     labels:
       - "coolify.managed=true"
       - "traefik.enable=true"
+      # HTTPS Router (Let's Encrypt TLS)
       - "traefik.http.routers.erppreflight-api.rule=Host(`api.erppreflight.com`)"
-      - "traefik.http.routers.erppreflight-api.entrypoints=websecure"
+      - "traefik.http.routers.erppreflight-api.entrypoints=https"
       - "traefik.http.routers.erppreflight-api.tls=true"
       - "traefik.http.routers.erppreflight-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.erppreflight-api.service=erppreflight-api"
+      # HTTP Router (Plain HTTP & ACME validation fallback)
+      - "traefik.http.routers.erppreflight-api-http.rule=Host(`api.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-api-http.entrypoints=http"
+      - "traefik.http.routers.erppreflight-api-http.service=erppreflight-api"
       - "traefik.http.services.erppreflight-api.loadbalancer.server.port=3001"
 
   # ----------------------------------------------------------------------------
@@ -247,10 +253,16 @@ services:
     labels:
       - "coolify.managed=true"
       - "traefik.enable=true"
-      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`, `www.erppreflight.com`)"
-      - "traefik.http.routers.erppreflight-web.entrypoints=websecure"
+      # HTTPS Router (Let's Encrypt TLS)
+      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-web.entrypoints=https"
       - "traefik.http.routers.erppreflight-web.tls=true"
       - "traefik.http.routers.erppreflight-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.erppreflight-web.service=erppreflight-web"
+      # HTTP Router (Plain HTTP & ACME validation fallback)
+      - "traefik.http.routers.erppreflight-web-http.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`)"
+      - "traefik.http.routers.erppreflight-web-http.entrypoints=http"
+      - "traefik.http.routers.erppreflight-web-http.service=erppreflight-web"
       - "traefik.http.services.erppreflight-web.loadbalancer.server.port=3000"
 
 # ------------------------------------------------------------------------------
