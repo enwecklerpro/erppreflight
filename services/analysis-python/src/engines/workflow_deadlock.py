@@ -13,7 +13,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -396,43 +396,69 @@ class WorkflowStuckEngine(BaseEngine):
         rules_evaluated += 1
         waiting_items = [h for h in context.headers if h.wi_stat.upper() == "WAITING"]
         if len(waiting_items) >= 2:
-            # Check for mutual event wait or deadlocked wait steps
-            waiting_ids = [w.wi_id for w in waiting_items]
-            findings.append(
-                Finding(
-                    rule_id=self.RULE_DEADLOCK_DETECTED,
-                    severity=Severity.BLOCKER,
-                    category="Deadlock / Synchronization",
-                    title=f"Workflow Deadlock Detected across Waiting Steps: {', '.join(waiting_ids[:3])}",
-                    description=(
-                        f"Multiple parallel work items ({', '.join(waiting_ids)}) are stuck in status WAITING. "
-                        f"Step synchronization conditions or prerequisite terminating events have failed to arrive, "
-                        f"resulting in a deadlocked workflow instance."
-                    ),
-                    confidence=ConfidenceClass.RULE_DERIVED,
-                    confidence_score=0.85,
-                    remediation=(
-                        "1. Inspect the workflow runtime instance log in transaction SWI1.\n"
-                        "2. In transaction SWUE, create the missing terminating event manually if the underlying business process already concluded.\n"
-                        "3. If branches cannot synchronize, use transaction SWIA to terminate or bypass the stuck waiting step."
-                    ),
-                    evidence=[
-                        Evidence(
-                            artifact_path=f"{artifact_path}#SWWWIHEAD",
-                            line_number=source_lines.get("swwwihead", 1),
-                            snippet=f"Waiting Work Items: {', '.join(waiting_ids)}",
-                            sha256=artifact_hash,
-                            provenance=ConfidenceClass.RULE_DERIVED,
-                            trust_score=0.85,
-                        )
-                    ],
-                    technical_details={
-                        "step": "Rule 4: Deadlock Audit",
-                        "waitingWorkItems": waiting_ids,
-                    },
-                    affected_objects=waiting_ids,
+            # Group waiting items by parent workflow (wi_chckwi) if available
+            waiting_by_parent: Dict[str, List[WorkItemHeader]] = {}
+            for w in waiting_items:
+                parent = (w.wi_chckwi or "").strip()
+                if parent:
+                    waiting_by_parent.setdefault(parent, []).append(w)
+
+            # Check for mutual event wait or deadlocked wait steps sharing the same parent workflow
+            deadlocked_items: List[WorkItemHeader] = []
+            for parent, items in waiting_by_parent.items():
+                if len(items) >= 2:
+                    deadlocked_items.extend(items)
+
+            # Also check if waiting items directly wait on each other mutually
+            wi_ids_set = {w.wi_id for w in waiting_items}
+            for w in waiting_items:
+                if w.wi_chckwi and w.wi_chckwi.strip() in wi_ids_set and w not in deadlocked_items:
+                    deadlocked_items.append(w)
+
+            if deadlocked_items:
+                seen_ids: Set[str] = set()
+                waiting_ids: List[str] = []
+                for w in deadlocked_items:
+                    if w.wi_id not in seen_ids:
+                        seen_ids.add(w.wi_id)
+                        waiting_ids.append(w.wi_id)
+
+                findings.append(
+                    Finding(
+                        rule_id=self.RULE_DEADLOCK_DETECTED,
+                        severity=Severity.BLOCKER,
+                        category="Deadlock / Synchronization",
+                        title=f"Workflow Deadlock Detected across Waiting Steps: {', '.join(waiting_ids[:3])}",
+                        description=(
+                            f"Multiple parallel work items ({', '.join(waiting_ids)}) sharing parent workflow "
+                            f"are stuck in status WAITING. "
+                            f"Step synchronization conditions or prerequisite terminating events have failed to arrive, "
+                            f"resulting in a deadlocked workflow instance."
+                        ),
+                        confidence=ConfidenceClass.RULE_DERIVED,
+                        confidence_score=0.85,
+                        remediation=(
+                            "1. Inspect the workflow runtime instance log in transaction SWI1.\n"
+                            "2. In transaction SWUE, create the missing terminating event manually if the underlying business process already concluded.\n"
+                            "3. If branches cannot synchronize, use transaction SWIA to terminate or bypass the stuck waiting step."
+                        ),
+                        evidence=[
+                            Evidence(
+                                artifact_path=f"{artifact_path}#SWWWIHEAD",
+                                line_number=source_lines.get("swwwihead", 1),
+                                snippet=f"Waiting Work Items: {', '.join(waiting_ids)}",
+                                sha256=artifact_hash,
+                                provenance=ConfidenceClass.RULE_DERIVED,
+                                trust_score=0.85,
+                            )
+                        ],
+                        technical_details={
+                            "step": "Rule 4: Deadlock Audit",
+                            "waitingWorkItems": waiting_ids,
+                        },
+                        affected_objects=waiting_ids,
+                    )
                 )
-            )
 
         # ---------------------------------------------------------------------
         # Rule 5: Container Data Binding Failure (WF_CONTAINER_BINDING_ERROR)
@@ -612,10 +638,14 @@ class WorkflowStuckEngine(BaseEngine):
             for idx, log_dict in enumerate(logs_data):
                 if isinstance(log_dict, dict):
                     norm_l = {k.lower(): v for k, v in log_dict.items()}
+                    try:
+                        retcode_val = int(norm_l.get("retcode", norm_l.get("return_code", 0)))
+                    except (ValueError, TypeError):
+                        retcode_val = 0
                     entry = WorkItemLogHistory(
                         wi_id=str(norm_l.get("wi_id", "")),
                         method=norm_l.get("method"),
-                        retcode=int(norm_l.get("retcode", norm_l.get("return_code", 0))),
+                        retcode=retcode_val,
                         exception=norm_l.get("exception"),
                         msgid=norm_l.get("msgid"),
                     )
@@ -687,7 +717,7 @@ class WorkflowStuckEngine(BaseEngine):
         reader = csv.DictReader(io.StringIO(content))
 
         for idx, row in enumerate(reader, start=2):
-            norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+            norm_row = {k.strip().lower(): (v.strip() if v is not None else "") for k, v in row.items() if k}
             if "wi_stat" in norm_row or "wi_type" in norm_row:
                 # SWWWIHEAD row
                 entry = WorkItemHeader(
@@ -702,11 +732,15 @@ class WorkflowStuckEngine(BaseEngine):
                 source_lines[f"wi_{entry.wi_id}"] = idx
             elif "exception" in norm_row or "retcode" in norm_row:
                 # SWWLOGHIST row
+                try:
+                    retcode_val = int(norm_row.get("retcode", 0))
+                except (ValueError, TypeError):
+                    retcode_val = 0
                 context.logs.append(
                     WorkItemLogHistory(
                         wi_id=norm_row.get("wi_id", ""),
                         method=norm_row.get("method"),
-                        retcode=int(norm_row.get("retcode", 0)),
+                        retcode=retcode_val,
                         exception=norm_row.get("exception"),
                     )
                 )

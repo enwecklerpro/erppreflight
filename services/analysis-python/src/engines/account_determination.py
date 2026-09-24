@@ -274,12 +274,35 @@ class AccountDeterminationEngine(BaseEngine):
         artifact_path = request.artifact_s3_key or "account_determination.json"
         if request.raw_content:
             raw_text = request.raw_content
-        elif request.artifact_reference and getattr(request.artifact_reference, "content", None):
-            raw_text = request.artifact_reference.content
-        elif request.configuration and "content" in request.configuration:
+        elif request.artifacts and len(request.artifacts) > 0:
+            first_art = request.artifacts[0]
+            raw_text = getattr(first_art, "raw_content", None) or getattr(first_art, "content", None) or ""
+            if getattr(first_art, "file_name", None):
+                artifact_path = first_art.file_name
+        elif getattr(request, "artifact_reference", None) and (getattr(request.artifact_reference, "raw_content", None) or getattr(request.artifact_reference, "content", None)):
+            raw_text = getattr(request.artifact_reference, "raw_content", None) or getattr(request.artifact_reference, "content", None)
+        elif request.configuration and isinstance(request.configuration, dict) and "content" in request.configuration:
             raw_text = str(request.configuration["content"])
 
-        data = self._parse_inputs(raw_text)
+        if (not raw_text or not raw_text.strip()) and request.configuration and isinstance(request.configuration, dict):
+            try:
+                data = AccountDeterminationInputData.model_validate(request.configuration)
+            except Exception:
+                data = self._parse_inputs(raw_text)
+        else:
+            data = self._parse_inputs(raw_text)
+
+        # Merge additional artifacts if provided
+        if request.artifacts and len(request.artifacts) > 1:
+            for art in request.artifacts[1:]:
+                c = getattr(art, "raw_content", None) or getattr(art, "content", None) or ""
+                if c:
+                    more_data = self._parse_inputs(c)
+                    data.obyc_rules.extend(more_data.obyc_rules)
+                    data.vkoa_rules.extend(more_data.vkoa_rules)
+                    data.ska1_accounts.extend(more_data.ska1_accounts)
+                    data.skb1_accounts.extend(more_data.skb1_accounts)
+                    data.valuation_classes.extend(more_data.valuation_classes)
 
         # Build master account indices
         # SKA1: (chart_of_accounts, gl_account) -> SKA1MasterModel

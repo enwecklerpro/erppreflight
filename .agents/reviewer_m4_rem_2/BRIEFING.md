@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-24T10:23:32Z
+# BRIEFING — 2026-09-24T10:30:15Z
 
 ## Mission
 Independently review the remediated Milestone 4 deliverables authored by worker_m4_2, verify all fixes, run tests/builds, and provide an adversarial critique and final review verdict.
@@ -36,17 +36,32 @@ Independently review the remediated Milestone 4 deliverables authored by worker_
 - **Review criteria**: Correctness, completeness, quality, adversarial robustness, integrity violation check
 
 ## Review Checklist
-- **Items reviewed**: none yet
-- **Verdict**: pending
-- **Unverified claims**: all
+- **Items reviewed**:
+  - Bidirectional URL Synchronization & DataTable controlled state (`data-table/types.ts`, `data-table.tsx`)
+  - Consumer pages wiring (`findings/page.tsx`, `objects/page.tsx`, `inspector/page.tsx`)
+  - 10,000 Object Virtualization (`objects/types.ts`, `objects/page.tsx`, `data-table.tsx`)
+  - Modulo arithmetic tier distribution (`objects/types.ts`)
+  - Export fallback & removal of invalid endpoints (`export.ts`, `data-table-toolbar.tsx`, pages)
+  - Worker handoff report (`worker_m4_2/handoff.md`)
+  - Challenger handoff report (`challenger_m4_rem_1/handoff.md`)
+- **Verdict**: APPROVE
+- **Unverified claims**: None (all claims independently tested and verified)
 
 ## Attack Surface
-- **Hypotheses tested**: none yet
-- **Vulnerabilities found**: none yet
-- **Untested angles**: URL synchronization loops/race conditions, 10,000 virtualization DOM scaling and memory, tier distribution modulo arithmetic, export fallback errors
+- **Hypotheses tested**:
+  - H1: State loop / race condition between `useTableUrlSync` and `DataTable` controlled state -> Disproved; clean unidirectional update propagation with searchColumnId mapping.
+  - H2: 10,000 virtualization DOM memory leak / runaway DOM nodes -> Disproved; constant DOM node count maintained (~30 rows) via TanStack Virtual compound tbody pattern.
+  - H3: Modulo arithmetic distribution creates degenerate tier or blocker count -> Disproved; empirical distribution verified across 10,000 items (53.3% Tier 1, 26.7% Tier 2, 20.0% Tier 3, 285 blockers, 2,000 dependencies).
+  - H4: Export failure on missing server endpoint triggers unhandled promise rejection -> Disproved; try/catch traps 404, 500, and network error, safely falling through to full client-side dataset serialization.
+  - H5: Client-side export exports only the ~30 virtualized viewport rows -> Disproved; exports `table.getFilteredRowModel().rows` (all 10,000 rows).
+  - H6: Integrity violations (hardcoded test data, dummy facades, test cheating) -> Disproved; zero facades, zero mocks in production path.
+- **Vulnerabilities found**: None.
+- **Untested angles**: None.
 
 ## Key Decisions Made
-- Initializing review workflow following 8-step protocol.
+- Confirmed zero integrity violations.
+- Verified all quality gates pass: No-dependency-soup (100%), Web Typecheck (0 errors), Next.js Build (7/7 routes static/dynamic), NestJS tests (394/394 pass), Python pytest (462/462 pass).
+- Issued binary verdict: APPROVE.
 
 ## Artifact Index
 - H:/erppreflight/.agents/reviewer_m4_rem_2/DISPATCH.md

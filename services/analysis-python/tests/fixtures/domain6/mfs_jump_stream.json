@@ -1,0 +1,42 @@
+{
+  "conveyor_edges": [
+    ["CP01", "CP02"],
+    ["CP02", "CP03"],
+    ["CP03", "CP04"]
+  ],
+  "telegrams": [
+    {
+      "timestamp": "2026-09-24T03:14:10.000Z",
+      "time_sec": 10.0,
+      "type": "MOVE",
+      "hu_id": "HU_8811",
+      "cp": "CP01",
+      "seq_no": 201,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:10.200Z",
+      "time_sec": 10.2,
+      "type": "ACK",
+      "hu_id": "HU_8811",
+      "cp": "CP01",
+      "seq_no": 201,
+      "sender_plc": "EWM",
+      "receiver_plc": "PLC01",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:12.500Z",
+      "time_sec": 12.5,
+      "type": "MOVE",
+      "hu_id": "HU_8811",
+      "cp": "CP05",
+      "seq_no": 202,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    }
+  ]
+}

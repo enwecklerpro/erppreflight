@@ -908,7 +908,7 @@ class Fiori403Engine(BaseEngine):
         file_lower = file_name.lower()
 
         for idx, row in enumerate(reader, start=2):
-            norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+            norm_row = {k.strip().lower(): (v.strip() if v is not None else "") for k, v in row.items() if k}
             if "sicf" in file_lower or "service_path" in norm_row or "icf_p结点" in norm_row:
                 path = norm_row.get("service_path", norm_row.get("path", norm_row.get("url", "")))
                 active_val = norm_row.get("is_active", norm_row.get("active", "true")).lower()
@@ -918,7 +918,10 @@ class Fiori403Engine(BaseEngine):
                     source_lines[f"sicf_{path}"] = idx
             elif "su53" in file_lower or "auth_object" in norm_row or "object" in norm_row:
                 obj = norm_row.get("auth_object", norm_row.get("object", ""))
-                rc = int(norm_row.get("return_code", norm_row.get("rc", 4)))
+                try:
+                    rc = int(norm_row.get("return_code", norm_row.get("rc", 4)))
+                except (ValueError, TypeError):
+                    rc = 4
                 if obj:
                     context.su53_traces.append(
                         Su53TraceEntry(auth_object=obj, return_code=rc, field_values=norm_row)

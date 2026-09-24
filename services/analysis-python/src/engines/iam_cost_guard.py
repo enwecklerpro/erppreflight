@@ -302,12 +302,35 @@ class IAMCostEngine(BaseEngine):
         artifact_path = request.artifact_s3_key or "iam_role_composition.json"
         if request.raw_content:
             raw_text = request.raw_content
-        elif request.artifact_reference and getattr(request.artifact_reference, "content", None):
-            raw_text = request.artifact_reference.content
-        elif request.configuration and "content" in request.configuration:
+        elif request.artifacts and len(request.artifacts) > 0:
+            first_art = request.artifacts[0]
+            raw_text = getattr(first_art, "raw_content", None) or getattr(first_art, "content", None) or ""
+            if getattr(first_art, "file_name", None):
+                artifact_path = first_art.file_name
+        elif getattr(request, "artifact_reference", None) and (getattr(request.artifact_reference, "raw_content", None) or getattr(request.artifact_reference, "content", None)):
+            raw_text = getattr(request.artifact_reference, "raw_content", None) or getattr(request.artifact_reference, "content", None)
+        elif request.configuration and isinstance(request.configuration, dict) and "content" in request.configuration:
             raw_text = str(request.configuration["content"])
 
-        data = self._parse_inputs(raw_text)
+        if (not raw_text or not raw_text.strip()) and request.configuration and isinstance(request.configuration, dict):
+            try:
+                data = IAMCostInputData.model_validate(request.configuration)
+            except Exception:
+                data = self._parse_inputs(raw_text)
+        else:
+            data = self._parse_inputs(raw_text)
+
+        # Merge additional artifacts if provided
+        if request.artifacts and len(request.artifacts) > 1:
+            for art in request.artifacts[1:]:
+                c = getattr(art, "raw_content", None) or getattr(art, "content", None) or ""
+                if c:
+                    more_data = self._parse_inputs(c)
+                    data.roles.extend(more_data.roles)
+                    data.catalogs.extend(more_data.catalogs)
+                    data.users.extend(more_data.users)
+                    data.usage_records.extend(more_data.usage_records)
+                    data.price_categories.update(more_data.price_categories)
 
         # Merge price catalog with defaults
         effective_price_map = dict(DEFAULT_PRICE_CATEGORIES)
@@ -592,11 +615,14 @@ class IAMCostEngine(BaseEngine):
         # Rule 4: Permanent Emergency Role Assignment
         # Finding Code: IAM_PERMANENT_EMERGENCY_ROLE
         # ----------------------------------------------------------------------
+        role_map: Dict[str, BusinessRoleModel] = {r.role_name: r for r in data.roles}
         for user in data.users:
             rules_evaluated += 1
             for rname in user.assigned_roles:
+                role_obj = role_map.get(rname)
                 is_emergency_role = (
-                    "EMERGENCY" in rname.upper()
+                    (role_obj is not None and getattr(role_obj, "is_emergency", False))
+                    or "EMERGENCY" in rname.upper()
                     or "FIRECALL" in rname.upper()
                     or "SUPERUSER" in rname.upper()
                 )

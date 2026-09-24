@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-24T07:28:00Z
+# BRIEFING — 2026-09-24T10:30:00Z
 
 ## Mission
 Forensic Integrity Re-Audit of Domain 4 Release & Transport Preflight Engines (software_collection.py & transport_dependency.py)
@@ -18,33 +18,45 @@ Forensic Integrity Re-Audit of Domain 4 Release & Transport Preflight Engines (s
 
 ## Current Parent
 - Conversation ID: b18c0539-d6d7-4a41-968f-58324775ab38
-- Updated: not yet
+- Updated: 2026-09-24T10:23:39Z
 
 ## Audit Scope
 - **Work product**: Domain 4 Release & Transport Preflight Engines (`software_collection.py`, `transport_dependency.py`, `test_domain4_engines.py`)
 - **Profile loaded**: General Project (development mode)
-- **Audit type**: forensic integrity check
+- **Audit type**: forensic integrity re-audit
 
 ## Audit Progress
-- **Phase**: investigating
-- **Checks completed**: [initial setup, skill loading, previous audit review]
-- **Checks remaining**: [CTS multi-table CSV check, algorithmic attribution check, unicode/pydantic hardening check, ruff static lint check, SHA-256 evidence check, epistemic confidence check, dynamic probes & full test suites]
-- **Findings so far**: CLEAN (investigation ongoing)
+- **Phase**: reporting
+- **Checks completed**:
+  - Source code analysis (absence of hardcoding, stubs, and facade patterns)
+  - CTS multi-table CSV row discrimination verification
+  - Algorithmic attribution verification (3-color DFS cycle detection)
+  - Unicode UTF-8 & Pydantic non-list dependencies hardening verification
+  - Ruff static linter check (0 errors)
+  - Cryptographic SHA-256 evidence veracity & line/col coordinates
+  - Epistemic confidence invariants (UNKNOWN demotion, AI ceiling)
+  - Dynamic test execution (pytest unit 34/34, adversarial 33/33, python suite 462/462, pnpm test 394/394, pnpm run build, pnpm run typecheck)
+- **Checks remaining**: None
+- **Findings so far**: CLEAN — All previous defects successfully remediated
 
 ## Key Decisions Made
-- Prior audit m3_d4_auditor_1 found INTEGRITY VIOLATION with 3 core issues; will verify if m3_d4_worker_remediation resolved them completely.
+- All 3 critical defects identified in iteration 1 audit (`m3_d4_auditor_1`) have been verified as resolved.
+- Full monorepo build, typecheck, and test suites executed and verified passing with 100% success rate.
+- Binary verdict: CLEAN.
 
 ## Artifact Index
-- DISPATCH.md — Assignment instructions
+- DISPATCH.md — Assignment instructions and parent reminders
 - BRIEFING.md — Situational awareness and state
 - progress.md — Liveness heartbeat and progress tracking
-- skills/engine-authoring.md — Local domain playbook
-- skills/sap-evidence.md — Local domain playbook
+- verify_integrity.py — Independent automated empirical audit script
+- handoff.md — Final hard handoff report with forensic verdict
+- skills/engine-authoring.md — Local domain playbook copy
+- skills/sap-evidence.md — Local domain playbook copy
 
 ## Attack Surface
-- **Hypotheses tested**: none yet
-- **Vulnerabilities found**: none yet
-- **Untested angles**: CTS CSV parser row discrimination, line 1030 DFS comment, UTF-8 non-Latin1 parsing, Pydantic non-list dependencies, ruff lint errors, SHA-256 accuracy, monorepo test suites
+- **Hypotheses tested**: CTS CSV header-vs-cell discrimination, Tarjan vs 3-color DFS attribution, UTF-8 vs Latin1 encoding, non-list dependencies crash resilience, Ruff linter violations, SHA-256 veracity.
+- **Vulnerabilities found**: 0 (all prior vulnerabilities verified as fixed).
+- **Untested angles**: None within Domain 4 scope.
 
 ## Loaded Skills
 - Source: /.agents/skills/engine-authoring.md

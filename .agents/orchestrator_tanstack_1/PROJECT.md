@@ -24,13 +24,13 @@ This project integrates the Part 21 Curated Library Stack, Part 22 Repository Sk
 | 15 | Virtualization Primitive Integration | Seamless @tanstack/react-virtual integration with DataTable for 10,000+ rows, spacers, auto-measure | M3 | TanStack Prompt §18-21 |
 | 16 | TanStack Form + Zod Integration | Type-safe form abstraction with Zod schema validation, accessible form fields, dirty state warning | M3 | TanStack Prompt §23-27 |
 | 17 | TanStack Pacer Primitives | Debounced search (300ms), throttled filter queries (500ms), batch input handling | M3 | TanStack Prompt §28-30 |
-| 18 | Findings Reference Page & Inspector | Virtualized findings grid, URL-synced facet filters (severity, confidence, tier, engine), export to CSV/JSON | M4 | TanStack Prompt §16, 21 |
-| 19 | SAP Object Inventory Reference Page | Virtualized inventory grid (10k+ capacity), type/package filters, details drawer, export | M4 | TanStack Prompt §16, 21 |
-| 20 | Frontend Test Suite Infrastructure | Vitest + React Testing Library configured in apps/web, root test script integration | M5 | Acceptance Criteria |
-| 21 | QueryClient SSR & Hydration Tests | Automated tests verifying per-request server isolation and client singleton caching | M5 | Acceptance Criteria |
-| 22 | DataTable & Virtualization Tests | Unit & component tests verifying multi-column sort, facet filter, selection, and virtual row rendering | M5 | Acceptance Criteria |
-| 23 | TanStack Form & Zod Tests | Tests verifying Zod schema validation errors, dirty state, and submission workflows | M5 | Acceptance Criteria |
-| 24 | Monorepo Build, Lint, and Integrity Audit | pnpm run build, pnpm run lint clean, and Forensic Auditor verification (zero cheating/facades) | M5 | Acceptance Criteria |
+| 18 | Findings Reference Page & Inspector | Virtualized findings grid, URL-synced facet filters (severity, confidence, tier, engine), export to CSV/JSON | M4 (DONE) | TanStack Prompt §16, 21 |
+| 19 | SAP Object Inventory Reference Page | Virtualized inventory grid (10k+ capacity), type/package filters, details drawer, export | M4 (DONE) | TanStack Prompt §16, 21 |
+| 20 | Frontend Test Suite Infrastructure | Vitest + React Testing Library configured in apps/web, root test script integration | M5 (DONE) | Acceptance Criteria |
+| 21 | QueryClient SSR & Hydration Tests | Automated tests verifying per-request server isolation and client singleton caching | M5 (DONE) | Acceptance Criteria |
+| 22 | DataTable & Virtualization Tests | Unit & component tests verifying multi-column sort, facet filter, selection, and virtual row rendering | M5 (DONE) | Acceptance Criteria |
+| 23 | TanStack Form & Zod Tests | Tests verifying Zod schema validation errors, dirty state, and submission workflows | M5 (DONE) | Acceptance Criteria |
+| 24 | Monorepo Build, Lint, and Integrity Audit | pnpm run build, pnpm run lint clean, and Forensic Auditor verification (zero cheating/facades) | M5 (DONE) | Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
@@ -38,8 +38,8 @@ This project integrates the Part 21 Curated Library Stack, Part 22 Repository Sk
 | 1 | Repository Agent Skills & AGENTS.md | Author 8 playbooks in /.agents/skills/ and root AGENTS.md | none | DONE |
 | 2 | Curated Library Standardization & Alignment | Package.json dependencies, Orval config, zero-duplication verification | M1 | DONE |
 | 3 | Enterprise TanStack Suite Architecture | SSR-safe QueryClient, DataTable, Virtualization, Form+Zod, Pacer | M2 | DONE |
-| 4 | Reference Pages & Interactive Grids | Findings inspector, SAP Object Inventory, URL sync, exports | M3 | IN_PROGRESS |
-| 5 | Automated Testing, Verification & Integrity Audit | Vitest suite in apps/web, build, lint, and Forensic Audit | M4 | PLANNED |
+| 4 | Reference Pages & Interactive Grids | Findings inspector, SAP Object Inventory, URL sync, exports | M3 | DONE |
+| 5 | Automated Testing, Verification & Integrity Audit | Vitest suite in apps/web, build, lint, and Forensic Audit | M4 | DONE |
 
 ## Interface Contracts
 ### QueryClient Factory ↔ Next.js App Router

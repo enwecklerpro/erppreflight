@@ -137,6 +137,21 @@ Gate Result: **FAIL** (m3_d2_it3_challenger_1 REQUEST_CHANGES: spro2cloud.py del
 
 ---
 
+## Gate — Milestone 3 (Domain 2: Migration & Clean Core) — Iteration 4
+| Agent | Role | Verdict | Source |
+|-------|------|---------|--------|
+| m3_d2_it4_worker_remediation | Domain 2 SPRO Remediation Worker | DONE (all 8 gates passed 100%) | handoff.md |
+| m3_d2_reviewer_1 | SPRO & ECC2Cloud Reviewer | APPROVE | handoff.md |
+| m3_d2_reviewer_2 | Gap Radar & Clean Core Reviewer | APPROVE | handoff.md |
+| m3_d2_it4_challenger_1 | SPRO & ECC2Cloud Re-Challenger | APPROVE (23/23 tests pass, harness 100%) | handoff.md |
+| m3_d2_it2_challenger_2 | Gap Radar & Clean Core Re-Challenger | APPROVE | handoff.md |
+| m3_d2_it3_auditor_1 | Domain 2 Forensic Integrity Re-Auditor | CLEAN | handoff.md |
+
+Gate Result: **PASS** (Milestone 3 Domain 2 Migration & Clean Core officially signed off unconditionally).
+
+
+---
+
 
 ## Gate — Milestone 3 (Domain 3: Integration & Data) — Iteration 1
 | Agent | Role | Verdict | Source |
@@ -178,6 +193,47 @@ Gate Result: **PASS** (Milestone 3 Domain 3 Integration & Data officially signed
 | m3_d4_auditor_1 | Forensic Integrity Auditor Domain 4 | INTEGRITY VIOLATION | handoff.md |
 
 Gate Result: **FAIL** (m3_d4_auditor_1 BINARY VETO — INTEGRITY VIOLATION: In transport_dependency.py, CSV row discrimination checks 'TABLENAME' in col_map diverting all rows into keys_by_tr with 0 repository objects, test_complete_enterprise_csv_parsing mirrored defect by asserting only total_tr >= 3, line 1030 falsely claims Tarjan's SCC while only 3-color DFS is implemented, and software_collection.py line 342 crashes on non-Latin1 text with UnicodeEncodeError. m3_d4_challenger_1 also REQUEST_CHANGES on latin1 encoding and Pydantic validation on non-list dependencies. Dispatched m3_d4_worker_remediation for Iteration 2).
+
+---
+
+## Gate — Milestone 3 (Domain 4: Release & Transport) — Iteration 2
+| Agent | Role | Verdict | Source |
+|-------|------|---------|--------|
+| m3_d4_worker_remediation | Domain 4 Remediation Worker | DONE (all 4 defects remediated, build & all tests passed) | handoff.md |
+| m3_d4_reviewer_1 | Software Collection Guard Reviewer | APPROVE | handoff.md |
+| m3_d4_reviewer_2 | Transport Dependency Reviewer | APPROVE | handoff.md |
+| m3_d4_challenger_2 | Transport Dependency Challenger | APPROVE | handoff.md |
+| m3_d4_it2_challenger_1 | Software Collection Re-Challenger | APPROVE | handoff.md |
+| m3_d4_it2_auditor_1 | Forensic Integrity Re-Auditor Domain 4 | CLEAN | handoff.md |
+
+Gate Result: **PASS** (Milestone 3 Domain 4 Release & Transport officially signed off unconditionally).
+
+---
+
+## Gate — Milestone 3 (Domain 5: Operations & Runtime) — Iteration 1
+| Agent | Role | Verdict | Source |
+|-------|------|---------|--------|
+| m3_d5_worker_implementation | Domain 5 Implementation Worker | DONE (all 6 engines deployed, 43/43 unit tests passed) | handoff.md |
+| m3_d5_reviewer_1 | Domain 5 Operations Reviewer | APPROVE | handoff.md |
+| m3_d5_challenger_1 | Domain 5 Empirical Challenger | REQUEST_CHANGES | handoff.md |
+| m3_d5_auditor_1 | Domain 5 Forensic Integrity Auditor | CLEAN | handoff.md |
+
+Gate Result: **FAIL** (m3_d5_challenger_1 REQUEST_CHANGES: 5 crash defects uncovered on ragged CSV rows, non-numeric retcodes, and multi-artifact requests lacking raw_content, plus 3 algorithmic refinements. m3_d5_auditor_1 reported CLEAN with zero integrity violations. Forwarded to m3_d5_worker_remediation for Iteration 2).
+
+---
+
+## Gate — Milestone 3 (Domain 5: Operations & Runtime) — Iteration 2
+| Agent | Role | Verdict | Source |
+|-------|------|---------|--------|
+| m3_d5_worker_remediation | Domain 5 Remediation Worker | DONE (all 5 crash defects & 3 algorithmic items remediated) | handoff.md |
+| m3_d5_reviewer_1 | Domain 5 Operations Reviewer | APPROVE | handoff.md |
+| m3_d5_it2_challenger_1 | Domain 5 It2 Empirical Re-Challenger | APPROVE (31/31 passed in 0.29s, 0 skipped, 0 failed) | handoff.md |
+| m3_d5_auditor_1 | Domain 5 Forensic Integrity Auditor | CLEAN (0 integrity violations) | handoff.md |
+
+Gate Result: **PASS** (Milestone 3 Domain 5 Operations & Runtime officially signed off unconditionally).
+
+
+
 
 
 

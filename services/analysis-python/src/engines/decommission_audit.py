@@ -110,6 +110,7 @@ class DecommissionNormalizedData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     target_user: str = "BATCH_ADMIN"
     grace_period_days: int = 90
+    evaluation_date: Optional[str] = None
     users: Dict[str, USR02Entry] = Field(default_factory=dict)
     jobs: List[TBTCOEntry] = Field(default_factory=list)
     rfc_destinations: List[RFCDESEntry] = Field(default_factory=list)
@@ -224,6 +225,12 @@ class DecommissionAuditEngine(BaseEngine):
         )
         data.target_user = str(t_user).strip().upper()
         data.grace_period_days = int(parsed.get("grace_period_days", request.configuration.get("grace_period_days", 90)))
+        data.evaluation_date = (
+            parsed.get("evaluation_date")
+            or parsed.get("snapshot_date")
+            or (request.configuration or {}).get("evaluation_date")
+            or (request.configuration or {}).get("snapshot_date")
+        )
 
         # Also inspect multi-artifacts if provided
         if request.artifacts:
@@ -466,6 +473,19 @@ class DecommissionAuditEngine(BaseEngine):
         data, artifact_path, raw_text = self._parse_inputs(request)
         target = data.target_user
 
+        ref_date_str = (
+            (request.configuration or {}).get("evaluation_date")
+            or (request.configuration or {}).get("snapshot_date")
+            or data.evaluation_date
+        )
+        if ref_date_str:
+            try:
+                ref_date = date.fromisoformat(str(ref_date_str)[:10])
+            except Exception:
+                ref_date = date.today()
+        else:
+            ref_date = date.today()
+
         # ----------------------------------------------------------------------
         # Rule 0: Verify Target User Existence in USR02
         # ----------------------------------------------------------------------
@@ -684,7 +704,7 @@ class DecommissionAuditEngine(BaseEngine):
             p_date = _parse_date(user_entry.last_logon_date)
             if p_date:
                 last_active_date = p_date
-                days_since_active = max(0, (date.today() - p_date).days)
+                days_since_active = max(0, (ref_date - p_date).days)
 
         # Also inspect audit logs
         user_audit_entries = [a for a in data.audit_logs if a.user.upper() == target]
@@ -693,7 +713,7 @@ class DecommissionAuditEngine(BaseEngine):
                 if entry.timestamp:
                     d_parsed = _parse_date(entry.timestamp[:10])
                     if d_parsed:
-                        diff = max(0, (date.today() - d_parsed).days)
+                        diff = max(0, (ref_date - d_parsed).days)
                         if diff < days_since_active:
                             days_since_active = diff
                             last_active_date = d_parsed
