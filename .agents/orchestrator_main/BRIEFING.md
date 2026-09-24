@@ -89,7 +89,7 @@ Full-scale parallel build of ERP Preflight: 18 SAP Preflight Engines, platform f
 | m3_d2_it3_auditor_1 | teamwork_preview_auditor | Domain 2 It3 Forensic Integrity Audit | completed (CLEAN) | 7a453688-4275-486c-831a-f040c1f9c8f8 |
 | m3_d2_it3_challenger_1 | teamwork_preview_challenger | Domain 2 It3 Challenge: SPRO & ECC Stress | completed (REQUEST_CHANGES) | f2747d78-d35f-4748-8c47-7254161fd717 |
 | m3_d2_it4_worker_remediation | teamwork_preview_worker | Domain 2 It4 Remediation: SPRO Comment Parsing & Ruff Clean | completed | fef512e9-62d5-45d2-947d-c9738f8f57e9 |
-| m3_d2_it4_challenger_1 | teamwork_preview_challenger | Domain 2 It4 Re-Challenge: SPRO & ECC Stress Harness | running | c66fc261-6bef-49d8-81ff-e66ea4333bfe |
+| m3_d2_it4_challenger_1 | teamwork_preview_challenger | Domain 2 It4 Re-Challenge: SPRO & ECC Stress Harness | completed (APPROVE) | c66fc261-6bef-49d8-81ff-e66ea4333bfe |
 | m3_d3_it2_reviewer_2 | teamwork_preview_reviewer | Domain 3 It2 Review: API Change Guard | completed (APPROVE) | dd27060c-736a-4662-936e-f7a870142544 |
 | m3_d3_it2_challenger_2 | teamwork_preview_challenger | Domain 3 It2 Challenge: API Change Guard Stress | completed (APPROVE) | 2094a17d-ab76-408a-87ba-d05b05ab68a9 |
 | m3_d3_it2_auditor_1 | teamwork_preview_auditor | Domain 3 It2 Forensic Integrity Audit | completed (CLEAN) | 9fb5b514-ddab-40b7-883e-bd1a684db69d |
@@ -102,11 +102,13 @@ Full-scale parallel build of ERP Preflight: 18 SAP Preflight Engines, platform f
 | m3_d5_auditor_1 | teamwork_preview_auditor | Domain 5 Forensic Integrity Audit | completed (CLEAN) | fa4d3918-cf4c-42a8-ba1f-7673aaddb52f |
 | m3_d5_worker_remediation | teamwork_preview_worker | Domain 5 Remediation: Fix 5 Crash Defects & Algorithmic Refinements | completed | 104a96d6-9fd7-453c-98b5-50a040718d25 |
 | m3_d5_it2_challenger_1 | teamwork_preview_challenger | Domain 5 It2 Re-Challenge: Empirical Adversarial Stress Harness | completed (APPROVE) | 267d986c-73a3-4f06-a884-0b20f67466be |
-| m3_d6_worker_implementation | teamwork_preview_worker | Domain 6 Implementation: MFS BlackBox Preflight Engine | running | 03112e30-c133-4b45-9f9c-fe778e10a76b |
+| m3_d6_worker_implementation | teamwork_preview_worker | Domain 6 Implementation: MFS BlackBox Preflight Engine | completed | 03112e30-c133-4b45-9f9c-fe778e10a76b |
+| m3_d6_challenger_1 | teamwork_preview_challenger | Domain 6 Challenge: Empirical Adversarial Stress Harness | running | 683a2212-1db0-4d10-b50c-d67c5ba95c0e |
+| m3_d6_auditor_1 | teamwork_preview_auditor | Domain 6 Forensic Integrity Audit | running | 5ee1e1b1-3e72-48b5-8d4d-72db6d8e74f7 |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 123 / 128
+- Spawn count: 125 / 128
 - Predecessor: none
 - Successor: not applicable
 
