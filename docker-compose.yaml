@@ -20,8 +20,8 @@ services:
     image: pgvector/pgvector:pg16
     container_name: erppreflight-postgres
     restart: unless-stopped
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    expose:
+      - "5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-erppreflight}
       POSTGRES_USER: ${POSTGRES_USER:-erppreflight}
@@ -53,8 +53,8 @@ services:
     container_name: erppreflight-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --save 60 1 --loglevel warning
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -82,9 +82,9 @@ services:
     container_name: erppreflight-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
-    ports:
-      - "${S3_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    expose:
+      - "9000"
+      - "9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
@@ -116,8 +116,8 @@ services:
       dockerfile: infra/docker/Dockerfile.analysis
     container_name: erppreflight-analysis
     restart: unless-stopped
-    ports:
-      - "${ANALYSIS_PORT:-8000}:8000"
+    expose:
+      - "8000"
     environment:
       PORT: 8000
       PYTHONUNBUFFERED: 1
@@ -156,8 +156,8 @@ services:
         condition: service_healthy
       analysis-python:
         condition: service_healthy
-    ports:
-      - "${API_PORT:-3001}:3001"
+    expose:
+      - "3001"
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -221,8 +221,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "${WEB_PORT:-3000}:3000"
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       PORT: 3000
