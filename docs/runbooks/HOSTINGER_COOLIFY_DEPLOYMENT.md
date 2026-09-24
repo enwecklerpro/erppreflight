@@ -21,7 +21,7 @@ The entire ERP Preflight enterprise SaaS stack is orchestrated via `docker-compo
 |    │     └──> web:3000 (Next.js 15 App Router, Base UI, TanStack Suite)           |
 |    │                                                                              |
 |    └── Host: api.erppreflight.com (SSL: Let's Encrypt)                            |
-|          └──> api:4000 (NestJS 11 Core SaaS API, RLS Multi-Tenancy)               |
+|          └──> api:3001 (NestJS 11 Core SaaS API, RLS Multi-Tenancy)               |
 |                                                                                   |
 |  Internal Docker Network (erppreflight-network — Isolated from Public Internet)   |
 |    ├── analysis-python:8000 (Stateless Python 3.13 FastAPI — 18 SAP Engines + MFS)|
@@ -102,8 +102,8 @@ In Hostinger DNS Zone Management (or Cloudflare / your registrar):
 6. Under **Environment Variables**, paste the contents of `.env.coolify.example`:
    ```bash
    NODE_ENV=production
-   PORT=4000
-   API_PORT=4000
+   PORT=3001
+   API_PORT=3001
    WEB_PORT=3000
    NEXT_PUBLIC_API_URL=https://api.erppreflight.com
    CORS_ORIGIN=https://erppreflight.com,https://www.erppreflight.com

@@ -2,13 +2,14 @@ import { z } from 'zod';
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(4000),
+  PORT: z.coerce.number().default(3001),
+  API_PORT: z.coerce.number().optional().default(3001),
   DATABASE_URL: z
     .string()
     .default('postgres://erppreflight:erppreflight_secret@localhost:5432/erppreflight_dev'),
   REDIS_URL: z.string().optional(),
   REDIS_HOST: z.string().default('localhost'),
-  REDIS_PORT: z.coerce.number().default(6380),
+  REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
   JWT_SECRET: z
     .string()
@@ -28,6 +29,8 @@ export const envSchema = z.object({
   CLAMAV_PORT: z.coerce.number().default(3310),
   CLAMAV_MOCK_MODE: z.preprocess((val) => val === 'true' || val === true || val === undefined, z.boolean()).default(true),
   MASTER_ENCRYPTION_KEY: z.string().default('erppreflight-default-master-key-32-chars-minimum-abcdef'),
+  AUTO_MIGRATE: z.preprocess((val) => val === 'true' || val === true || val === undefined, z.boolean()).default(true),
+  STRICT_MIGRATIONS: z.preprocess((val) => val === 'true' || val === true, z.boolean()).default(false),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

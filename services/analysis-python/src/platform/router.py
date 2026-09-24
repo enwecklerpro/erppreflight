@@ -1,7 +1,6 @@
 import re
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Optional
 from dataclasses import dataclass, field
-from src.models.enums import EngineType
 
 
 @dataclass

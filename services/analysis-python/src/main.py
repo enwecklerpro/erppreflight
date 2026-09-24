@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from src.config import get_settings
 from src.api.router import api_router
 from src.api.middleware import CorrelationIdMiddleware
-import src.engines  # Triggers auto-registration of all 19 engines
+import src.engines  # noqa: F401 — triggers auto-registration of all 19 engines
 
 
 @asynccontextmanager

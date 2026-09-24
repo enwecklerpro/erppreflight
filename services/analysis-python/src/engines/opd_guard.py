@@ -13,7 +13,7 @@ import defusedxml.ElementTree as DefusedET
 
 from src.core.base_engine import BaseEngine
 from src.core.registry import register_engine
-from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass, TrustLevel
+from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.models.finding import Finding
@@ -583,7 +583,7 @@ class OPDGuardEngine(BaseEngine):
         for step in self.CANONICAL_STEPS:
             rows = tables.get(step, [])
             step_matched = False
-            matched_row_dict: Dict[str, Any] = {}
+            _matched_row_dict: Dict[str, Any] = {}
             matched_row_line: int = 1
 
             for idx, row in enumerate(rows):
@@ -606,7 +606,7 @@ class OPDGuardEngine(BaseEngine):
 
                 if row_matches:
                     step_matched = True
-                    matched_row_dict = row
+                    _matched_row_dict = row
                     matched_row_line = source_lines.get(step, {}).get(idx, idx + 2)
 
                     # Determine result value

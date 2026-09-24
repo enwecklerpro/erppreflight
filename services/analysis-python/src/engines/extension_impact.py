@@ -7,9 +7,7 @@ Implements the 14-point engine anatomy mandated by Cardinal Axiom 2.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 import time
 from collections import deque
 from enum import Enum
@@ -27,7 +25,6 @@ from src.models.enums import (
     Severity,
     TrustLevel,
 )
-from src.models.evidence import Evidence
 from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
@@ -252,7 +249,7 @@ class ExtensionImpactEngine(BaseEngine):
         rules_evaluated += 1
         cycles_detected: List[List[str]] = []
         color: Dict[str, int] = {node: 0 for node in all_nodes}  # 0=WHITE, 1=GRAY, 2=BLACK
-        parent_map: Dict[str, str] = {}
+        _parent_map: Dict[str, str] = {}
 
         def dfs_cycle(u: str, path: List[str]):
             color[u] = 1  # GRAY

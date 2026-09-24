@@ -11,7 +11,6 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,7 +26,6 @@ from src.models.enums import (
     Severity,
     TrustLevel,
 )
-from src.models.evidence import Evidence
 from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
@@ -461,7 +459,7 @@ class GapRadarEngine(BaseEngine):
     def evaluate(cls, requirement_text: str, target_release: str = "2023") -> Dict[str, Any]:
         """Direct deterministic evaluation helper matching E2E test harness expectations."""
         tier, verdict, score, severity, matched = cls.resolve_tier(requirement_text)
-        meta = TIER_METADATA[tier]
+        _meta = TIER_METADATA[tier]
 
         code = f"GAP_RADAR_{verdict}"
         findings = [
@@ -492,7 +490,7 @@ class GapRadarEngine(BaseEngine):
 
         raw_text = (request.raw_content or "").strip()
         artifact_path = request.artifact_s3_key or "requirements/gap_radar.json"
-        full_artifact_hash = EvidenceEngine.compute_sha256(raw_text) if raw_text else hashlib.sha256(b"{}").hexdigest()
+        _full_artifact_hash = EvidenceEngine.compute_sha256(raw_text) if raw_text else hashlib.sha256(b"{}").hexdigest()
 
         # Parse requirements from raw_text or configuration
         items: List[RequirementItem] = []
@@ -565,7 +563,7 @@ class GapRadarEngine(BaseEngine):
             # Formulate structured title, description, and remediation
             code = f"GAP_RADAR_{verdict}"
             if verdict == "SUPPORTED_STANDARD":
-                title = f"Requirement Supported via Standard Functionality (Tier 1)"
+                title = "Requirement Supported via Standard Functionality (Tier 1)"
                 desc = (
                     f"Requirement '{req_text}' is completely fulfilled by standard SAP S/4HANA Best Practice "
                     f"scope items without custom development."
@@ -575,14 +573,14 @@ class GapRadarEngine(BaseEngine):
                     "or custom code."
                 )
             elif verdict == "SUPPORTED_CONFIGURATION":
-                title = f"Requirement Supported via Standard Configuration (Tier 2)"
+                title = "Requirement Supported via Standard Configuration (Tier 2)"
                 desc = (
                     f"Requirement '{req_text}' can be achieved via standard SSCUI or Central Business "
                     f"Configuration (CBC) activities."
                 )
                 remediation = "Configure standard business settings via SSCUI/CBC activities in the implementation project."
             elif verdict == "SUPPORTED_KEY_USER":
-                title = f"Requirement Supported via Key-User Extensibility (Tier 3)"
+                title = "Requirement Supported via Key-User Extensibility (Tier 3)"
                 desc = (
                     f"Requirement '{req_text}' can be fulfilled using SAP Key-User Extensibility (Custom Fields, "
                     f"Custom Logic, or UI Adaptation)."
@@ -590,7 +588,7 @@ class GapRadarEngine(BaseEngine):
                 remediation = "Use Fiori app 'Custom Fields' or 'Custom Logic' to extend business objects without modifying core code."
             elif verdict == "SUPPORTED_DEVELOPER_EXTENSIBILITY":
                 if tier == ResolutionTier.TIER_7_RELEASED_BADI:
-                    title = f"Requirement Supported via Released BAdI (Tier 7)"
+                    title = "Requirement Supported via Released BAdI (Tier 7)"
                     desc = (
                         f"Requirement '{req_text}' is supported via released BAdI in ABAP Cloud "
                         f"(Tier 1 Developer Extensibility)."
@@ -599,37 +597,37 @@ class GapRadarEngine(BaseEngine):
                         "Implement released BAdI in ABAP Cloud using ADT and clean core release contracts (Contract C1)."
                     )
                 else:
-                    title = f"Requirement Supported via Developer Extensibility (Tier 4)"
+                    title = "Requirement Supported via Developer Extensibility (Tier 4)"
                     desc = (
                         f"Requirement '{req_text}' can be implemented on-stack using ABAP Cloud and "
                         f"the RESTful Application Programming (RAP) model."
                     )
                     remediation = "Develop custom RAP business object or service adhering strictly to ABAP for Cloud Development."
             elif verdict == "SUPPORTED_RELEASED_CDS":
-                title = f"Requirement Supported via Released CDS Views (Tier 5)"
+                title = "Requirement Supported via Released CDS Views (Tier 5)"
                 desc = f"Requirement '{req_text}' can consume released standard CDS views (Contract C1)."
                 remediation = "Query released CDS view projection instead of querying classic transparent tables."
             elif verdict == "SUPPORTED_RELEASED_API":
-                title = f"Requirement Supported via Released API (Tier 6)"
+                title = "Requirement Supported via Released API (Tier 6)"
                 desc = f"Requirement '{req_text}' is supported via standard released OData/SOAP APIs."
                 remediation = "Integrate using released SAP Business Accelerator Hub APIs with Contract C1."
             elif verdict == "SUPPORTED_BUSINESS_EVENT":
-                title = f"Requirement Supported via Business Events (Tier 8)"
+                title = "Requirement Supported via Business Events (Tier 8)"
                 desc = (
                     f"Requirement '{req_text}' can be implemented via SAP Event Mesh / CloudEvents "
                     f"and event-driven webhooks."
                 )
                 remediation = "Subscribe to standard business events in SAP Event Mesh or Advanced Event Mesh."
             elif verdict == "SUPPORTED_SIDE_BY_SIDE":
-                title = f"Requirement Supported via Side-by-Side Extensibility (Tier 9)"
+                title = "Requirement Supported via Side-by-Side Extensibility (Tier 9)"
                 desc = f"Requirement '{req_text}' is best suited for side-by-side deployment on SAP BTP."
                 remediation = "Build side-by-side extension application on SAP BTP using CAP, Kyma, or Cloud Foundry."
             elif verdict == "SUPPORTED_WORKAROUND":
-                title = f"Requirement Supported via Documented Workaround (Tier 10)"
+                title = "Requirement Supported via Documented Workaround (Tier 10)"
                 desc = f"Requirement '{req_text}' requires a documented intermediate pattern or staging workaround."
                 remediation = "Implement documented workaround and register in technical debt register for cloud roadmap retirement."
             elif verdict == "BLOCKED_CLEAN_CORE_VIOLATION":
-                title = f"Requirement Blocked: Clean Core Violation (Tier 11)"
+                title = "Requirement Blocked: Clean Core Violation (Tier 11)"
                 desc = (
                     f"Requirement '{req_text}' attempts direct database table modifications or classic modifications, "
                     f"which strictly violates SAP Clean Core."
@@ -639,11 +637,11 @@ class GapRadarEngine(BaseEngine):
                     "standard BAPIs, or Key-User extension scenarios."
                 )
             elif verdict == "KNOWN_PRODUCT_GAP":
-                title = f"Known Product Gap: Scheduled on Roadmap (Tier 11)"
+                title = "Known Product Gap: Scheduled on Roadmap (Tier 11)"
                 desc = f"Requirement '{req_text}' is a known standard product gap scheduled on the SAP S/4HANA roadmap."
                 remediation = "Review SAP Roadmap Explorer for targeted release delivery or request Early Adopter access."
             else:
-                title = f"Unknown Requirement: Architectural Review Required (Tier 12)"
+                title = "Unknown Requirement: Architectural Review Required (Tier 12)"
                 desc = f"Requirement '{req_text}' cannot be resolved automatically against standard catalogs."
                 remediation = "Perform manual Fit-to-Standard workshop and enterprise architectural review."
 

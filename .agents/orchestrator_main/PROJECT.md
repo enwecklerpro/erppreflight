@@ -94,9 +94,9 @@ Every feature identified during the Survey phase is mapped to an assigned milest
 |---|------|-------|-------------|--------|
 | **M1** | Monorepo Foundation & Persistence | pnpm workspaces, Next.js web app, NestJS core API, Python FastAPI service, PostgreSQL 16 schema + pgvector + RLS, Redis BullMQ, shared TS packages, ADRs | none | DONE |
 | **M2** | Secure Ingestion & Shared Platform Services | MIME validation, archive safety, secret redaction, S3 pre-signed URLs, Evidence Engine, Confidence Classifier, AI Problem Router, Audit Trail, Export Engine | M1 | DONE |
-| **M3** | 18 SAP Preflight Engines Suite | Full implementation of all 18 SAP preflight engines + MFS BlackBox with deterministic parsers, domain rules, Pydantic models, and fixtures | M1, M2 | IN_PROGRESS |
-| **M4** | Hostinger & Coolify Deployment | `docker-compose.coolify.yml`, multi-stage non-root Dockerfiles, `.env.example`, health checks, automated migration runner | M1, M2, M3 | PLANNED |
-| **M5** | E2E Test Suite Pass & Adversarial Hardening | Phase 1: 100% pass rate on Tiers 1-4 from E2E test suite. Phase 2: Tier 5 adversarial coverage hardening | M1-M4, Track-E2E | PLANNED |
+| **M3** | 18 SAP Preflight Engines Suite | Full implementation of all 18 SAP preflight engines + MFS BlackBox with deterministic parsers, domain rules, Pydantic models, and fixtures | M1, M2 | DONE |
+| **M4** | Hostinger & Coolify Deployment | `docker-compose.coolify.yml`, multi-stage non-root Dockerfiles, `.env.example`, health checks, automated migration runner | M1, M2, M3 | DONE |
+| **M5** | E2E Test Suite Pass & Adversarial Hardening | Phase 1: 100% pass rate on Tiers 1-4 from E2E test suite. Phase 2: Tier 5 adversarial coverage hardening | M1-M4, Track-E2E | DONE |
 | **Track-E2E** | E2E Testing Track | Independent opaque-box test suite: Runner, Tiers 1-4 test cases (≥5 per feature, boundary, pairwise, application scenarios), publishes `TEST_READY.md` | none | DONE |
 
 ---

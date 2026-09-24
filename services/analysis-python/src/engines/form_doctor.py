@@ -3,8 +3,7 @@ ERP Preflight — FormDoctor Engine
 SAPscript, Smart Forms to Adobe Forms (XDP) Migration & Data Path Validator
 """
 
-from typing import Dict, Any, List, Optional, Tuple, Set
-import json
+from typing import Dict, Any, List, Tuple
 import re
 from xml.etree.ElementTree import Element, TreeBuilder
 import defusedxml.ElementTree as DefusedET
@@ -13,7 +12,7 @@ from defusedxml.common import DefusedXmlException, EntitiesForbidden, DTDForbidd
 from src.core.base_engine import BaseEngine
 from src.core.registry import register_engine
 from src.core.exceptions import SecurityViolationError
-from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass, TrustLevel
+from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.models.finding import Finding

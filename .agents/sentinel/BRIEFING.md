@@ -1,13 +1,13 @@
-# BRIEFING — 2026-09-24T13:07:30+02:00
+# BRIEFING — 2026-09-24T13:54:30+02:00
 
 ## Mission
-Oversee and monitor the implementation of the curated library stack (Part 21), repository-local agent skills and playbooks (Part 22), and full enterprise TanStack suite architecture in ERP Preflight inside H:/erppreflight, routing to teamwork_preview_orchestrator and enforcing mandatory independent victory audit.
+Oversee and monitor the full-scale parallel build of all 18 SAP Preflight engines, platform services, and Coolify deployment in ERP Preflight inside H:/erppreflight, routing to teamwork_preview_orchestrator and enforcing mandatory independent victory audit.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: H:/erppreflight/.agents/sentinel
-- Orchestrator: 66440be0-c7ee-4a74-8a17-61e13b963df1 (completed)
-- Victory Auditor: 682764e0-b5fb-459c-bc6f-b151572eff27 (completed)
+- Orchestrator: b18c0539-d6d7-4a41-968f-58324775ab38
+- Victory Auditor: e58eab06-a7be-4bd8-9d5d-81c60c5f3ade
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -18,37 +18,26 @@ Oversee and monitor the implementation of the curated library stack (Part 21), r
 - Kill all subagents and crons upon confirmed completion before final report
 
 ## User Context
-- **Last user request**: Focused multi-agent team for TanStack architecture, library standardization, and agent skills playbooks (Part 21, Part 22, full TanStack suite architecture).
+- **Last user request**: Full-scale parallel build of all 18 engines, platform services, and Coolify deployment for ERP Preflight.
 - **Pending clarifications**: none
-- **Delivered results**:
-  - Milestone 1: Agent Skills & AGENTS.md (GATE PASS / AUDIT CLEAN)
-  - Milestone 2: Curated Library Standardization & Alignment (GATE PASS / AUDIT CLEAN)
-  - Milestone 3: Enterprise TanStack Suite Architecture & Primitives (GATE PASS / AUDIT CLEAN)
-  - Milestone 4: Reference Pages & Interactive Grids (GATE PASS / AUDIT CLEAN)
-  - Milestone 5: Monorepo Vitest Suite, Lint, Build & Audit (GATE PASS / AUDIT CLEAN)
-  - Independent Victory Audit: VICTORY CONFIRMED
+- **Delivered results**: Orchestrator has claimed 100% completion across all milestones (R1-R4). Independent victory audit actively running.
 
 ## Project Status
-- **Phase**: complete
+- **Phase**: auditing
 - **Routing Decision**: General path -> teamwork_preview_orchestrator
-- **Routing Rationale**: Complex multi-part enterprise UI/architecture task requiring full-scale team decomposition across web, packages, and architecture standards.
-- **Active Orchestrator ID**: none (terminated on verified victory)
-- **Active Crons**: none (terminated on verified victory)
+- **Routing Rationale**: Massive multi-stage enterprise build covering full-stack web, API, python analysis engines, multi-tenancy, and deployment infrastructure.
+- **Active Orchestrator ID**: b18c0539-d6d7-4a41-968f-58324775ab38
+- **Active Victory Auditor ID**: e58eab06-a7be-4bd8-9d5d-81c60c5f3ade
+- **Orchestrator Working Directory**: H:/erppreflight/.agents/orchestrator_main
+- **Auditor Working Directory**: H:/erppreflight/.agents/victory_auditor_1
+- **Active Crons**: Progress Reporting (task-1102), Liveness Check (task-1104)
 
 ## Victory Audit Status
 - **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
-- **Auditor ID**: 682764e0-b5fb-459c-bc6f-b151572eff27
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
 - H:/erppreflight/.agents/ORIGINAL_REQUEST.md — Verbatim user request
 - H:/erppreflight/ORIGINAL_REQUEST.md — Verbatim user request root copy
-- H:/erppreflight/.agents/skills/*.md — 8 canonical playbooks
-- H:/erppreflight/AGENTS.md — Root repository agent operating manual
-- H:/erppreflight/apps/web/src/components/data-table/ — Enterprise DataTable
-- H:/erppreflight/apps/web/src/lib/query/ — SSR-safe QueryClient and provider
-- H:/erppreflight/apps/web/src/app/projects/[id]/findings/ — Findings reference page
-- H:/erppreflight/apps/web/src/app/projects/[id]/objects/ — Objects reference page
-- H:/erppreflight/apps/web/src/__tests__/ — Automated Vitest test suites
-- H:/erppreflight/.agents/victory_auditor_1/handoff.md — Full Forensic Victory Audit Report
+- H:/erppreflight/.agents/victory_auditor_1/DISPATCH.md — Victory audit dispatch

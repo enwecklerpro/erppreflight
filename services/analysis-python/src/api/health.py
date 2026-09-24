@@ -5,6 +5,7 @@ from src.core.registry import EngineRegistry
 router = APIRouter(tags=["Health"])
 
 
+@router.get("/health", response_model=LivenessResponse)
 @router.get("/health/liveness", response_model=LivenessResponse)
 async def liveness_probe() -> LivenessResponse:
     """Liveness probe confirming the ASGI event loop is active."""

@@ -7,13 +7,10 @@ Implements the 14-point engine anatomy mandated by Cardinal Axiom 2.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.registry import register_engine
@@ -25,7 +22,6 @@ from src.models.enums import (
     Severity,
     TrustLevel,
 )
-from src.models.evidence import Evidence
 from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
@@ -527,7 +523,7 @@ class CleanCoreEngine(BaseEngine):
                 }
                 affected = [fn]
             else:
-                title = f"Clean Core Violation Detected"
+                title = "Clean Core Violation Detected"
                 desc = f"Violation of clean core principles in statement: {snippet}"
                 remediation = "Refactor code to adhere to SAP Clean Core and ABAP Cloud guidelines."
                 tech_details = raw_f

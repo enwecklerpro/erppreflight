@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-09-24T01:23:59Z",
+  "timestamp": "2026-09-24T11:45:54Z",
   "target": "local",
   "overall_status": "PASSED",
   "passed": 175,
   "failed": 0,
   "total": 175,
-  "duration_ms": 625,
+  "duration_ms": 791,
   "tiers": [
     {
       "tier": 1,
@@ -14,7 +14,7 @@
       "passed": 130,
       "failed": 0,
       "total": 130,
-      "duration_ms": 381,
+      "duration_ms": 438,
       "exit_code": 0
     },
     {
@@ -24,7 +24,7 @@
       "passed": 26,
       "failed": 0,
       "total": 26,
-      "duration_ms": 87,
+      "duration_ms": 125,
       "exit_code": 0
     },
     {
@@ -34,7 +34,7 @@
       "passed": 15,
       "failed": 0,
       "total": 15,
-      "duration_ms": 75,
+      "duration_ms": 115,
       "exit_code": 0
     },
     {
@@ -44,7 +44,7 @@
       "passed": 4,
       "failed": 0,
       "total": 4,
-      "duration_ms": 79,
+      "duration_ms": 110,
       "exit_code": 0
     }
   ]

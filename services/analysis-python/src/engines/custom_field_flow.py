@@ -26,7 +26,6 @@ from src.models.enums import (
     Severity,
     TrustLevel,
 )
-from src.models.evidence import Evidence
 from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
@@ -190,7 +189,7 @@ class CustomFieldFlowEngine(BaseEngine):
 
         raw_text = request.raw_content or ""
         artifact_path = request.artifact_s3_key or "custom_fields/custom_field_flow.json"
-        full_artifact_hash = EvidenceEngine.compute_sha256(raw_text) if raw_text else hashlib.sha256(b"{}").hexdigest()
+        _full_artifact_hash = EvidenceEngine.compute_sha256(raw_text) if raw_text else hashlib.sha256(b"{}").hexdigest()
 
         # Parse payload from raw_content or configuration
         payload: Dict[str, Any] = {}
