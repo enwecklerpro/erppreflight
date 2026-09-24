@@ -78,7 +78,7 @@ services:
   # MinIO S3-Compatible Object Store (Quarantine, Clean & Reports Buckets)
   # ----------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2024-01-31T20-20-33Z
+    image: quay.io/minio/minio:latest
     container_name: erppreflight-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
