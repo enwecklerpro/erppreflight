@@ -19,9 +19,14 @@ def api_call(path, method='GET', data=None, token=None, tenant_id=None):
 
     body = json.dumps(data).encode('utf-8') if data else None
     req = urllib.request.Request(f'{BASE_API}{path}', data=body, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-        res_body = resp.read().decode('utf-8')
-        return json.loads(res_body) if res_body else None
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            res_body = resp.read().decode('utf-8')
+            return json.loads(res_body) if res_body else None
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode('utf-8')
+        print(f"HTTPError {e.code} on {path}: {err_msg}")
+        raise
 
 def main():
     print('=== 1. Live Authentication & Argon2id Hashing Test ===')
@@ -70,33 +75,62 @@ def main():
     print(f"Projects count for tenant: {len(projects_list)}")
     assert any(p['id'] == proj_id for p in projects_list), "Created project missing from tenant query!"
 
-    print('\n=== 6. Trigger Real Preflight Analysis ===')
+    print('\n=== 6. Upload Golden Defective SAP Fixture (ClamAV & Clean S3) ===')
+    with open('tests/fixtures/known_bad_billing_opd.xml', 'r', encoding='utf-8') as f:
+        fixture_xml = f.read()
+
+    upload_res = api_call(f'/projects/{proj_id}/artifacts', method='POST', token=token, tenant_id=tenant_id, data={
+        'fileName': 'known_bad_billing_opd.xml',
+        'rawContent': fixture_xml,
+        'mimeType': 'application/xml',
+    })
+    print(f"Uploaded Artifact: {upload_res.get('id')} - Status: {upload_res.get('status')}, ScanResult: {upload_res.get('scanResult')}")
+
+    print('\n=== 7. Trigger Real BullMQ Preflight Analysis ===')
     analysis_res = api_call('/analyses', method='POST', token=token, tenant_id=tenant_id, data={
         'projectId': proj_id,
-        'engineTypes': ['OPD_GUARD', 'FORM_DOCTOR', 'CLEAN_CORE_OBJECT_GUARD'],
+        'engineTypes': ['OPD_GUARD'],
         'targetRelease': target_rel or 'S4H_2023',
-        'rawContent': '<billing_document><rule step="01" app="BILLING_DOCUMENT" status="INCOMPLETE"/></billing_document>',
+        'rawContent': fixture_xml,
     })
-    print(f"Analysis Triggered: Job ID = {analysis_res.get('analysisId')}, Status = {analysis_res.get('status')}")
-    print(f"Findings Returned: {analysis_res.get('findingsCount')}")
+    analysis_id = analysis_res.get('analysisId')
+    print(f"Analysis Triggered: Job ID = {analysis_id}, Initial Status = {analysis_res.get('status')}")
+    for _ in range(25):
+        poll_res = api_call(f'/analyses/{analysis_id}', token=token, tenant_id=tenant_id)
+        curr_status = poll_res.get('status')
+        print(f"  Worker Polling: status = {curr_status}")
+        if curr_status in ['COMPLETED', 'FAILED']:
+            break
+        time.sleep(1)
+    assert curr_status == 'COMPLETED', f"Analysis failed or timed out: {curr_status}"
 
-    print('\n=== 7. Query Real Findings Ledger ===')
+    print('\n=== 8. Query Real Findings Ledger & Assertions ===')
     findings_res = api_call(f'/findings?projectId={proj_id}', token=token, tenant_id=tenant_id)
     items = findings_res.get('items', [])
     print(f"Persisted Findings for project: {len(items)}")
-    for f in items[:3]:
-        print(f"  * [{f.get('severity')}] {f.get('title')} (Engine: {f.get('engineType')}, Confidence: {f.get('confidence')})")
+    assert len(items) >= 1, "Expected at least 1 finding from known bad fixture!"
+    opd_finding = next((f for f in items if f.get('ruleId') == 'OPD_DETERMINATION_STEP_MISSING'), None)
+    assert opd_finding is not None, "Expected OPD_DETERMINATION_STEP_MISSING finding!"
+    print(f"  * Verified Finding: [{opd_finding.get('severity')}] {opd_finding.get('title')}")
+    print(f"    Rule ID: {opd_finding.get('ruleId')}, Confidence: {opd_finding.get('confidence')}")
 
-    print('\n=== 8. Updated Executive Dashboard KPI Verification ===')
+    print('\n=== 9. Updated Executive Dashboard KPI Verification ===')
     dash_after = api_call('/dashboard/summary', token=token, tenant_id=tenant_id)
     print(f"Updated Clean Core Index: {dash_after['cleanCoreIndex']}%")
     print(f"Updated Active Projects: {dash_after['activeProjects']}")
     print(f"Updated Blockers & Critical: {dash_after['blockersAndCritical']}")
     print(f"Recent Analyses Count: {len(dash_after['recentAnalyses'])}")
 
+    print('\n=== 10. Web Frontend & Route Verification ===')
+    for route in ['/', '/login', '/signup', '/api/health']:
+        req_page = urllib.request.Request(f'https://erppreflight.com{route}', headers={'User-Agent': 'ERPPreflight-LiveVerifier/1.0'})
+        with urllib.request.urlopen(req_page, timeout=15, context=ctx) as p_resp:
+            print(f"Route https://erppreflight.com{route} -> Status {p_resp.status}")
+
     print('\n=============================================================')
-    print('[PASS] ALL 8 LIVE PRODUCTION CRITERIA VERIFIED WITH ZERO MOCKS!')
+    print('[PASS] ALL 10 LIVE PRODUCTION CRITERIA VERIFIED WITH ZERO MOCKS!')
     print('=============================================================')
 
 if __name__ == '__main__':
     main()
+

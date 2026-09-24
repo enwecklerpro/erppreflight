@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
@@ -6,17 +6,20 @@ import {
   GetObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
+  CreateBucketCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
 
 @Injectable()
-export class S3StorageService {
+export class S3StorageService implements OnModuleInit {
   private readonly logger = new Logger(S3StorageService.name);
   private readonly s3: S3Client;
   public readonly quarantineBucket: string;
   public readonly cleanBucket: string;
   public readonly reportsBucket: string;
+  private bucketsInitialized = false;
 
   constructor(private readonly config: ConfigService) {
     const endpoint = this.config.get<string>('S3_ENDPOINT', 'http://localhost:9000');
@@ -45,6 +48,33 @@ export class S3StorageService {
     });
   }
 
+  async onModuleInit(): Promise<void> {
+    await this.ensureBucketsExist();
+  }
+
+  public async ensureBucketsExist(): Promise<void> {
+    if (this.bucketsInitialized) return;
+    const buckets = [this.quarantineBucket, this.cleanBucket, this.reportsBucket];
+    for (const bucket of buckets) {
+      try {
+        await this.s3.send(new HeadBucketCommand({ Bucket: bucket }));
+      } catch (err: any) {
+        try {
+          await this.s3.send(new CreateBucketCommand({ Bucket: bucket }));
+          this.logger.log(`Created missing S3 bucket: ${bucket}`);
+        } catch (createErr: any) {
+          if (
+            createErr.name !== 'BucketAlreadyOwnedByYou' &&
+            createErr.name !== 'BucketAlreadyExists'
+          ) {
+            this.logger.warn(`Could not create bucket ${bucket}: ${createErr.message}`);
+          }
+        }
+      }
+    }
+    this.bucketsInitialized = true;
+  }
+
   /**
    * Generates a short-lived pre-signed PUT upload URL for the quarantine bucket.
    * Default TTL: 15 minutes (900 seconds).
@@ -57,6 +87,7 @@ export class S3StorageService {
     mimeType: string;
     ttlSeconds?: number;
   }): Promise<{ uploadUrl: string; storagePath: string; expiresInSeconds: number }> {
+    await this.ensureBucketsExist();
     const ttl = params.ttlSeconds || 900;
     const safeFileName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storagePath = `quarantine/${params.organizationId}/${params.projectId}/${params.fileId}/${safeFileName}`;
@@ -163,6 +194,7 @@ export class S3StorageService {
     data: Buffer | string,
     contentType: string = 'application/octet-stream'
   ): Promise<void> {
+    await this.ensureBucketsExist();
     const body = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
     await this.s3.send(
       new PutObjectCommand({
@@ -182,6 +214,7 @@ export class S3StorageService {
     data: Buffer | string,
     contentType: string = 'application/octet-stream'
   ): Promise<void> {
+    await this.ensureBucketsExist();
     const body = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
     await this.s3.send(
       new PutObjectCommand({
