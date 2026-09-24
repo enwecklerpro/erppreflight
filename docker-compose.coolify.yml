@@ -201,13 +201,13 @@ services:
           memory: 512M
     networks:
       - erppreflight-net
+      - coolify
     labels:
       - "coolify.managed=true"
       - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
       - "traefik.http.routers.erppreflight-api.rule=Host(`api.erppreflight.com`)"
-      - "traefik.http.routers.erppreflight-api.entrypoints=websecure"
-      - "traefik.http.routers.erppreflight-api.tls=true"
-      - "traefik.http.routers.erppreflight-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.erppreflight-api.entrypoints=http,https"
       - "traefik.http.services.erppreflight-api.loadbalancer.server.port=3001"
 
   # ----------------------------------------------------------------------------
@@ -245,15 +245,13 @@ services:
           memory: 512M
     networks:
       - erppreflight-net
+      - coolify
     labels:
       - "coolify.managed=true"
       - "traefik.enable=true"
-      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`, `www.erppreflight.com`, `b1jbemmdf9uioi0w2fdnnlb2.187.124.174.130.sslip.io`)"
-      - "traefik.http.routers.erppreflight-web.entrypoints=websecure"
-      - "traefik.http.routers.erppreflight-web.tls=true"
-      - "traefik.http.routers.erppreflight-web.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.erppreflight-web-http.rule=Host(`erppreflight.com`, `www.erppreflight.com`, `b1jbemmdf9uioi0w2fdnnlb2.187.124.174.130.sslip.io`)"
-      - "traefik.http.routers.erppreflight-web-http.entrypoints=http"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.routers.erppreflight-web.rule=Host(`erppreflight.com`) || Host(`www.erppreflight.com`) || Host(`b1jbemmdf9uioi0w2fdnnlb2.187.124.174.130.sslip.io`)"
+      - "traefik.http.routers.erppreflight-web.entrypoints=http,https"
       - "traefik.http.services.erppreflight-web.loadbalancer.server.port=3000"
 
 # ------------------------------------------------------------------------------
@@ -268,9 +266,11 @@ volumes:
     name: erppreflight_minio_data
 
 # ------------------------------------------------------------------------------
-# Isolated Internal Docker Network
+# Isolated Internal Docker Network & Coolify Proxy Ingress Network
 # ------------------------------------------------------------------------------
 networks:
   erppreflight-net:
     name: erppreflight-network
     driver: bridge
+  coolify:
+    external: true
