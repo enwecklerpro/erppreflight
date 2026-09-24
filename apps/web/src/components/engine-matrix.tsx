@@ -1,12 +1,27 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ALL_18_ENGINES, EngineStatusItem } from '../lib/api-client';
-import { CheckCircle2, Shield, Search, ExternalLink } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ALL_18_ENGINES, EngineStatusItem, fetchEngineStatus } from '../lib/api-client';
+import { CheckCircle2, Shield, Search, RefreshCw, AlertCircle } from 'lucide-react';
 
 export function EngineMatrix() {
   const [selectedDomain, setSelectedDomain] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  const {
+    data: engineData,
+    isLoading,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ['engines', 'status'],
+    queryFn: fetchEngineStatus,
+    staleTime: 1000 * 60,
+    retry: 1,
+  });
+
+  const engines: EngineStatusItem[] = engineData?.engines || ALL_18_ENGINES;
 
   const domains = [
     'ALL',
@@ -18,7 +33,7 @@ export function EngineMatrix() {
     'Warehouse Automation',
   ];
 
-  const filteredEngines = ALL_18_ENGINES.filter((eng) => {
+  const filteredEngines = engines.filter((eng) => {
     const matchesDomain =
       selectedDomain === 'ALL' || eng.domain === selectedDomain;
     const matchesSearch =
@@ -38,6 +53,11 @@ export function EngineMatrix() {
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
             Real-time readiness and deterministic rule inventory across SAP preflight domains
+            {engineData?.summary && (
+              <span className="ml-2 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                • {engineData.summary.operationalCount} / {engineData.summary.totalEngines} Active ({engineData.summary.totalRules} Rules)
+              </span>
+            )}
           </p>
         </div>
 
@@ -52,6 +72,15 @@ export function EngineMatrix() {
               className="pl-9 pr-3 py-1.5 text-xs bg-muted rounded-lg border border-transparent focus:border-primary focus:outline-none w-48"
             />
           </div>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="p-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Refresh engine status"
+            aria-label="Refresh engine status"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
@@ -74,41 +103,54 @@ export function EngineMatrix() {
 
       {/* Grid of Engine Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-5">
-        {filteredEngines.map((eng) => (
-          <div
-            key={eng.id}
-            className="border border-border/70 rounded-lg p-4 bg-background/50 hover:border-primary/50 transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between">
-                <div>
-                  <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
-                    {eng.domain}
+        {filteredEngines.map((eng) => {
+          const isOperational = eng.status === 'OPERATIONAL';
+          return (
+            <div
+              key={eng.id}
+              className="border border-border/70 rounded-lg p-4 bg-background/50 hover:border-primary/50 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
+                      {eng.domain}
+                    </span>
+                    <h3 className="font-bold text-sm text-foreground mt-0.5">
+                      {eng.name}
+                    </h3>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                      isOperational
+                        ? 'bg-green-50 text-green-700 dark:bg-green-950/60 dark:text-green-300 border-green-200 dark:border-green-800'
+                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    }`}
+                  >
+                    {isOperational ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : (
+                      <AlertCircle className="h-3 w-3" />
+                    )}
+                    {eng.status}
                   </span>
-                  <h3 className="font-bold text-sm text-foreground mt-0.5">
-                    {eng.name}
-                  </h3>
                 </div>
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 bg-green-50 text-green-700 dark:bg-green-950/60 dark:text-green-300 rounded border border-green-200 dark:border-green-800">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {eng.status}
+                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                  {eng.description}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs">
+                <span className="text-muted-foreground">
+                  <strong className="text-foreground">{eng.rulesCount}</strong> Rules Evaluated
+                </span>
+                <span className="font-mono text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  {eng.id}
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                {eng.description}
-              </p>
             </div>
-
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs">
-              <span className="text-muted-foreground">
-                <strong className="text-foreground">{eng.rulesCount}</strong> Rules Evaluated
-              </span>
-              <span className="font-mono text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                {eng.id}
-              </span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

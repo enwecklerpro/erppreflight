@@ -1,0 +1,54 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { AnalysesService } from './analyses.service';
+import { TriggerAnalysisDto } from '../jobs/jobs.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+
+@Controller('analyses')
+@UseGuards(JwtAuthGuard, TenancyGuard)
+export class AnalysesController {
+  constructor(private readonly analysesService: AnalysesService) {}
+
+  @Post()
+  async trigger(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: TriggerAnalysisDto
+  ) {
+    return this.analysesService.triggerAnalysis(tenantId, userId, dto);
+  }
+
+  @Get()
+  async findAll(
+    @CurrentTenant() tenantId: string,
+    @Query('projectId') projectId?: string
+  ) {
+    return this.analysesService.findAll(tenantId, projectId);
+  }
+
+  @Get(':id')
+  async findById(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string
+  ) {
+    return this.analysesService.findById(tenantId, id);
+  }
+
+  @Get(':id/findings')
+  async getFindingsForAnalysis(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string
+  ) {
+    return this.analysesService.getFindingsForAnalysis(tenantId, id);
+  }
+}

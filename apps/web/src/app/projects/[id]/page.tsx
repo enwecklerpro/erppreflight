@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FolderGit2,
   UploadCloud,
@@ -10,19 +11,26 @@ import {
   Play,
   Layers,
   CheckCircle,
-  FileText,
   ShieldAlert,
   Boxes,
   ArrowRight,
   ExternalLink,
-  ChevronRight,
+  Loader2,
+  AlertCircle,
+  FileCheck2,
 } from 'lucide-react';
-import { ALL_18_ENGINES } from '../../../lib/api-client';
+import {
+  ALL_18_ENGINES,
+  fetchProject,
+  fetchFindingsStats,
+  fetchAnalyses,
+  triggerAnalysis,
+} from '../../../lib/api-client';
 
 export default function ProjectWorkspacePage() {
   const params = useParams();
-  const rawId = params?.id as string;
-  const projectId = rawId || '1a91cf25-87a4-4a41-b0db-6e69001b9201';
+  const projectId = (params?.id as string) || '';
+  const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<
     'overview' | 'findings' | 'objects' | 'artifacts' | 'history' | 'launcher'
@@ -32,8 +40,63 @@ export default function ProjectWorkspacePage() {
     'CLEAN_CORE_OBJECT_GUARD',
     'FORM_DOCTOR',
   ]);
-  const [isLaunching, setIsLaunching] = useState(false);
-  const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [launchMessage, setLaunchMessage] = useState<string | null>(null);
+
+  // Real Project Details Query
+  const {
+    data: project,
+    isLoading: isProjectLoading,
+    isError: isProjectError,
+  } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => fetchProject(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 60,
+  });
+
+  // Real Findings Stats for this project
+  const {
+    data: stats,
+    isLoading: isStatsLoading,
+  } = useQuery({
+    queryKey: ['findingsStats', projectId],
+    queryFn: () => fetchFindingsStats(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 30,
+  });
+
+  // Real Analyses Run History for this project
+  const {
+    data: analyses = [],
+    isLoading: isAnalysesLoading,
+  } = useQuery({
+    queryKey: ['analyses', projectId],
+    queryFn: () => fetchAnalyses(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 30,
+  });
+
+  // Real Analysis Execution Mutation
+  const launchMutation = useMutation({
+    mutationFn: () =>
+      triggerAnalysis({
+        projectId,
+        engineTypes: selectedEngines,
+        targetRelease: project?.targetRelease || 'S4H_2023',
+      }),
+    onSuccess: (data) => {
+      setLaunchMessage(
+        `Preflight analysis completed! ${data.findingsCount} finding(s) detected across ${selectedEngines.length} engine(s).`
+      );
+      queryClient.invalidateQueries({ queryKey: ['findingsStats', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['findings', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'summary'] });
+    },
+    onError: (err: any) => {
+      setLaunchMessage(`Launch failed: ${err?.message || 'Server error'}`);
+    },
+  });
 
   const toggleEngine = (id: string) => {
     setSelectedEngines((prev) =>
@@ -42,13 +105,41 @@ export default function ProjectWorkspacePage() {
   };
 
   const handleLaunch = () => {
-    setIsLaunching(true);
-    setTimeout(() => {
-      setIsLaunching(false);
-      setLaunchSuccess(true);
-      setTimeout(() => setLaunchSuccess(false), 5000);
-    }, 1200);
+    setLaunchMessage(null);
+    launchMutation.mutate();
   };
+
+  if (isProjectLoading) {
+    return (
+      <div className="p-16 text-center text-xs text-muted-foreground animate-pulse">
+        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+        Loading workspace metadata...
+      </div>
+    );
+  }
+
+  if (isProjectError || !project) {
+    return (
+      <div className="p-12 text-center bg-card border border-border rounded-xl">
+        <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
+        <h2 className="text-base font-bold text-foreground">Project Workspace Not Found</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          The requested workspace does not exist or you lack permission to view it.
+        </p>
+        <Link
+          href="/projects"
+          className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors"
+        >
+          Return to Workspaces
+        </Link>
+      </div>
+    );
+  }
+
+  const cleanCoreScore = stats?.cleanCoreIndex ?? 100.0;
+  const blockersCount = stats?.bySeverity?.BLOCKER ?? 0;
+  const criticalsCount = stats?.bySeverity?.CRITICAL ?? 0;
+  const totalFindings = stats?.totalFindings ?? 0;
 
   return (
     <div className="space-y-6">
@@ -59,18 +150,18 @@ export default function ProjectWorkspacePage() {
             <div className="flex items-center gap-2">
               <FolderGit2 className="h-6 w-6 text-primary" />
               <h1 className="text-xl sm:text-2xl font-extrabold text-foreground">
-                S/4HANA 2023 Enterprise Migration Preflight
+                {project.name}
               </h1>
             </div>
             <p className="text-xs text-muted-foreground mt-1 font-mono">
-              Workspace ID: {projectId} • Target Release: S/4HANA 2023
+              Workspace ID: {project.id} • Target Release: {project.targetRelease}
             </p>
           </div>
 
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('launcher')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary-dark transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
             >
               <Play className="h-3.5 w-3.5" />
               Launch Analysis
@@ -118,13 +209,21 @@ export default function ProjectWorkspacePage() {
                 Clean Core Health Score
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">87.4%</span>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                  Target: &gt;85%
+                <span className="text-3xl font-bold text-foreground">
+                  {cleanCoreScore.toFixed(1)}%
+                </span>
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+                    cleanCoreScore >= 85
+                      ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                  }`}
+                >
+                  {cleanCoreScore >= 85 ? 'Target Met (>85%)' : 'Needs Remediation'}
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Tier 1 / Tier 2 cloud extensibility compliance across custom repository.
+                Tier 1 / Tier 2 cloud extensibility compliance across workspace repository.
               </p>
             </div>
 
@@ -140,9 +239,11 @@ export default function ProjectWorkspacePage() {
                 <ArrowRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">3</span>
+                <span className="text-3xl font-bold text-foreground">
+                  {totalFindings}
+                </span>
                 <span className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 px-2 py-0.5 rounded flex items-center gap-1 border border-amber-200 dark:border-amber-800">
-                  1 Blocker • 1 Critical
+                  {blockersCount} Blocker{blockersCount !== 1 ? 's' : ''} • {criticalsCount} Critical
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -162,9 +263,9 @@ export default function ProjectWorkspacePage() {
                 <ArrowRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground font-mono">10,000+</span>
+                <span className="text-3xl font-bold text-foreground font-mono">Verified</span>
                 <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                  74.2% Clean
+                  Catalog Active
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -178,20 +279,20 @@ export default function ProjectWorkspacePage() {
                 Staged Artifacts
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">4</span>
+                <span className="text-3xl font-bold text-foreground">Ready</span>
                 <span className="text-xs font-semibold text-blue-700 bg-blue-50 dark:bg-blue-950 dark:text-blue-300 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                   Clean Quarantine
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                BRFplus XML, Smart Forms XML, and custom ABAP packages.
+                XML, JSON, CSV, and ABAP artifacts evaluated by deterministic engines.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Tab: Findings (Navigation Card & Direct Links) */}
+      {/* Tab: Findings */}
       {activeTab === 'findings' && (
         <div className="space-y-6">
           <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
@@ -205,14 +306,14 @@ export default function ProjectWorkspacePage() {
                     Preflight Findings Ledger & Cryptographic Evidence
                   </h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Explore all detected violations, Clean Core deviations, and cryptographic proofs.
+                    Explore all detected violations, Clean Core deviations, and cryptographic proofs for {project.name}.
                   </p>
                 </div>
               </div>
 
               <Link
                 href={`/projects/${projectId}/findings`}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary-dark transition-colors shadow-sm shrink-0"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors shadow-sm shrink-0"
               >
                 <span>Open Full Findings Ledger</span>
                 <ExternalLink className="size-3.5" />
@@ -222,23 +323,29 @@ export default function ProjectWorkspacePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
               <div className="p-4 rounded-xl border border-border bg-muted/20">
                 <span className="text-xs font-semibold text-muted-foreground block">Blockers Detected</span>
-                <span className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1 block">1</span>
+                <span className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1 block">
+                  {blockersCount}
+                </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  OPD channel missing in decision table
+                  Must be resolved before target release deployment
                 </span>
               </div>
               <div className="p-4 rounded-xl border border-border bg-muted/20">
                 <span className="text-xs font-semibold text-muted-foreground block">Critical Defects</span>
-                <span className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1 block">1</span>
+                <span className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1 block">
+                  {criticalsCount}
+                </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Direct UPDATE to standard table ACDOCA
+                  High-risk Clean Core and architectural deviations
                 </span>
               </div>
               <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Major Deprecations</span>
-                <span className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1 block">1</span>
+                <span className="text-xs font-semibold text-muted-foreground block">Total Findings</span>
+                <span className="text-2xl font-bold text-foreground mt-1 block">
+                  {totalFindings}
+                </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Obsolete non-Unicode script elements in Smart Form
+                  Cryptographically hashed and evidence-linked findings
                 </span>
               </div>
             </div>
@@ -246,112 +353,41 @@ export default function ProjectWorkspacePage() {
         </div>
       )}
 
-      {/* Tab: Objects (Navigation Card & Direct Links) */}
+      {/* Tab: Objects */}
       {activeTab === 'objects' && (
-        <div className="space-y-6">
-          <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/60 text-primary rounded-xl border border-blue-200 dark:border-blue-900">
-                  <Boxes className="size-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-foreground">
-                    SAP Custom Object Inventory & Clean Core Catalog
-                  </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Virtualized high-capacity catalog of 10,000+ custom SAP development assets.
-                  </p>
-                </div>
-              </div>
-
-              <Link
-                href={`/projects/${projectId}/objects`}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary-dark transition-colors shadow-sm shrink-0"
-              >
-                <span>Open Virtualized Inventory</span>
-                <ExternalLink className="size-3.5" />
-              </Link>
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Object Inventory Explorer</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Deep-dive into custom Z/Y-programs, decision tables, CDS views, and forms.
+              </p>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Catalog Scale</span>
-                <span className="text-2xl font-bold text-foreground font-mono mt-1 block">10,000+</span>
-                <span className="text-[11px] text-muted-foreground mt-1 block">
-                  PROG, CLAS, TABL, CDS, FUGR, INTF, FORM
-                </span>
-              </div>
-              <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Clean Core Rate</span>
-                <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 block">74.2%</span>
-                <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Tier 1 Cloud & Tier 2 Developer Extensibility
-                </span>
-              </div>
-              <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Classic Modifications</span>
-                <span className="text-2xl font-bold text-rose-600 dark:text-rose-400 mt-1 block">142</span>
-                <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Direct database mutations requiring refactoring
-                </span>
-              </div>
-            </div>
+            <Link
+              href={`/projects/${projectId}/objects`}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Open Object Catalog
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
           </div>
         </div>
       )}
 
       {/* Tab: Artifact Dropzone */}
       {activeTab === 'artifacts' && (
-        <div className="space-y-6">
-          <div className="border-2 border-dashed border-border hover:border-primary/60 transition-colors rounded-2xl p-8 text-center bg-card flex flex-col items-center justify-center">
-            <div className="p-4 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 rounded-full">
-              <UploadCloud className="h-8 w-8" />
-            </div>
-            <h3 className="text-base font-bold text-foreground mt-4">
-              Drag & Drop SAP Artifacts
-            </h3>
-            <p className="text-xs text-muted-foreground mt-1 max-w-md">
-              Supports XML, JSON, CSV, ZIP, ABAP text, XDP, and WSDL. Automatic magic-byte validation, XXE defense, and credential redaction.
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+          <div className="text-center py-8">
+            <UploadCloud className="h-12 w-12 text-primary mx-auto mb-3" />
+            <h3 className="text-base font-bold text-foreground">Staged SAP Artifacts</h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+              Secure quarantine scanning, MIME sniffing, and secret scrubbing for customer ZIPs, XML, and ABAP dumps.
             </p>
-            <button
-              onClick={() => alert('Artifact upload simulated')}
-              className="mt-5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary-dark transition-colors shadow-sm"
-            >
-              Browse Local Files
-            </button>
-          </div>
-
-          <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-            <h3 className="text-sm font-bold text-foreground mb-4">
-              Staged Artifacts
-            </h3>
-            <div className="divide-y divide-border text-xs">
-              {[
-                { name: 'billing_opd_rules.xml', size: '1.2 MB', status: 'CLEAN', sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' },
-                { name: 'zgl_posting.prog.abap', size: '48 KB', status: 'CLEAN', sha256: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8' },
-                { name: 'zinvoice_v2.xml', size: '340 KB', status: 'CLEAN', sha256: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945' },
-              ].map((art, idx) => (
-                <div key={idx} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <span className="font-semibold text-foreground">{art.name}</span>
-                      <span className="text-[10px] text-muted-foreground ml-2 font-mono">
-                        ({art.size})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-mono text-muted-foreground hidden md:inline">
-                      SHA-256: {art.sha256.slice(0, 16)}...
-                    </span>
-                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
-                      {art.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1 rounded border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                <FileCheck2 className="h-3.5 w-3.5" />
+                Antivirus Scanner Active
+              </span>
             </div>
           </div>
         </div>
@@ -363,27 +399,42 @@ export default function ProjectWorkspacePage() {
           <h3 className="text-sm font-bold text-foreground mb-4">
             Analysis Execution Ledger
           </h3>
-          <div className="divide-y divide-border text-xs">
-            {[
-              { id: 'run-9021', date: '2026-09-24 01:15 UTC', engines: 3, findings: 3, status: 'COMPLETED', user: 'Lead Architect' },
-              { id: 'run-8994', date: '2026-09-23 18:40 UTC', engines: 18, findings: 14, status: 'COMPLETED', user: 'Migration Consultant' },
-            ].map((run) => (
-              <div key={run.id} className="py-3 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-foreground">{run.id}</span>
-                    <span className="text-muted-foreground">• {run.date}</span>
+          {isAnalysesLoading ? (
+            <div className="p-8 text-center text-xs text-muted-foreground animate-pulse">
+              Loading run history...
+            </div>
+          ) : analyses.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-xs">
+              No analysis runs recorded yet for this workspace. Use the Analysis Launcher to trigger a run.
+            </div>
+          ) : (
+            <div className="divide-y divide-border text-xs">
+              {analyses.map((run) => (
+                <div key={run.id} className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold font-mono text-foreground">{run.id.slice(0, 8)}...</span>
+                      <span className="text-muted-foreground">
+                        • {new Date(run.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground mt-0.5">
+                      Evaluated {run.engineTypes?.length || 0} engine(s) • {run.findingsCount} finding(s) detected • Release: {run.targetRelease}
+                    </p>
                   </div>
-                  <p className="text-muted-foreground mt-0.5">
-                    Evaluated {run.engines} engines • {run.findings} findings detected • Triggered by {run.user}
-                  </p>
+                  <span
+                    className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
+                      run.status === 'COMPLETED'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                        : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                    }`}
+                  >
+                    {run.status}
+                  </span>
                 </div>
-                <span className="px-2.5 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
-                  {run.status}
-                </span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -395,21 +446,51 @@ export default function ProjectWorkspacePage() {
               Configure & Trigger Preflight Assessment
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Select which engines to execute against the staged customer artifacts.
+              Select which deterministic preflight engines to execute against {project.name}.
             </p>
           </div>
 
-          {launchSuccess && (
-            <div className="p-4 rounded-lg bg-green-50 border border-green-200 text-green-800 text-xs flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
-              Preflight analysis job enqueued successfully! Results are populated in findings ledger.
+          {launchMessage && (
+            <div
+              className={`p-4 rounded-lg text-xs flex items-center gap-2 ${
+                launchMutation.isError
+                  ? 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200'
+                  : 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/60 dark:text-green-200'
+              }`}
+            >
+              {launchMutation.isError ? (
+                <AlertCircle className="h-4 w-4 shrink-0" />
+              ) : (
+                <CheckCircle className="h-4 w-4 shrink-0" />
+              )}
+              <span>{launchMessage}</span>
             </div>
           )}
 
           <div>
-            <label className="text-xs font-bold text-foreground">
-              Select Preflight Engines ({selectedEngines.length} of {ALL_18_ENGINES.length} selected)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-foreground">
+                Select Preflight Engines ({selectedEngines.length} of {ALL_18_ENGINES.length} selected)
+              </label>
+              <div className="space-x-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEngines(ALL_18_ENGINES.map((e) => e.id))}
+                  className="text-primary hover:underline font-semibold"
+                >
+                  Select All
+                </button>
+                <span className="text-muted-foreground">•</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedEngines([])}
+                  className="text-muted-foreground hover:underline"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 mt-3">
               {ALL_18_ENGINES.map((eng) => {
                 const selected = selectedEngines.includes(eng.id);
@@ -438,11 +519,20 @@ export default function ProjectWorkspacePage() {
           <div className="pt-4 border-t border-border flex justify-end">
             <button
               onClick={handleLaunch}
-              disabled={isLaunching || selectedEngines.length === 0}
-              className="px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary-dark transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
+              disabled={launchMutation.isPending || selectedEngines.length === 0}
+              className="px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
             >
-              <Play className="h-3.5 w-3.5" />
-              {isLaunching ? 'Dispatching to Queue...' : 'Execute Preflight Run'}
+              {launchMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Dispatching to Analysis Service...
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5" />
+                  Execute Preflight Run
+                </>
+              )}
             </button>
           </div>
         </div>

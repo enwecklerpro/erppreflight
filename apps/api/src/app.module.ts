@@ -14,6 +14,11 @@ import { RedactionModule } from './modules/redaction/redaction.module';
 import { IngestionModule } from './modules/ingestion/ingestion.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { ExportModule } from './modules/export/export.module';
+import { EnginesModule } from './modules/engines/engines.module';
+import { FindingsModule } from './modules/findings/findings.module';
+import { AnalysesModule } from './modules/analyses/analyses.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
 
 @Module({
   imports: [
@@ -33,6 +38,11 @@ import { ExportModule } from './modules/export/export.module';
     IngestionModule,
     AuditModule,
     ExportModule,
+    EnginesModule,
+    FindingsModule,
+    AnalysesModule,
+    DashboardModule,
+    OrganizationsModule,
   ],
 })
 export class AppModule implements NestModule {

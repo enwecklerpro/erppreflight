@@ -9,6 +9,9 @@ import { DatabaseService } from '../database/database.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'node:crypto';
+import { hash, verify } from '@node-rs/argon2';
+
+const ARGON2ID_ALGORITHM = 2; // Algorithm.Argon2id (RFC 9106 recommended)
 
 @Injectable()
 export class AuthService {
@@ -19,8 +22,23 @@ export class AuthService {
     private readonly jwt: JwtService
   ) {}
 
-  private hashPassword(password: string): string {
-    return createHash('sha256').update(password).digest('hex');
+  private async hashPassword(password: string): Promise<string> {
+    return hash(password, {
+      algorithm: ARGON2ID_ALGORITHM,
+      memoryCost: 19456,
+      timeCost: 2,
+      parallelism: 1,
+    });
+  }
+
+  private async verifyPassword(plain: string, hashed: string): Promise<boolean> {
+    if (!hashed) return false;
+    if (hashed.startsWith('$argon2')) {
+      return verify(hashed, plain);
+    }
+    // Backward-compatibility fallback: legacy SHA-256 hash check
+    const sha = createHash('sha256').update(plain).digest('hex');
+    return sha === hashed;
   }
 
   async register(dto: RegisterDto) {
@@ -42,7 +60,7 @@ export class AuthService {
       .replace(/-+/g, '-')
       .slice(0, 50);
 
-    const passwordHash = this.hashPassword(dto.password);
+    const passwordHash = await this.hashPassword(dto.password);
 
     // 2. Insert organization
     await this.db.query(
@@ -90,14 +108,12 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const passwordHash = this.hashPassword(dto.password);
-
     const userRes = await this.db.query(
-      `SELECT u.id, u.email, u.full_name, u.system_role, m.organization_id, m.role
+      `SELECT u.id, u.email, u.full_name, u.password_hash, u.system_role, m.organization_id, m.role
        FROM users u
        LEFT JOIN organization_members m ON m.user_id = u.id
-       WHERE u.email = $1 AND u.password_hash = $2`,
-      [dto.email.toLowerCase(), passwordHash],
+       WHERE u.email = $1`,
+      [dto.email.toLowerCase()],
       { bypassRls: true }
     );
 
@@ -106,6 +122,21 @@ export class AuthService {
     }
 
     const row = userRes.rows[0];
+    const isMatch = await this.verifyPassword(dto.password, row.password_hash);
+    if (!isMatch) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Seamlessly rehash legacy passwords to Argon2id on successful login
+    if (row.password_hash && !row.password_hash.startsWith('$argon2')) {
+      const newHash = await this.hashPassword(dto.password);
+      await this.db.query(
+        'UPDATE users SET password_hash = $1 WHERE id = $2',
+        [newHash, row.id],
+        { bypassRls: true }
+      );
+    }
+
     const organizationId = row.organization_id || uuidv4();
     const role = row.role || 'VIEWER';
 

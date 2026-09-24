@@ -36,12 +36,7 @@ function ProjectFindingsContent() {
   } = useQuery<Finding[], Error>({
     queryKey: queryKeys.findings.byProject(projectId),
     queryFn: async () => {
-      const data = await fetchFindings();
-      if (projectId) {
-        const matched = data.filter((f) => !f.projectId || f.projectId === projectId);
-        return matched.length > 0 ? matched : data;
-      }
-      return data;
+      return fetchFindings({ projectId });
     },
     staleTime: 1000 * 60 * 2,
     refetchOnWindowFocus: false,

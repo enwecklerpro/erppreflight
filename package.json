@@ -14,6 +14,7 @@
     "clean": "turbo run clean",
     "test:python": "py -m pytest services/analysis-python/tests -v",
     "check:deps": "node scripts/check-no-dependency-soup.mjs",
+    "check:no-production-facades": "node scripts/check-no-production-facades.mjs",
     "codegen:api": "pnpm --filter @erppreflight/web codegen:api"
   },
   "devDependencies": {

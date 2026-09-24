@@ -2,19 +2,18 @@ import {
   EngineType,
   Finding,
   Project,
-  Severity,
-  ConfidenceClass,
 } from '@erppreflight/schemas';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+import { customInstance } from './api/custom-instance';
 
 export interface EngineStatusItem {
-  id: EngineType;
+  id: string;
   name: string;
   domain: string;
-  status: 'OPERATIONAL' | 'DEGRADED' | 'STANDBY';
+  status: 'OPERATIONAL' | 'DEGRADED' | 'STANDBY' | 'OFFLINE';
   rulesCount: number;
   description: string;
+  supportedArtifactTypes?: string[];
+  version?: string;
 }
 
 export const ALL_18_ENGINES: EngineStatusItem[] = [
@@ -39,132 +38,190 @@ export const ALL_18_ENGINES: EngineStatusItem[] = [
   { id: 'MFS_BLACKBOX', name: 'MFS BlackBox', domain: 'Warehouse Automation', status: 'OPERATIONAL', rulesCount: 28, description: 'Material Flow System telegram sequence & telegram buffer auditor' },
 ];
 
-export const MOCK_PROJECTS: Project[] = [
-  {
-    id: '1a91cf25-87a4-4a41-b0db-6e69001b9201',
-    organizationId: 'f0000000-0000-0000-0000-000000000001',
-    name: 'S/4HANA 2023 Enterprise Migration Preflight',
-    slug: 's4hana-2023-migration',
-    description: 'Comprehensive clean core assessment and deprecation preflight before Cloud Private Edition migration.',
-    targetRelease: 'S4H_2023',
-    environments: ['DEV', 'TEST', 'QA', 'PROD'],
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: '2b91cf25-87a4-4a41-b0db-6e69001b9202',
-    organizationId: 'f0000000-0000-0000-0000-000000000001',
-    name: 'Clean Core BAdI & Extensibility Governance',
-    slug: 'clean-core-extensibility',
-    description: 'Tier 1 / Tier 2 audit for custom Z-code and obsolete RFC interfaces.',
-    targetRelease: 'S4HC_2408',
-    environments: ['DEV', 'TEST'],
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+export interface CreateProjectPayload {
+  name: string;
+  description?: string;
+  targetRelease: string;
+  environments?: string[];
+}
 
-export const MOCK_FINDINGS: Finding[] = [
-  {
-    id: 'f1111111-1111-1111-1111-111111111111',
-    ruleId: 'OPD_DETERMINATION_STEP_MISSING',
-    engineType: 'OPD_GUARD',
-    severity: 'BLOCKER',
-    category: 'OUTPUT_CONTROL',
-    title: 'Output Determination table missing required channel row',
-    description: 'BRFplus output parameter decision table for BILLING_DOCUMENT lacks default EMAIL dispatch entry in target release S/4HANA 2023.',
-    confidence: 'VERIFIED',
-    confidenceScore: 1.0,
-    remediation: 'Execute transaction OPD and define an active fallback EMAIL determination rule row for application BILLING_DOCUMENT.',
-    affectedObjects: [
-      { name: 'APOC_OR_BILLING_DOC', type: 'DECISION_TABLE', tier: 'TIER_1_CLOUD' }
-    ],
-    evidence: [
-      {
-        artifactPath: 'exports/brfplus/billing_opd_rules.xml',
-        lineNumber: 142,
-        columnNumber: 8,
-        snippet: '<rule step="01" app="BILLING_DOCUMENT" status="INCOMPLETE_CHANNELS"/>',
-        sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-        provenance: 'VERIFIED',
-        sourceType: 'XML_DOM',
-        trustScore: 1.0,
-      }
-    ],
-    technicalDetails: { decisionTable: 'APOC_OR_BILLING_DOC', missingStep: 'OUTPUT_CHANNELS' },
-    fingerprint: '3a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b',
-  },
-  {
-    id: 'f2222222-2222-2222-2222-222222222222',
-    ruleId: 'CLEAN_CORE_TIER3_DIRECT_DB_MUTATION',
-    engineType: 'CLEAN_CORE_OBJECT_GUARD',
-    severity: 'CRITICAL',
-    category: 'CLEAN_CORE_VIOLATION',
-    title: 'Direct database UPDATE to standard table ACDOCA detected in custom report',
-    description: 'Custom ABAP report ZGL_POSTING performs direct SQL UPDATE on ACDOCA bypassing the standard journal entry posting API.',
-    confidence: 'RULE_DERIVED',
-    confidenceScore: 0.85,
-    remediation: 'Refactor direct table mutation to use released SAP Cloud BAPI / RAP BO `I_JournalEntryTP`.',
-    affectedObjects: [
-      { name: 'ZGL_POSTING', type: 'ABAP_PROGRAM', tier: 'TIER_3_CLASSIC' }
-    ],
-    evidence: [
-      {
-        artifactPath: 'src/abap/zgl_posting.prog.abap',
-        lineNumber: 87,
-        snippet: 'UPDATE acdoca SET bstat = \'C\' WHERE rldnr = \'0L\' AND belnr = lv_belnr.',
-        sha256: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
-        provenance: 'RULE_DERIVED',
-        sourceType: 'AST',
-        trustScore: 0.85,
-      }
-    ],
-    technicalDetails: { targetTable: 'ACDOCA', recommendedApi: 'I_JournalEntryTP' },
-    fingerprint: '4b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c',
-  },
-  {
-    id: 'f3333333-3333-3333-3333-333333333333',
-    ruleId: 'FORM_DOCTOR_OBSOLETE_SMARTFORM',
-    engineType: 'FORM_DOCTOR',
-    severity: 'MAJOR',
-    category: 'FORM_COMPATIBILITY',
-    title: 'Smart Form ZINVOICE_V2 uses obsolete non-Unicode script elements',
-    description: 'Smart Form uses character conversions and direct page layouts that are deprecated in S/4HANA Adobe Document Services (ADS).',
-    confidence: 'VERIFIED',
-    confidenceScore: 1.0,
-    remediation: 'Migrate Smart Form layout to Adobe LiveCycle Designer XDP format using the FormDoctor automated conversion pipeline.',
-    affectedObjects: [
-      { name: 'ZINVOICE_V2', type: 'FORM', tier: 'TIER_2_DEVELOPER' }
-    ],
-    evidence: [
-      {
-        artifactPath: 'forms/smartforms/zinvoice_v2.xml',
-        lineNumber: 204,
-        snippet: '<formElement type="SMARTFORM_LEGACY_CODEPAGE" codepage="1100"/>',
-        sha256: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
-        provenance: 'VERIFIED',
-        sourceType: 'XML_DOM',
-        trustScore: 1.0,
-      }
-    ],
-    technicalDetails: { formType: 'SMARTFORM', recommendedTarget: 'ADOBE_XDP' },
-    fingerprint: '5c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d',
-  },
-];
+export interface TriggerAnalysisPayload {
+  projectId: string;
+  engineTypes: string[];
+  targetRelease?: string;
+  artifactS3Key?: string;
+  rawContent?: string;
+}
+
+export interface FindingsQueryParams {
+  projectId?: string;
+  engine?: string;
+  severity?: string;
+  category?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface DashboardSummaryData {
+  cleanCoreIndex: number;
+  activeProjects: number;
+  totalProjects: number;
+  blockersAndCritical: number;
+  totalFindings: number;
+  severityDistribution: Record<string, number>;
+  enginesOperational: string;
+  enginesSummary: {
+    totalEngines: number;
+    operationalCount: number;
+    totalRules: number;
+    serviceStatus: string;
+  };
+  recentProjects: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    targetRelease: string;
+    createdAt: string;
+  }>;
+  recentAnalyses: Array<{
+    id: string;
+    projectId: string;
+    status: string;
+    targetRelease: string;
+    findingsCount: number;
+    createdAt: string;
+    completedAt: string | null;
+  }>;
+}
+
+// -----------------------------------------------------------------------------
+// Real Project Operations
+// -----------------------------------------------------------------------------
 
 export async function fetchProjects(): Promise<Project[]> {
   try {
-    const res = await fetch(`${API_BASE}/projects`, { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      return Array.isArray(data) && data.length > 0 ? data : MOCK_PROJECTS;
-    }
-  } catch {
-    // Graceful offline fallback
+    const data = await customInstance<Project[]>('/projects');
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('Failed to fetch projects from API:', err);
+    return [];
   }
-  return MOCK_PROJECTS;
 }
 
-export async function fetchFindings(): Promise<Finding[]> {
-  return MOCK_FINDINGS;
+export async function fetchProject(id: string): Promise<Project> {
+  return customInstance<Project>(`/projects/${id}`);
+}
+
+export async function createProject(payload: CreateProjectPayload): Promise<Project> {
+  return customInstance<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Real Finding Operations
+// -----------------------------------------------------------------------------
+
+export async function fetchFindings(params?: FindingsQueryParams): Promise<Finding[]> {
+  try {
+    const searchParams = new URLSearchParams();
+    if (params?.projectId) searchParams.set('projectId', params.projectId);
+    if (params?.engine) searchParams.set('engine', params.engine);
+    if (params?.severity) searchParams.set('severity', params.severity);
+    if (params?.category) searchParams.set('category', params.category);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+
+    const qs = searchParams.toString();
+    const endpoint = `/findings${qs ? `?${qs}` : ''}`;
+    const res = await customInstance<{ items?: Finding[] } | Finding[]>(endpoint);
+
+    if (res && 'items' in res && Array.isArray(res.items)) {
+      return res.items;
+    }
+    if (Array.isArray(res)) {
+      return res;
+    }
+    return [];
+  } catch (err) {
+    console.error('Failed to fetch findings from API:', err);
+    return [];
+  }
+}
+
+export async function fetchFindingById(id: string): Promise<Finding> {
+  return customInstance<Finding>(`/findings/${id}`);
+}
+
+export async function fetchFindingsStats(projectId?: string) {
+  const qs = projectId ? `?projectId=${projectId}` : '';
+  return customInstance<{
+    totalFindings: number;
+    cleanCoreIndex: number;
+    bySeverity: Record<string, number>;
+    byEngine: Record<string, number>;
+    blockerAndCriticalCount: number;
+  }>(`/findings/stats${qs}`);
+}
+
+// -----------------------------------------------------------------------------
+// Real Analysis Operations
+// -----------------------------------------------------------------------------
+
+export async function triggerAnalysis(payload: TriggerAnalysisPayload) {
+  return customInstance<{
+    analysisId: string;
+    status: string;
+    findingsCount: number;
+    findings: Finding[];
+  }>('/analyses', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAnalyses(projectId?: string) {
+  const qs = projectId ? `?projectId=${projectId}` : '';
+  return customInstance<Array<{
+    id: string;
+    organizationId: string;
+    projectId: string;
+    status: string;
+    engineTypes: string[];
+    targetRelease: string;
+    findingsCount: number;
+    createdAt: string;
+    completedAt: string | null;
+  }>>(`/analyses${qs}`);
+}
+
+// -----------------------------------------------------------------------------
+// Real Dashboard & Engine Operations
+// -----------------------------------------------------------------------------
+
+export async function fetchDashboardSummary(): Promise<DashboardSummaryData> {
+  return customInstance<DashboardSummaryData>('/dashboard/summary');
+}
+
+export async function fetchEngineStatus(): Promise<{
+  summary: {
+    totalEngines: number;
+    operationalCount: number;
+    totalRules: number;
+    serviceStatus: string;
+  };
+  engines: EngineStatusItem[];
+}> {
+  return customInstance<{
+    summary: {
+      totalEngines: number;
+      operationalCount: number;
+      totalRules: number;
+      serviceStatus: string;
+    };
+    engines: EngineStatusItem[];
+  }>('/engines/status');
 }
