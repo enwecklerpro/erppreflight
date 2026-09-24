@@ -101,25 +101,68 @@ export const setStoredTenantId = (tenantId: string | null): void => {
 /**
  * Builds the canonical request URL from base URL and path.
  * Strips redundant /api/v1 if both base URL and endpoint path include it.
+ * Normalizes double slashes, trims whitespace, and handles edge cases cleanly.
  */
 export const resolveApiUrl = (path: string): string => {
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return path;
+  const trimmedPath = (path || '').trim();
+  if (trimmedPath.startsWith('http://') || trimmedPath.startsWith('https://')) {
+    return trimmedPath;
   }
 
-  const rawBase =
+  const rawBase = (
     process.env.NEXT_PUBLIC_API_URL ||
-    (typeof window !== 'undefined' ? '' : 'http://localhost:4000');
+    (typeof window !== 'undefined' ? '' : 'http://localhost:3001')
+  ).trim();
 
-  let cleanBase = rawBase.replace(/\/+$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  // Normalize base:
+  // 1. Collapse multiple slashes after protocol (http:// or https://)
+  // 2. Strip trailing slashes
+  // 3. Collapse duplicate /api/v1 at end of base
+  let cleanBase = rawBase
+    .replace(/(https?:\/\/)|(\/)+/g, (_m, proto, slash) => proto || slash || '')
+    .replace(/\/+$/, '')
+    .replace(/(\/api\/v1)+$/, '/api/v1');
 
-  // If base ends with /api/v1 and path starts with /api/v1, strip prefix from base
-  if (cleanBase.endsWith('/api/v1') && cleanPath.startsWith('/api/v1')) {
-    cleanBase = cleanBase.slice(0, -'/api/v1'.length);
+  // Split path into pathname and search/hash (? or #) to preserve query parameters
+  const queryOrHashIndex = trimmedPath.search(/[?#]/);
+  let pathname = queryOrHashIndex === -1 ? trimmedPath : trimmedPath.slice(0, queryOrHashIndex);
+  const searchAndHash = queryOrHashIndex === -1 ? '' : trimmedPath.slice(queryOrHashIndex);
+
+  // Normalize pathname: collapse consecutive slashes
+  pathname = pathname.replace(/\/{2,}/g, '/');
+
+  // Ensure leading slash if pathname is non-empty
+  if (pathname && !pathname.startsWith('/')) {
+    pathname = `/${pathname}`;
   }
 
-  return `${cleanBase}${cleanPath}`;
+  // Collapse accidental duplicate /api/v1 segments at the start of pathname
+  pathname = pathname.replace(/^(\/api\/v1)+(?=\/|$)/, '/api/v1');
+
+  // Boundary check: does pathname start with /api/v1 (followed by / or end of string)?
+  const hasApiV1 = /^\/api\/v1(?=$|\/)/.test(pathname);
+  const baseHasApiV1 = cleanBase.endsWith('/api/v1');
+
+  if (hasApiV1) {
+    if (baseHasApiV1) {
+      cleanBase = cleanBase.slice(0, -'/api/v1'.length).replace(/\/+$/, '');
+    }
+  } else {
+    // Path does not have /api/v1
+    if (!baseHasApiV1) {
+      if (pathname === '' || pathname === '/') {
+        pathname = '/api/v1';
+      } else {
+        pathname = `/api/v1${pathname}`;
+      }
+    } else {
+      if (pathname === '/') {
+        pathname = '';
+      }
+    }
+  }
+
+  return `${cleanBase}${pathname}${searchAndHash}`;
 };
 
 /**
@@ -157,6 +200,7 @@ export const customInstance = async <T>(
   const response = await fetch(fullUrl, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (!response.ok) {

@@ -1,13 +1,13 @@
-# BRIEFING — 2026-09-24T14:05:00+02:00
+# BRIEFING — 2026-09-25T00:09:00+02:00
 
 ## Mission
-Oversee and monitor the full-scale parallel build of all 18 SAP Preflight engines, platform services, and Coolify deployment in ERP Preflight inside H:/erppreflight, routing to teamwork_preview_orchestrator and enforcing mandatory independent victory audit.
+Oversee and monitor the implementation and verification of the 7 core production SaaS gaps in ERP Preflight (H:/erppreflight), routing to teamwork_preview_orchestrator and enforcing mandatory independent victory audit.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: H:/erppreflight/.agents/sentinel
-- Orchestrator: b18c0539-d6d7-4a41-968f-58324775ab38
-- Victory Auditor: e58eab06-a7be-4bd8-9d5d-81c60c5f3ade
+- Orchestrator: 732d36b7-a399-4387-8843-8a3934bdf045
+- Victory Auditor: 83672b71-85da-4125-a77f-9480cf753e03
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -18,22 +18,24 @@ Oversee and monitor the full-scale parallel build of all 18 SAP Preflight engine
 - Kill all subagents and crons upon confirmed completion before final report
 
 ## User Context
-- **Last user request**: Full-scale parallel build of all 18 engines, platform services, and Coolify deployment for ERP Preflight.
+- **Last user request**: Execute and verify the 7 core production SaaS gaps in ERP Preflight (H:/erppreflight): R1 (Artifact dropzone & ingestion pipeline), R2 (Durable BullMQ worker pipeline), R3 (ClamAV fail-closed), R4 (HttpOnly session cookies & login/signup UI), R5 (Canonical API URL resolution), R6 (Dynamic engine matrix failure representation), R7 (Playwright E2E suite with known-bad fixture).
 - **Pending clarifications**: none
 - **Delivered results**:
-  - Requirement R1: Production monorepo & platform foundation (Next.js 15, NestJS 11, Python 3.13 FastAPI, PostgreSQL 16 + pgvector + RLS, Redis 7.2, MinIO, Turborepo packages).
-  - Requirement R2: All 18 SAP Preflight Engines + MFS BlackBox across 6 operational domains (OPD Guard, FormDoctor, Custom Field Flow Doctor, Extension Impact Guard, SPRO2Cloud, ECC2Cloud Navigator, SAP Gap Radar, Clean Core Object Guard, Change Pointer Coverage Auditor, API Change Guard, Software Collection Dependency Guard, Transport Dependency Analyzer, Safe Decommission Preflight, Fiori 403 Root-Cause Doctor, Workflow Stuck Explainer, IAM Cost Optimizer, Account Determination Preflight, System Refresh Delta Guard, MFS BlackBox).
-  - Requirement R3: Secure Ingestion Pipeline & Multi-Tenant Isolation (magic bytes MIME sniffer, archive decompression safety, secret redaction, cryptographic evidence engine, epistemic confidence classifier, export engine).
-  - Requirement R4: Hostinger & Coolify End-to-End Deployment (docker-compose.coolify.yml, multi-stage non-root Dockerfiles, root .env.example, automated database migration entrypoint, health probes).
-  - Track 2: Curated library standardization (Part 21), 8 canonical playbooks in `/.agents/skills/`, and root `AGENTS.md` (Part 22).
+  - R1: Real Artifact Upload Dropzone UI, NestJS ingestion controller, S3 clean storage promotion.
+  - R2: Durable BullMQ `analysis-queue` job configuration (attempts: 3, backoff, retention), `AnalysisProcessor` with clean S3 artifact streaming and PostgreSQL tenant RLS.
+  - R3: Hardened fail-closed ClamAV production scanner (`SCAN_FAILED_*`) with socket drop tests.
+  - R4: Full-stack auth with HttpOnly session cookies, logout endpoint, dual JWT extraction, and TanStack Form `/login` & `/signup` pages.
+  - R5: Canonical `/api/v1` URL resolution in `custom-instance.ts` with 38 unit test permutations.
+  - R6: Resilient Engine Matrix offline/unknown state representation with non-color severity indicators and anti-facade script enforcement.
+  - R7: Python OPD Guard XML support, defective golden fixture `known_bad_billing_opd.xml`, and automated Playwright E2E pipeline test in `tests/e2e/preflight-pipeline.spec.ts`.
 
 ## Project Status
 - **Phase**: complete
 - **Routing Decision**: General path -> teamwork_preview_orchestrator
-- **Routing Rationale**: Massive multi-stage enterprise build covering full-stack web, API, python analysis engines, multi-tenancy, and deployment infrastructure.
-- **Active Orchestrator ID**: b18c0539-d6d7-4a41-968f-58324775ab38 (completed)
-- **Active Victory Auditor ID**: e58eab06-a7be-4bd8-9d5d-81c60c5f3ade (completed)
-- **Active Crons**: None (all cancelled upon confirmed victory)
+- **Routing Rationale**: Multi-part full-stack SaaS engineering gaps covering frontend, NestJS backend, BullMQ worker, ClamAV security, and Playwright E2E testing.
+- **Active Orchestrator ID**: 732d36b7-a399-4387-8843-8a3934bdf045 (completed & terminated)
+- **Active Victory Auditor ID**: 83672b71-85da-4125-a77f-9480cf753e03 (completed & terminated)
+- **Active Crons**: None (all cancelled per mandatory cleanup)
 - **Subagents**: All killed per mandatory cleanup
 
 ## Victory Audit Status
@@ -41,26 +43,22 @@ Oversee and monitor the full-scale parallel build of all 18 SAP Preflight engine
 - **Verdict**: VICTORY CONFIRMED
 - **Retry count**: 0
 - **Auditor Details**:
-  - Phase A (Timeline): PASS
-  - Phase B (Integrity Check): PASS (0 stubs, 0 facades, 0 hardcoded credentials, 100% genuine deterministic rules)
+  - Phase A (Timeline & Provenance): PASS
+  - Phase B (Integrity Forensics): PASS (0 stubs, 0 facades, 0 hardcoded test constants, genuine defused XML & live Playwright run)
   - Phase C (Independent Test Execution): PASS
-    - `check-no-dependency-soup.mjs`: 100% PASS (0 violations)
-    - `pnpm run typecheck`: 100% PASS (0 errors across 12 packages)
-    - `pnpm run lint`: 100% PASS (0 errors)
-    - `pnpm test`: 488 / 488 tests passed (394 API + 94 Web)
-    - `pnpm run build`: 100% PASS (7/7 packages built cleanly)
-    - `ruff check`: All checks passed
-    - `pytest`: 488 / 488 tests passed in 0.69s
-    - `runner.py`: 175 / 175 E2E tests passed in 991ms
-    - `docker compose config`: Valid syntax (0 errors)
+    - `pnpm run build`: PASS (7/7 packages clean)
+    - `pnpm run typecheck`: PASS (12/12 packages clean, 0 errors)
+    - `pnpm run lint`: PASS (0 errors)
+    - `pnpm run test`: PASS (569/569 tests passed: 438 API + 131 Web)
+    - `pytest services/analysis-python/tests -v`: PASS (501/501 passed)
+    - `node scripts/check-no-production-facades.mjs`: PASS (0 violations)
+    - `pnpm run test:e2e`: PASS (1/1 in 12.4s against live Next.js application)
 
 ## Artifact Index
-- H:/erppreflight/.agents/ORIGINAL_REQUEST.md — Verbatim user request
-- H:/erppreflight/ORIGINAL_REQUEST.md — Verbatim user request root copy
-- H:/erppreflight/.agents/victory_auditor_1/audit_report.md — Independent audit report
-- H:/erppreflight/.agents/victory_auditor_1/handoff.md — Auditor handoff report
-- H:/erppreflight/.agents/orchestrator_main/PROJECT.md — Global architecture, milestones, feature inventory
-- H:/erppreflight/.agents/orchestrator_main/handoff.md — Orchestrator completion handoff
-- H:/erppreflight/TEST_READY.md — E2E test verification report (175 tests, 100% pass)
-- H:/erppreflight/docker-compose.coolify.yml — Production Coolify deployment compose
-- H:/erppreflight/.env.example — Comprehensive configuration documentation
+- H:/erppreflight/.agents/teamwork/ORIGINAL_REQUEST.md — Verbatim user request
+- H:/erppreflight/.agents/ORIGINAL_REQUEST.md — Verbatim user request root copy
+- H:/erppreflight/.agents/teamwork/orchestrator_1/PROJECT.md — Orchestrator project plan
+- H:/erppreflight/.agents/teamwork/orchestrator_1/handoff.md — Orchestrator victory handoff
+- H:/erppreflight/.agents/teamwork/victory_auditor_1/handoff.md — Victory auditor handoff report
+- H:/erppreflight/tests/fixtures/known_bad_billing_opd.xml — Golden defective SAP fixture
+- H:/erppreflight/tests/e2e/preflight-pipeline.spec.ts — Playwright E2E pipeline test

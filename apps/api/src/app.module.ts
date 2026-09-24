@@ -1,5 +1,6 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './modules/database/database.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
@@ -25,6 +26,17 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     ConfigModule.forRoot({
       isGlobal: true,
       validate: validateEnv,
+    }),
+    BullModule.forRootAsync({
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: Number(config.get<number>('REDIS_PORT', 6379)),
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
+          maxRetriesPerRequest: null,
+        },
+      }),
+      inject: [ConfigService],
     }),
     DatabaseModule,
     TenancyModule,

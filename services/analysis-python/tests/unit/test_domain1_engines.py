@@ -235,7 +235,7 @@ class TestOPDGuardEngine:
 
     @pytest.mark.asyncio
     async def test_opd_guard_missing_recipient_step_failed(self):
-        """Negative Test: Unmatched scenario triggers OPD_STEP_FAILED."""
+        """Negative Test: Unmatched scenario triggers OPD_STEP_FAILED or OPD_DETERMINATION_STEP_MISSING."""
         payload_content = load_fixture("opd_scenario_missing_channel.json")
         req = AnalysisRequest(
             job_id="11111111-1111-1111-1111-111111111113",
@@ -247,7 +247,7 @@ class TestOPDGuardEngine:
         )
 
         res = await EngineRunner.execute(req)
-        failed_findings = [f for f in res.findings if f.rule_id == "OPD_STEP_FAILED"]
+        failed_findings = [f for f in res.findings if f.rule_id in ("OPD_STEP_FAILED", "OPD_DETERMINATION_STEP_MISSING")]
         assert len(failed_findings) >= 1
         finding = failed_findings[0]
         assert finding.severity in (Severity.CRITICAL, Severity.MAJOR)
@@ -255,6 +255,39 @@ class TestOPDGuardEngine:
         assert finding.confidence_score == 1.0
         assert "Email Recipient" in finding.title or "Email Recipient" in finding.description
         assert len(finding.remediation) > 0
+
+    @pytest.mark.asyncio
+    async def test_opd_guard_xml_golden_fixture(self):
+        """Negative Test: XML golden defective fixture triggers OPD_DETERMINATION_STEP_MISSING."""
+        golden_path = Path(__file__).resolve().parent.parent.parent.parent / "tests" / "fixtures" / "known_bad_billing_opd.xml"
+        if not golden_path.exists():
+            golden_path = Path("tests/fixtures/known_bad_billing_opd.xml")
+        xml_content = golden_path.read_text(encoding="utf-8")
+
+        req = AnalysisRequest(
+            job_id="11111111-1111-1111-1111-111111111114",
+            tenant_id="22222222-2222-2222-2222-222222222222",
+            project_id="33333333-3333-3333-3333-333333333333",
+            engine_type=EngineType.OPD_GUARD,
+            raw_content=xml_content,
+            artifact_type=ArtifactType.XML,
+            artifact_s3_key="known_bad_billing_opd.xml",
+        )
+
+        res = await EngineRunner.execute(req)
+        assert res.status in (AnalysisStatus.COMPLETED, AnalysisStatus.PARTIAL)
+        missing_step_findings = [f for f in res.findings if f.rule_id == "OPD_DETERMINATION_STEP_MISSING"]
+        assert len(missing_step_findings) >= 1
+        f = missing_step_findings[0]
+        assert f.severity == Severity.MAJOR
+        assert f.confidence == ConfidenceClass.VERIFIED
+        assert f.confidence_score == 1.0
+        assert "Channel" in f.title or "Channel" in f.description
+        assert len(f.evidence) >= 1
+        ev = f.evidence[0]
+        assert ev.artifact_path == "known_bad_billing_opd.xml#Channel"
+        assert len(ev.sha256) == 64
+        assert ev.line_number > 1
 
     @pytest.mark.asyncio
     async def test_opd_guard_property_based_fuzz(self):

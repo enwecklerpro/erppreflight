@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<OutputParameterDetermination>
+  <Scenario>
+    <BillingType>F2</BillingType>
+    <SalesOrganization>1000</SalesOrganization>
+    <DistributionChannel>10</DistributionChannel>
+    <Division>00</Division>
+    <CustomerNumber>100045</CustomerNumber>
+  </Scenario>
+  <DecisionTables>
+    <Table name="Output Type">
+      <Row>
+        <COND_BillingType>F2</COND_BillingType>
+        <RESULT>BILLING_DOCUMENT</RESULT>
+      </Row>
+    </Table>
+    <Table name="Receiver">
+      <Row>
+        <COND_BillingType>F2</COND_BillingType>
+        <RESULT>BP_100045</RESULT>
+      </Row>
+    </Table>
+    <Table name="Channel">
+      <!-- Defect: No rule matches BillingType 'F2'. Only 'RE' is configured. Email channel determination step fails! -->
+      <Row>
+        <COND_BillingType>RE</COND_BillingType>
+        <RESULT>EMAIL</RESULT>
+      </Row>
+    </Table>
+    <Table name="Printer">
+      <Row>
+        <COND_BillingType>*</COND_BillingType>
+        <RESULT>LP01</RESULT>
+      </Row>
+    </Table>
+    <Table name="Email Recipient">
+      <Row>
+        <COND_CustomerNumber>100045</COND_CustomerNumber>
+        <RESULT>billing@customer45.com</RESULT>
+      </Row>
+    </Table>
+    <Table name="Email Sender">
+      <Row>
+        <COND_SalesOrganization>1000</COND_SalesOrganization>
+        <RESULT>invoicing@acme.corp</RESULT>
+      </Row>
+    </Table>
+    <Table name="Form Template">
+      <Row>
+        <COND_BillingType>F2</COND_BillingType>
+        <RESULT>SD_INVOICE_DEFAULT</RESULT>
+      </Row>
+    </Table>
+    <Table name="Output Relevance">
+      <Row>
+        <COND_BillingType>F2</COND_BillingType>
+        <RESULT>TRUE</RESULT>
+      </Row>
+    </Table>
+  </DecisionTables>
+</OutputParameterDetermination>

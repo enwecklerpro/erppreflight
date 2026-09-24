@@ -18,6 +18,7 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.models.finding import Finding
 from src.models.evidence import Evidence
+from src.parsers.safe_xml import SafeXmlParser
 from src.platform.evidence import EvidenceEngine
 
 
@@ -27,7 +28,7 @@ class OPDGuardEngine(BaseEngine):
     name = "OPD Guard"
     description = "S/4HANA Output Parameter Determination & BRFplus decision table evaluation"
     version = "2.0.0"
-    supported_artifact_types = [ArtifactType.CSV, ArtifactType.XLSX, ArtifactType.JSON]
+    supported_artifact_types = [ArtifactType.CSV, ArtifactType.XLSX, ArtifactType.JSON, ArtifactType.XML]
 
     CANONICAL_STEPS = [
         "Output Type",
@@ -76,7 +77,7 @@ class OPDGuardEngine(BaseEngine):
         artifacts_scanned = max(1, len(request.artifacts))
 
         # 1. Parse Input Artifacts (Tables & Scenario)
-        tables, scenario, source_lines, artifact_path, raw_content_str = self._parse_inputs(request)
+        tables, scenario, source_lines, step_lines, artifact_path, raw_content_str = self._parse_inputs(request)
         artifact_hash = EvidenceEngine.compute_sha256(raw_content_str)
 
         # 2. Check for Shadowed / Unreachable Rules Across All Tables
@@ -91,6 +92,7 @@ class OPDGuardEngine(BaseEngine):
             artifact_path=artifact_path,
             artifact_hash=artifact_hash,
             target_release=request.target_release,
+            step_lines=step_lines,
         )
         findings.extend(pipe_findings)
         rules_evaluated += step_rules_count + shadowed_count
@@ -121,24 +123,32 @@ class OPDGuardEngine(BaseEngine):
         )
 
     # -------------------------------------------------------------------------
-    # Parsing Engine (JSON, CSV, XLSX)
+    # Parsing Engine (XML, JSON, CSV, XLSX)
     # -------------------------------------------------------------------------
     def _parse_inputs(
         self, request: AnalysisRequest
-    ) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, str], Dict[str, Dict[int, int]], str, str]:
+    ) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, str], Dict[str, Dict[int, int]], Dict[str, int], str, str]:
         """
         Parses tables and scenario from direct raw_content, configuration, or artifacts.
         Returns:
             tables: {step_name: [ {col: val, ...} ]}
             scenario: {field_name: val}
             source_lines: {step_name: {row_index: 1_based_line_number}}
+            step_lines: {step_name: 1_based_line_number_of_table_tag}
             artifact_path: string path for evidence
             raw_content_str: raw string representation for hashing
         """
         tables: Dict[str, List[Dict[str, Any]]] = {}
         scenario: Dict[str, str] = {}
         source_lines: Dict[str, Dict[int, int]] = {}
-        artifact_path = request.artifact_s3_key or "opd_decision_tables"
+        step_lines: Dict[str, int] = {}
+        artifact_path = (
+            request.artifact_s3_key
+            or request.configuration.get("artifact_path")
+            or request.configuration.get("file_name")
+            or (request.artifacts[0].file_name if request.artifacts and request.artifacts[0].file_name else None)
+            or "opd_decision_tables"
+        )
         raw_content_str = request.raw_content or ""
 
         # Merge scenario from configuration if present
@@ -157,8 +167,17 @@ class OPDGuardEngine(BaseEngine):
         # Parse inline raw_content
         if request.raw_content and request.raw_content.strip():
             raw_content_str = request.raw_content.strip()
-            # Attempt JSON first
-            if raw_content_str.startswith("{") or raw_content_str.startswith("["):
+            # 1. Attempt XML if starts with '<' or request.artifact_type is XML
+            if raw_content_str.startswith("<") or request.artifact_type == ArtifactType.XML:
+                xml_tables, xml_scen, xml_lines, xml_step_lines = self._parse_xml_content(raw_content_str)
+                if xml_tables or xml_scen:
+                    tables.update(xml_tables)
+                    scenario.update(xml_scen)
+                    source_lines.update(xml_lines)
+                    step_lines.update(xml_step_lines)
+
+            # 2. Attempt JSON if not populated or if starts with '{' or '['
+            if not tables and (raw_content_str.startswith("{") or raw_content_str.startswith("[")):
                 try:
                     parsed_json = json.loads(raw_content_str)
                     if isinstance(parsed_json, dict):
@@ -175,19 +194,29 @@ class OPDGuardEngine(BaseEngine):
                 except Exception:
                     pass
 
-            # If not JSON, or if tables empty, check for CSV format
+            # 3. If not JSON/XML, or if tables empty, check for CSV format
             if not tables and ("," in raw_content_str or "\n" in raw_content_str):
                 csv_tables, csv_lines = self._parse_csv_content(raw_content_str, request.configuration)
                 tables.update(csv_tables)
                 source_lines.update(csv_lines)
 
-        # Parse artifact attachments (CSV or XLSX)
+        # Parse artifact attachments (XML, JSON, CSV, XLSX)
         for art in request.artifacts:
             content = art.raw_content or ""
             if not content:
                 continue
             art_path = art.file_name or "artifact"
-            if art.artifact_type == ArtifactType.JSON or art_path.endswith(".json"):
+            if art.artifact_type == ArtifactType.XML or art_path.endswith(".xml") or content.strip().startswith("<"):
+                xml_tables, xml_scen, xml_lines, xml_step_lines = self._parse_xml_content(content)
+                tables.update(xml_tables)
+                scenario.update(xml_scen)
+                source_lines.update(xml_lines)
+                step_lines.update(xml_step_lines)
+                if not request.artifact_s3_key:
+                    artifact_path = art_path
+                if not raw_content_str:
+                    raw_content_str = content
+            elif art.artifact_type == ArtifactType.JSON or art_path.endswith(".json"):
                 try:
                     p_json = json.loads(content)
                     if "scenario" in p_json:
@@ -199,16 +228,101 @@ class OPDGuardEngine(BaseEngine):
                         source_lines[norm_k] = {i: i + 2 for i in range(len(rows))}
                 except Exception:
                     pass
+                if not raw_content_str:
+                    raw_content_str = content
             elif art.artifact_type == ArtifactType.CSV or art_path.endswith(".csv"):
                 csv_tables, csv_lines = self._parse_csv_content(content, request.configuration, file_name=art_path)
                 tables.update(csv_tables)
                 source_lines.update(csv_lines)
+                if not raw_content_str:
+                    raw_content_str = content
             elif art.artifact_type == ArtifactType.XLSX or art_path.endswith(".xlsx"):
                 xlsx_tables, xlsx_lines = self._parse_xlsx_binary(content, art_path)
                 tables.update(xlsx_tables)
                 source_lines.update(xlsx_lines)
+                if not raw_content_str:
+                    raw_content_str = content
 
-        return tables, scenario, source_lines, artifact_path, raw_content_str
+        return tables, scenario, source_lines, step_lines, artifact_path, raw_content_str
+
+    def _parse_xml_content(
+        self, xml_text: str
+    ) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, str], Dict[str, Dict[int, int]], Dict[str, int]]:
+        """
+        Parses XML decision tables and scenario using SafeXmlParser (defusedxml with line retention).
+        Extracts exact 1-based source lines for both tables/steps and individual rows.
+        """
+        tables: Dict[str, List[Dict[str, Any]]] = {}
+        scenario: Dict[str, str] = {}
+        source_lines: Dict[str, Dict[int, int]] = {}
+        step_lines: Dict[str, int] = {}
+
+        try:
+            root = SafeXmlParser.parse_string(xml_text)
+        except Exception:
+            return tables, scenario, source_lines, step_lines
+
+        # 1. Parse Scenario
+        scen_elem = root.find(".//Scenario")
+        if scen_elem is None:
+            scen_elem = root.find(".//DocumentParameters") or root.find(".//Parameters")
+        if scen_elem is not None:
+            for child in scen_elem:
+                tag = child.tag.strip()
+                val = (child.text or "").strip()
+                scenario[tag] = val
+
+        # 2. Parse Decision Tables
+        table_elements = (
+            root.findall(".//DecisionTable")
+            + root.findall(".//DecisionTables/Table")
+            + root.findall(".//Table")
+        )
+        seen_elems: Set[Any] = set()
+        for table_elem in table_elements:
+            if table_elem in seen_elems:
+                continue
+            seen_elems.add(table_elem)
+
+            raw_name = (
+                table_elem.attrib.get("name")
+                or table_elem.attrib.get("step")
+                or table_elem.attrib.get("id")
+                or ""
+            )
+            if not raw_name:
+                name_child = table_elem.find("Name") or table_elem.find("StepName")
+                if name_child is not None and name_child.text:
+                    raw_name = name_child.text.strip()
+            if not raw_name:
+                continue
+
+            step_name = self._normalize_step_name(raw_name)
+            step_line = getattr(table_elem, "sourceline", int(table_elem.attrib.get("line_number", 1)))
+            step_lines[step_name] = step_line
+
+            rows: List[Dict[str, Any]] = []
+            line_map: Dict[int, int] = {}
+
+            row_elements = table_elem.findall(".//Row") or table_elem.findall("./Row")
+            for r_idx, row_elem in enumerate(row_elements):
+                r_line = getattr(row_elem, "sourceline", int(row_elem.attrib.get("line_number", step_line)))
+                row_dict: Dict[str, Any] = {}
+                for col_elem in row_elem:
+                    col_name = col_elem.tag
+                    if col_elem.tag in ("Column", "Cell", "Field") and (
+                        "name" in col_elem.attrib or "col" in col_elem.attrib
+                    ):
+                        col_name = col_elem.attrib.get("name") or col_elem.attrib.get("col") or col_name
+                    val = (col_elem.text or "").strip()
+                    row_dict[col_name] = val
+                rows.append(row_dict)
+                line_map[r_idx] = r_line
+
+            tables[step_name] = rows
+            source_lines[step_name] = line_map
+
+        return tables, scenario, source_lines, step_lines
 
     def _parse_csv_content(
         self, csv_text: str, config: Dict[str, Any], file_name: str = "tables.csv"
@@ -567,11 +681,15 @@ class OPDGuardEngine(BaseEngine):
         artifact_path: str,
         artifact_hash: str,
         target_release: str,
+        step_lines: Optional[Dict[str, int]] = None,
     ) -> Tuple[str, Dict[str, str], Optional[str], List[Finding], int]:
         """
         Executes sequential determination through canonical OPD steps.
         Halts and pinpoints on first determination failure.
         """
+        if step_lines is None:
+            step_lines = {}
+
         results: Dict[str, str] = {}
         first_failed_step: Optional[str] = None
         findings: List[Finding] = []
@@ -625,8 +743,9 @@ class OPDGuardEngine(BaseEngine):
                 first_failed_step = step
                 # Identify missing condition details
                 missing_cond = self._diagnose_missing_condition(step, scenario, rows)
+                fail_line = step_lines.get(step, source_lines.get(step, {}).get(0, 1))
                 fail_finding = Finding(
-                    rule_id="OPD_STEP_FAILED",
+                    rule_id="OPD_DETERMINATION_STEP_MISSING",
                     severity=Severity.MAJOR if step in ("Output Type", "Channel") else Severity.CRITICAL,
                     category="Output Determination",
                     title=f"{step} Determination Failed",
@@ -642,7 +761,7 @@ class OPDGuardEngine(BaseEngine):
                     evidence=[
                         Evidence(
                             artifact_path=f"{artifact_path}#{step}",
-                            line_number=1,
+                            line_number=fail_line,
                             snippet=f"Step '{step}' evaluated against scenario: {json.dumps(scenario)}",
                             sha256=artifact_hash,
                             provenance=ConfidenceClass.VERIFIED,
@@ -654,6 +773,7 @@ class OPDGuardEngine(BaseEngine):
                         "scenario": scenario,
                         "missingCondition": missing_cond,
                         "totalRulesInTable": len(rows),
+                        "legacyRuleId": "OPD_STEP_FAILED",
                     },
                     affected_objects=[f"OPD_STEP_{step.upper().replace(' ', '_')}"],
                 )

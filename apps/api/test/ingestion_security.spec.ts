@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as net from 'node:net';
 import { MimeMagicValidator } from '../src/modules/ingestion/mime-magic.validator';
 import { ArchiveSafetyGuard } from '../src/modules/ingestion/archive-safety.guard';
 import { ClamAvScanner } from '../src/modules/ingestion/clamav.scanner';
@@ -163,17 +164,131 @@ describe('M2 Ingestion Security & Storage Suite', () => {
   });
 
   describe('3. ClamAV Quarantine Antivirus Scanner', () => {
-    it('passes clean business files', async () => {
+    it('passes clean business files in mock mode', async () => {
       const cleanBuf = Buffer.from('CUSTOMER_ID,REVENUE\nC100,500000\n');
       const res = await clamAvScanner.scanBuffer(cleanBuf);
       expect(res.isInfected).toBe(false);
     });
 
-    it('detects EICAR standard test virus signature and quarantines', async () => {
+    it('detects EICAR standard test virus signature and quarantines in mock mode', async () => {
       const eicarBuf = Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
       const res = await clamAvScanner.scanBuffer(eicarBuf);
       expect(res.isInfected).toBe(true);
       expect(res.virusName).toBe('Eicar-Test-Signature');
+    });
+
+    it('fails closed when CLAMAV_MOCK_MODE=false on unreachable socket / connection refused', async () => {
+      const prodConfig = new ConfigService({
+        CLAMAV_MOCK_MODE: 'false',
+        CLAMAV_HOST: '127.0.0.1',
+        CLAMAV_PORT: 39999, // Unused port
+      });
+      const prodScanner = new ClamAvScanner(prodConfig);
+      const buf = Buffer.from('CUSTOMER_ID,REVENUE\nC100,500000\n');
+      const res = await prodScanner.scanBuffer(buf);
+      expect(res.isInfected).toBe(true);
+      expect(res.virusName).toBe('SCAN_FAILED_CONNECTION_ERROR');
+    });
+
+    it('fails closed on socket timeout with CLAMAV_MOCK_MODE=false', async () => {
+      const server = net.createServer(() => {
+        // Deliberately keep connection open without sending response
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodConfig = new ConfigService({
+          CLAMAV_MOCK_MODE: 'false',
+          CLAMAV_HOST: '127.0.0.1',
+          CLAMAV_PORT: address.port,
+          CLAMAV_TIMEOUT_MS: 50,
+        });
+        const prodScanner = new ClamAvScanner(prodConfig);
+        const buf = Buffer.from('CUSTOMER_ID,REVENUE\nC100,500000\n');
+        const res = await prodScanner.scanBuffer(buf);
+        expect(res.isInfected).toBe(true);
+        expect(res.virusName).toBe('SCAN_FAILED_TIMEOUT');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('fails closed on unexpected response string with CLAMAV_MOCK_MODE=false', async () => {
+      const server = net.createServer((socket) => {
+        socket.on('data', () => {
+          socket.write('ERROR: COMMAND_UNRECOGNIZED\n');
+          socket.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodConfig = new ConfigService({
+          CLAMAV_MOCK_MODE: 'false',
+          CLAMAV_HOST: '127.0.0.1',
+          CLAMAV_PORT: address.port,
+        });
+        const prodScanner = new ClamAvScanner(prodConfig);
+        const buf = Buffer.from('CUSTOMER_ID,REVENUE\nC100,500000\n');
+        const res = await prodScanner.scanBuffer(buf);
+        expect(res.isInfected).toBe(true);
+        expect(res.virusName).toBe('SCAN_FAILED_UNRECOGNIZED_RESPONSE');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('correctly passes clean file when daemon responds stream: OK with CLAMAV_MOCK_MODE=false', async () => {
+      const server = net.createServer((socket) => {
+        socket.on('data', () => {
+          socket.write('stream: OK\n');
+          socket.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodConfig = new ConfigService({
+          CLAMAV_MOCK_MODE: 'false',
+          CLAMAV_HOST: '127.0.0.1',
+          CLAMAV_PORT: address.port,
+        });
+        const prodScanner = new ClamAvScanner(prodConfig);
+        const buf = Buffer.from('CUSTOMER_ID,REVENUE\nC100,500000\n');
+        const res = await prodScanner.scanBuffer(buf);
+        expect(res.isInfected).toBe(false);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('correctly identifies virus when daemon responds stream: <virus> FOUND with CLAMAV_MOCK_MODE=false', async () => {
+      const server = net.createServer((socket) => {
+        socket.on('data', () => {
+          socket.write('stream: Win.Trojan.Custom-42 FOUND\n');
+          socket.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodConfig = new ConfigService({
+          CLAMAV_MOCK_MODE: 'false',
+          CLAMAV_HOST: '127.0.0.1',
+          CLAMAV_PORT: address.port,
+        });
+        const prodScanner = new ClamAvScanner(prodConfig);
+        const buf = Buffer.from('MALICIOUS_DATA');
+        const res = await prodScanner.scanBuffer(buf);
+        expect(res.isInfected).toBe(true);
+        expect(res.virusName).toBe('Win.Trojan.Custom-42');
+      } finally {
+        server.close();
+      }
     });
   });
 

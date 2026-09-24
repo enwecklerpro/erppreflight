@@ -2,8 +2,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { DatabaseService } from '../database/database.service';
 import {
   EngineType,
@@ -53,7 +56,10 @@ export class JobsService {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    @Optional()
+    @InjectQueue('analysis-queue')
+    private readonly analysisQueue?: Queue
   ) {
     this.analysisUrl =
       this.config.get<string>('ANALYSIS_SERVICE_URL') ||
@@ -66,9 +72,9 @@ export class JobsService {
     dto: TriggerAnalysisDto
   ) {
     const analysisId = uuidv4();
-    const targetRelease = dto.targetRelease || 'S4H_2023';
+    const targetRelease = (dto.targetRelease || 'S4H_2023') as TargetRelease;
 
-    // 1. Create analysis record
+    // 1. Create analysis record with status QUEUED
     await this.db.query(
       `INSERT INTO analyses (id, organization_id, project_id, status, engine_types, target_release, triggered_by)
        VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)`,
@@ -79,24 +85,52 @@ export class JobsService {
         JSON.stringify(dto.engineTypes),
         targetRelease,
         userId,
-      ]
+      ],
+      { tenantId: organizationId }
     );
 
-    // 2. Dispatch asynchronously to Python analysis service
-    this.runEngines(
+    // 2. Dispatch job to BullMQ analysis queue
+    const jobPayload = {
       analysisId,
       organizationId,
-      dto.projectId,
-      dto.engineTypes,
+      projectId: dto.projectId,
+      userId,
+      engineTypes: dto.engineTypes,
       targetRelease,
-      dto.artifactS3Key,
-      dto.artifactType,
-      dto.rawContent,
-      dto.configuration
-    ).catch((err) => {
-      this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
-    });
+      artifactS3Key: dto.artifactS3Key ?? null,
+      artifactType: dto.artifactType,
+      rawContent: dto.rawContent ?? null,
+      configuration: dto.configuration ?? {},
+    };
 
+    if (this.analysisQueue) {
+      await this.analysisQueue.add('analyze', jobPayload, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: 100,
+        removeOnFail: 500,
+      });
+      this.logger.log(`Enqueued analysis job ${analysisId} to analysis-queue`);
+    } else {
+      this.logger.warn(
+        `analysisQueue not injected; falling back to direct asynchronous run for analysis ${analysisId}`
+      );
+      this.runEngines(
+        analysisId,
+        organizationId,
+        dto.projectId,
+        dto.engineTypes,
+        targetRelease,
+        dto.artifactS3Key,
+        dto.artifactType,
+        dto.rawContent,
+        dto.configuration
+      ).catch((err) => {
+        this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
+      });
+    }
+
+    // 3. Immediately return HTTP 202 / queued analysis record
     return {
       analysisId,
       status: 'QUEUED',

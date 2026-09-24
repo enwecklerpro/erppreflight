@@ -52,6 +52,36 @@ const CHECKS = [
     pattern: /@node-rs\/argon2/,
     forbidden: false, // Required to be present!
   },
+  {
+    name: 'No static fallback engineData?.engines || ALL_18_ENGINES in engine-matrix.tsx',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'components', 'engine-matrix.tsx'),
+    pattern: /engineData\?\.engines\s*\|\|\s*ALL_18_ENGINES/,
+    forbidden: true,
+  },
+  {
+    name: 'No hardcoded OPERATIONAL fallback in ALL_18_ENGINES in api-client.ts',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'lib', 'api-client.ts'),
+    pattern: /ALL_18_ENGINES[\s\S]*?status:\s*['"]OPERATIONAL['"]/,
+    forbidden: true,
+  },
+  {
+    name: 'EngineMatrix handles isError state from query',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'components', 'engine-matrix.tsx'),
+    pattern: /\bisError\b/,
+    forbidden: false, // Required to be present!
+  },
+  {
+    name: 'EngineMatrix handles OFFLINE status for disconnected services',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'components', 'engine-matrix.tsx'),
+    pattern: /\bOFFLINE\b/,
+    forbidden: false, // Required to be present!
+  },
+  {
+    name: 'EngineMatrix handles UNKNOWN status for unverified services',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'components', 'engine-matrix.tsx'),
+    pattern: /\bUNKNOWN\b/,
+    forbidden: false, // Required to be present!
+  },
 ];
 
 let failed = false;

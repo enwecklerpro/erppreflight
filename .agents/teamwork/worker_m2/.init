@@ -1,0 +1,2 @@
+# Worker M2 Workspace
+Mission: Implement Milestone M2 (R1: Ingestion & Dropzone + R2: BullMQ Worker & S3 Fetch + R3: ClamAV Fail-Closed)

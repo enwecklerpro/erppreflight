@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -18,6 +18,13 @@ import {
   Loader2,
   AlertCircle,
   FileCheck2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  FileText,
+  RefreshCw,
+  Upload,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ALL_18_ENGINES,
@@ -26,6 +33,18 @@ import {
   fetchAnalyses,
   triggerAnalysis,
 } from '../../../lib/api-client';
+import { customInstance } from '../../../lib/api/custom-instance';
+
+export interface UploadedArtifact {
+  id: string;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  quarantine_status: 'PENDING_SCAN' | 'SCANNING' | 'CLEAN' | 'QUARANTINED' | 'REJECTED';
+  redaction_status: string;
+  checksum_sha256?: string;
+  created_at: string;
+}
 
 export default function ProjectWorkspacePage() {
   const params = useParams();
@@ -41,6 +60,12 @@ export default function ProjectWorkspacePage() {
     'FORM_DOCTOR',
   ]);
   const [launchMessage, setLaunchMessage] = useState<string | null>(null);
+
+  // Artifact Dropzone state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
   // Real Project Details Query
   const {
@@ -97,6 +122,77 @@ export default function ProjectWorkspacePage() {
       setLaunchMessage(`Launch failed: ${err?.message || 'Server error'}`);
     },
   });
+
+  // Real Artifacts Query
+  const {
+    data: artifacts = [],
+    isLoading: isArtifactsLoading,
+    refetch: refetchArtifacts,
+  } = useQuery({
+    queryKey: ['projectArtifacts', projectId],
+    queryFn: async () => {
+      try {
+        const res = await customInstance<UploadedArtifact[]>(
+          `/projects/${projectId}/artifacts`
+        );
+        return Array.isArray(res) ? res : [];
+      } catch (err) {
+        console.error('Failed to fetch artifacts:', err);
+        return [];
+      }
+    },
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 15,
+  });
+
+  // Real Artifact Upload Mutation
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return await customInstance(`/projects/${projectId}/artifacts`, {
+        method: 'POST',
+        body: formData,
+      });
+    },
+    onSuccess: (data: any, file: File) => {
+      setUploadError(null);
+      setUploadSuccess(
+        `Artifact "${file.name}" uploaded and verified successfully! Status: ${data?.status || 'CLEAN'}`
+      );
+      queryClient.invalidateQueries({ queryKey: ['projectArtifacts', projectId] });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+    onError: (err: any) => {
+      setUploadSuccess(null);
+      setUploadError(err?.message || 'Failed to upload artifact. Ensure file format is valid.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+  });
+
+  const handleFileSelection = (file: File) => {
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    const validExtensions = ['.xml', '.json', '.csv', '.zip', '.abap'];
+    const hasValidExt = validExtensions.some((ext) =>
+      file.name.toLowerCase().endsWith(ext)
+    );
+
+    if (!hasValidExt) {
+      setUploadError(
+        `Invalid file format: "${file.name}". Only .xml, .json, .csv, .zip, and .abap files are supported.`
+      );
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      setUploadError('File size exceeds the 100 MB limit.');
+      return;
+    }
+
+    uploadMutation.mutate(file);
+  };
 
   const toggleEngine = (id: string) => {
     setSelectedEngines((prev) =>
@@ -376,19 +472,277 @@ export default function ProjectWorkspacePage() {
 
       {/* Tab: Artifact Dropzone */}
       {activeTab === 'artifacts' && (
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-          <div className="text-center py-8">
-            <UploadCloud className="h-12 w-12 text-primary mx-auto mb-3" />
-            <h3 className="text-base font-bold text-foreground">Staged SAP Artifacts</h3>
-            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-              Secure quarantine scanning, MIME sniffing, and secret scrubbing for customer ZIPs, XML, and ABAP dumps.
-            </p>
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2.5 py-1 rounded border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                <FileCheck2 className="h-3.5 w-3.5" />
-                Antivirus Scanner Active
-              </span>
+        <div className="space-y-6">
+          {/* Antivirus & Pipeline Banner */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                  <UploadCloud className="h-5 w-5 text-primary" />
+                  Staged SAP Artifacts & Verification Pipeline
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Automated ClamAV fail-closed scanning, MIME magic-bytes sniffing, secret scrubbing, and S3 promotion.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5">
+                  <FileCheck2 className="h-3.5 w-3.5" />
+                  ClamAV Fail-Closed Active
+                </span>
+                <span className="text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800 flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Secret Redaction Ready
+                </span>
+              </div>
             </div>
+          </div>
+
+          {/* Interactive Drop Area */}
+          <div
+            role="region"
+            aria-label="Artifact upload dropzone"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              const files = e.dataTransfer.files;
+              if (files && files.length > 0) {
+                handleFileSelection(files[0]);
+              }
+            }}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+              isDragging
+                ? 'border-primary bg-primary/5 scale-[1.005]'
+                : 'border-border hover:border-primary/50 bg-card'
+            }`}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".xml,.json,.csv,.zip,.abap"
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) {
+                  handleFileSelection(files[0]);
+                }
+              }}
+              aria-label="Upload SAP artifact file"
+            />
+
+            <div className="max-w-md mx-auto space-y-3">
+              <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                {uploadMutation.isPending ? (
+                  <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                ) : (
+                  <UploadCloud className="h-6 w-6 text-primary" />
+                )}
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  {uploadMutation.isPending
+                    ? 'Uploading and scanning artifact...'
+                    : 'Drag & drop SAP artifacts here'}
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Supported formats: <span className="font-mono font-medium">.xml, .json, .csv, .zip, .abap</span> (up to 100 MB)
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled={uploadMutation.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-colors disabled:opacity-50"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploadMutation.isPending ? 'Processing...' : 'Browse files'}
+                </button>
+              </div>
+
+              {uploadError && (
+                <div
+                  role="alert"
+                  className="mt-3 p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900 rounded-lg text-xs text-red-800 dark:text-red-200 flex items-start gap-2 text-left"
+                >
+                  <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold">Upload failed</p>
+                    <p className="mt-0.5">{uploadError}</p>
+                  </div>
+                </div>
+              )}
+
+              {uploadSuccess && (
+                <div
+                  role="status"
+                  className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2 text-left"
+                >
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold">Upload verified</p>
+                    <p className="mt-0.5">{uploadSuccess}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Uploaded Artifacts Ledger */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Workspace Artifacts Ledger ({artifacts.length})
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Verified customer files available for preflight analysis runs
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => refetchArtifacts()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/50 transition-colors"
+                title="Refresh artifacts list"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </button>
+            </div>
+
+            {isArtifactsLoading ? (
+              <div className="p-8 text-center text-xs text-muted-foreground animate-pulse flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Loading staged artifacts...
+              </div>
+            ) : artifacts.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-xs border border-dashed border-border rounded-lg">
+                No artifacts staged yet. Use the dropzone above to upload SAP XML configurations, transports, or ABAP extracts.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-muted-foreground font-medium">
+                      <th className="py-2.5 px-3">File Name</th>
+                      <th className="py-2.5 px-3">Size</th>
+                      <th className="py-2.5 px-3">Format</th>
+                      <th className="py-2.5 px-3">SHA-256 Checksum</th>
+                      <th className="py-2.5 px-3">Uploaded At</th>
+                      <th className="py-2.5 px-3">Quarantine Status</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {artifacts.map((artifact) => {
+                      const status = artifact.quarantine_status;
+                      const isClean = status === 'CLEAN';
+                      return (
+                        <tr key={artifact.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-3 font-medium text-foreground flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-primary shrink-0" />
+                            <span className="truncate max-w-[200px]" title={artifact.file_name}>
+                              {artifact.file_name}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-muted-foreground font-mono">
+                            {artifact.file_size ? `${(artifact.file_size / 1024).toFixed(1)} KB` : '—'}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">
+                              {artifact.file_name.split('.').pop()?.toUpperCase() || 'FILE'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 font-mono text-muted-foreground text-[11px]">
+                            {artifact.checksum_sha256 ? (
+                              <span title={artifact.checksum_sha256}>
+                                {artifact.checksum_sha256.slice(0, 10)}...{artifact.checksum_sha256.slice(-6)}
+                              </span>
+                            ) : (
+                              'Pending'
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-muted-foreground whitespace-nowrap">
+                            {artifact.created_at ? new Date(artifact.created_at).toLocaleString() : '—'}
+                          </td>
+                          <td className="py-3 px-3">
+                            {status === 'CLEAN' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                aria-label="Status: CLEAN"
+                              >
+                                <CheckCircle2 className="h-3 w-3" />
+                                CLEAN
+                              </span>
+                            ) : status === 'QUARANTINED' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+                                aria-label="Status: QUARANTINED"
+                              >
+                                <ShieldAlert className="h-3 w-3" />
+                                QUARANTINED
+                              </span>
+                            ) : status === 'REJECTED' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
+                                aria-label="Status: REJECTED"
+                              >
+                                <XCircle className="h-3 w-3" />
+                                REJECTED
+                              </span>
+                            ) : status === 'SCANNING' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                aria-label="Status: SCANNING"
+                              >
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                SCANNING
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
+                                aria-label="Status: PENDING SCAN"
+                              >
+                                <Clock className="h-3 w-3" />
+                                PENDING SCAN
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {isClean ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('launcher');
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                              >
+                                <Play className="h-3 w-3" />
+                                Run Preflight
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground italic">
+                                Unavailable
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

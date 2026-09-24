@@ -15,9 +15,11 @@
     "test:python": "py -m pytest services/analysis-python/tests -v",
     "check:deps": "node scripts/check-no-dependency-soup.mjs",
     "check:no-production-facades": "node scripts/check-no-production-facades.mjs",
-    "codegen:api": "pnpm --filter @erppreflight/web codegen:api"
+    "codegen:api": "pnpm --filter @erppreflight/web codegen:api",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@types/node": "^22.13.0",
     "rimraf": "^6.0.1",
     "turbo": "^2.4.4",

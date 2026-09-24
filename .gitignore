@@ -42,6 +42,9 @@ yarn-debug.log*
 Thumbs.db
 Desktop.ini
 
-# Coverage
+# Coverage & Test Results
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+
