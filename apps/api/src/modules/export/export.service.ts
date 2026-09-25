@@ -1,9 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import {
   ExportFormat,
   TriggerExportDto,
+  TriggerExportSchema,
   ReportDownloadResponse,
 } from '@erppreflight/schemas';
 import * as crypto from 'node:crypto';
@@ -31,6 +32,16 @@ export class ExportService {
     dto: TriggerExportDto,
     userId?: string | null
   ): Promise<ReportDownloadResponse> {
+    // Unknown formats used to fall through to CSV while being recorded under the requested name.
+    const parsed = TriggerExportSchema.safeParse(dto ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException(`Invalid export request: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+    }
+    if (parsed.data.format === 'ZIP_ALL') {
+      throw new BadRequestException('Export format ZIP_ALL is not supported yet.');
+    }
+    dto = { ...dto, ...parsed.data };
+
     // 1. Fetch Analysis Run and Project Metadata
     const analysisRes = await this.db.query(
       'SELECT a.*, p.name as project_name FROM analyses a JOIN projects p ON a.project_id = p.id WHERE a.id = $1 AND a.organization_id = $2 AND a.project_id = $3',
@@ -540,6 +551,34 @@ export class ExportService {
       downloadUrl: presigned.downloadUrl,
       expiresAt: new Date(Date.now() + (presigned.expiresInSeconds || 900) * 1000).toISOString(),
       checksumSha256: report.checksum_sha256,
+    };
+  }
+
+  /**
+   * Streams a stored report through the API so browsers never need to reach the
+   * internal object-store endpoint (S3_ENDPOINT is a Docker-internal hostname in production).
+   */
+  public async openReportStream(tenantId: string, reportId: string) {
+    const res = await this.db.query(
+      'SELECT id, format, file_name, s3_key FROM reports WHERE id = $1 AND organization_id = $2',
+      [reportId, tenantId]
+    );
+    if (!res.rows?.length) {
+      throw new NotFoundException(`Report ${reportId} not found.`);
+    }
+    const report = res.rows[0];
+    const mimeTypes: Record<string, string> = {
+      PDF: 'application/pdf',
+      JSON_BUNDLE: 'application/json',
+      XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      CSV: 'text/csv; charset=utf-8',
+      HTML_OFFLINE: 'text/html; charset=utf-8',
+    };
+    const stream = await this.storage.getReportStream(report.s3_key);
+    return {
+      stream,
+      fileName: String(report.file_name),
+      mimeType: mimeTypes[report.format] || 'application/octet-stream',
     };
   }
 

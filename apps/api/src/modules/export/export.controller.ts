@@ -57,6 +57,19 @@ export class ExportController {
     return this.exportService.getReportDownload(tenantId, reportId);
   }
 
+  @Get('reports/:reportId/file')
+  async streamReportFile(
+    @CurrentTenant() tenantId: string,
+    @Param('reportId') reportId: string
+  ): Promise<StreamableFile> {
+    const { stream, fileName, mimeType } = await this.exportService.openReportStream(tenantId, reportId);
+    const safeName = fileName.replace(/["\r\n]/g, '_');
+    return new StreamableFile(stream as any, {
+      type: mimeType,
+      disposition: `attachment; filename="${safeName}"`,
+    });
+  }
+
   @Get('analyses/:analysisId/reproducibility-bundle')
   async getReproducibilityBundle(
     @CurrentTenant() tenantId: string,

@@ -116,9 +116,9 @@ class OPDGuardEngine(BaseEngine):
         rules_evaluated += step_rules_count + shadowed_count
 
         # 4. Formulate Response Status and Metrics
+        # A broken determination chain in the customer's configuration is a
+        # finding (OPD_DETERMINATION_STEP_MISSING), not an incomplete analysis.
         status = AnalysisStatus.COMPLETED
-        if first_failed_step and not determined_results.get("Output Type"):
-            status = AnalysisStatus.PARTIAL
 
         additional_metrics = {
             "totalStepsEvaluated": len(self.CANONICAL_STEPS),

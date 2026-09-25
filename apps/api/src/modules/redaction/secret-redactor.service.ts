@@ -273,9 +273,17 @@ export class SecretRedactorService {
       const tokens = line.split(/(\[REDACTED:SECRET:[0-9a-fA-F]{64}\]|\s+|=|,|;|:|\(|\)|\[|\]|<|>)/);
       const rebuiltTokens: string[] = [];
 
+      let previousToken = '';
       for (const t of tokens) {
         const cleanT = t.replace(/^['"`,;:()\[\]{}.<>]+|['"`,;:()\[\]{}.<>]+$/g, '');
+        // Markup element names (`<Name`, `</Name`) and e-mail addresses are structure/PII,
+        // not credentials; masking them corrupted XML artifacts before analysis.
+        const isMarkupName = previousToken === '<' && /^\/?[A-Za-z_][\w.:-]*$/.test(t);
+        const isEmail = /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(cleanT);
+        if (t !== '') previousToken = t;
         if (
+          !isMarkupName &&
+          !isEmail &&
           this.isCandidateToken(cleanT) &&
           !cleanT.startsWith('[REDACTED:') &&
           !alreadyRedactedHashes.has(cleanT) &&

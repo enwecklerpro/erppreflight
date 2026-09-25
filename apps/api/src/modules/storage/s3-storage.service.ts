@@ -208,6 +208,19 @@ export class S3StorageService implements OnModuleInit {
   }
 
   /**
+   * Returns a readable stream for a generated report object.
+   */
+  public async getReportStream(storagePath: string): Promise<NodeJS.ReadableStream> {
+    const res = await this.s3.send(
+      new GetObjectCommand({
+        Bucket: this.reportsBucket,
+        Key: storagePath,
+      })
+    );
+    return res.Body as NodeJS.ReadableStream;
+  }
+
+  /**
    * Returns a readable stream for a clean bucket object.
    */
   public async getCleanStream(storagePath: string): Promise<NodeJS.ReadableStream> {
