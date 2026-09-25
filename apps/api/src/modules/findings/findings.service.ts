@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { EVIDENCE_JSON_AGG_SQL, mapEvidenceList } from './evidence.mapper';
 import { OutboxService } from '../outbox/outbox.service';
 import { TraceabilityService } from '../traceability/traceability.service';
 import * as crypto from 'node:crypto';
@@ -67,7 +68,7 @@ export class FindingsService {
     // Items query with pagination
     const itemsRes = await this.db.query(
       `SELECT f.*,
-              (SELECT json_agg(e.*) FROM evidence e WHERE e.finding_id = f.id) AS evidence
+              ${EVIDENCE_JSON_AGG_SQL} AS evidence
        FROM findings f
        WHERE ${whereClause}
        ORDER BY
@@ -103,7 +104,7 @@ export class FindingsService {
       technicalDetails: row.technical_details || {},
       fingerprint: row.fingerprint,
       createdAt: row.created_at,
-      evidence: Array.isArray(row.evidence) ? row.evidence : [],
+      evidence: mapEvidenceList(row.evidence),
     }));
 
     return {
@@ -120,7 +121,7 @@ export class FindingsService {
   async findById(tenantId: string, findingId: string) {
     const res = await this.db.query(
       `SELECT f.*,
-              (SELECT json_agg(e.*) FROM evidence e WHERE e.finding_id = f.id) AS evidence
+              ${EVIDENCE_JSON_AGG_SQL} AS evidence
        FROM findings f
        WHERE f.organization_id = $1 AND f.id = $2`,
       [tenantId, findingId]
@@ -157,7 +158,7 @@ export class FindingsService {
       technicalDetails: row.technical_details || {},
       fingerprint: row.fingerprint,
       createdAt: row.created_at,
-      evidence: Array.isArray(row.evidence) ? row.evidence : [],
+      evidence: mapEvidenceList(row.evidence),
     };
   }
 
@@ -360,7 +361,7 @@ export class FindingsService {
 
       const res = await client.query(
         `SELECT f.*,
-                (SELECT json_agg(e.*) FROM evidence e WHERE e.finding_id = f.id) AS evidence
+                ${EVIDENCE_JSON_AGG_SQL} AS evidence
          FROM findings f
          WHERE f.organization_id = $1 AND f.id = $2`,
         [tenantId, findingId]

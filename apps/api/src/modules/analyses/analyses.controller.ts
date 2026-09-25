@@ -8,7 +8,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AnalysesService } from './analyses.service';
-import { TriggerAnalysisDto } from '../jobs/jobs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
@@ -25,9 +24,9 @@ export class AnalysesController {
   async trigger(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
-    @Body() dto: TriggerAnalysisDto
+    @Body() body: unknown
   ) {
-    return this.analysesService.triggerAnalysis(tenantId, userId, dto);
+    return this.analysesService.triggerAnalysis(tenantId, userId, body);
   }
 
   @Get()

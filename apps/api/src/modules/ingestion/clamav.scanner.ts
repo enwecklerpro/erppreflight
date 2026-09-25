@@ -8,6 +8,15 @@ export interface ScanResult {
   scanDurationMs: number;
 }
 
+/**
+ * clamd replies to z-prefixed commands (zINSTREAM) with a NUL-terminated line,
+ * e.g. "stream: OK\0". String.prototype.trim() does not strip NUL, so strip all
+ * NUL bytes and surrounding whitespace before parsing.
+ */
+export function normalizeClamdReply(raw: string): string {
+  return raw.replace(/\u0000/g, '').trim();
+}
+
 @Injectable()
 export class ClamAvScanner {
   private readonly logger = new Logger(ClamAvScanner.name);
@@ -79,7 +88,7 @@ export class ClamAvScanner {
 
       socket.on('end', () => {
         const duration = Date.now() - startTime;
-        const trimmed = response.trim();
+        const trimmed = normalizeClamdReply(response);
 
         // 1. Check for virus detection FIRST to prevent substring false-clean matches
         if (trimmed.includes('FOUND')) {

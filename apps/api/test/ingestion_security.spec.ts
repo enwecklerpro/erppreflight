@@ -2,8 +2,12 @@ import { describe, it, expect } from 'vitest';
 import * as net from 'node:net';
 import { MimeMagicValidator } from '../src/modules/ingestion/mime-magic.validator';
 import { ArchiveSafetyGuard } from '../src/modules/ingestion/archive-safety.guard';
-import { ClamAvScanner } from '../src/modules/ingestion/clamav.scanner';
-import { S3StorageService } from '../src/modules/storage/s3-storage.service';
+import { ClamAvScanner, normalizeClamdReply } from '../src/modules/ingestion/clamav.scanner';
+import {
+  S3StorageService,
+  buildCleanKey,
+  buildQuarantineKey,
+} from '../src/modules/storage/s3-storage.service';
 import { ConfigService } from '@nestjs/config';
 import { UnprocessableEntityException, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
 
@@ -265,6 +269,56 @@ describe('M2 Ingestion Security & Storage Suite', () => {
       }
     });
 
+    it('passes clean file when daemon replies with NUL-terminated zINSTREAM response "stream: OK\\0"', async () => {
+      const server = net.createServer((socket) => {
+        socket.on('data', () => {
+          socket.write('stream: OK\0');
+          socket.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodScanner = new ClamAvScanner(
+          new ConfigService({ CLAMAV_MOCK_MODE: 'false', CLAMAV_HOST: '127.0.0.1', CLAMAV_PORT: address.port })
+        );
+        const res = await prodScanner.scanBuffer(Buffer.from('<root/>'));
+        expect(res.isInfected).toBe(false);
+        expect(res.virusName).toBeUndefined();
+      } finally {
+        server.close();
+      }
+    });
+
+    it('extracts virus name from NUL-terminated "stream: <sig> FOUND\\0" reply', async () => {
+      const server = net.createServer((socket) => {
+        socket.on('data', () => {
+          socket.write('stream: Eicar-Test-Signature FOUND\0');
+          socket.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+      const address = server.address() as net.AddressInfo;
+
+      try {
+        const prodScanner = new ClamAvScanner(
+          new ConfigService({ CLAMAV_MOCK_MODE: 'false', CLAMAV_HOST: '127.0.0.1', CLAMAV_PORT: address.port })
+        );
+        const res = await prodScanner.scanBuffer(Buffer.from('payload'));
+        expect(res.isInfected).toBe(true);
+        expect(res.virusName).toBe('Eicar-Test-Signature');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('normalizeClamdReply strips NUL terminators and whitespace', () => {
+      expect(normalizeClamdReply('stream: OK\0')).toBe('stream: OK');
+      expect(normalizeClamdReply('stream: OK\n\0')).toBe('stream: OK');
+      expect(normalizeClamdReply('\0stream: X FOUND\0\0')).toBe('stream: X FOUND');
+    });
+
     it('correctly identifies virus when daemon responds stream: <virus> FOUND with CLAMAV_MOCK_MODE=false', async () => {
       const server = net.createServer((socket) => {
         socket.on('data', () => {
@@ -303,11 +357,13 @@ describe('M2 Ingestion Security & Storage Suite', () => {
       });
       expect(res.uploadUrl).toBeDefined();
       expect(res.uploadUrl).toContain('erppreflight-quarantine');
-      expect(res.storagePath).toContain('quarantine/c1234567-89ab-cdef-0123-456789abcdef');
+      expect(res.storagePath).toBe(
+        'tenants/c1234567-89ab-cdef-0123-456789abcdef/projects/b1234567-89ab-cdef-0123-456789abcdef/quarantine/a1234567-89ab-cdef-0123-456789abcdef/sap_transport.zip'
+      );
       expect(res.expiresInSeconds).toBe(900);
     });
 
-    it('generates pre-signed GET download URL targeting clean bucket with 1800s TTL', async () => {
+    it('generates pre-signed GET download URL targeting clean bucket with 900s (15 min) default TTL', async () => {
       const res = await storageService.createDownloadPresignedUrl({
         bucketType: 'clean',
         storagePath: 'tenants/c1234567-89ab-cdef-0123-456789abcdef/projects/p1/f1/clean.xml',
@@ -315,7 +371,39 @@ describe('M2 Ingestion Security & Storage Suite', () => {
       });
       expect(res.downloadUrl).toBeDefined();
       expect(res.downloadUrl).toContain('erppreflight-clean');
-      expect(res.expiresInSeconds).toBe(1800);
+      expect(res.expiresInSeconds).toBe(900);
+    });
+
+    it('clamps any requested pre-signed TTL above 900 seconds down to 900', async () => {
+      const download = await storageService.createDownloadPresignedUrl({
+        bucketType: 'reports',
+        storagePath: 'tenants/t1/projects/p1/reports/a1/r1_report.json',
+        ttlSeconds: 3600,
+      });
+      expect(download.expiresInSeconds).toBe(900);
+      expect(download.downloadUrl).toContain('X-Amz-Expires=900');
+
+      const upload = await storageService.createUploadPresignedUrl({
+        organizationId: 't1',
+        projectId: 'p1',
+        fileId: 'f1',
+        fileName: 'x.xml',
+        mimeType: 'application/xml',
+        ttlSeconds: 1800,
+      });
+      expect(upload.expiresInSeconds).toBe(900);
+      expect(S3StorageService.clampTtl(60)).toBe(60);
+      expect(S3StorageService.clampTtl(undefined)).toBe(900);
+    });
+
+    it('builds tenant-scoped quarantine and clean object keys and neutralises path traversal in names', () => {
+      expect(buildQuarantineKey('org', 'proj', 'file', '../../etc/passwd')).toBe(
+        'tenants/org/projects/proj/quarantine/file/passwd'
+      );
+      expect(buildCleanKey('org', 'proj', 'file', 'my report (v2).xml')).toBe(
+        'tenants/org/projects/proj/file/my_report__v2_.xml'
+      );
+      expect(buildCleanKey('org', 'proj', 'file', '..hidden')).toBe('tenants/org/projects/proj/file/_hidden');
     });
   });
 });

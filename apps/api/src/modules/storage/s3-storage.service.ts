@@ -4,13 +4,41 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  CopyObjectCommand,
   DeleteObjectCommand,
   CreateBucketCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
+
+/** Maximum lifespan of any pre-signed URL (AGENTS.md 4.4: 15 minutes). */
+export const MAX_PRESIGNED_TTL_SECONDS = 900;
+
+export function safeObjectName(fileName: string): string {
+  const base = String(fileName ?? '').split(/[\\/]/).pop() || 'artifact';
+  const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '_');
+  return cleaned || 'artifact';
+}
+
+/** Tenant-scoped quarantine key: tenants/{org}/projects/{project}/quarantine/{fileId}/{name} */
+export function buildQuarantineKey(
+  organizationId: string,
+  projectId: string,
+  fileId: string,
+  fileName: string
+): string {
+  return `tenants/${organizationId}/projects/${projectId}/quarantine/${fileId}/${safeObjectName(fileName)}`;
+}
+
+/** Tenant-scoped clean key: tenants/{org}/projects/{project}/{fileId}/{name} */
+export function buildCleanKey(
+  organizationId: string,
+  projectId: string,
+  fileId: string,
+  fileName: string
+): string {
+  return `tenants/${organizationId}/projects/${projectId}/${fileId}/${safeObjectName(fileName)}`;
+}
 
 @Injectable()
 export class S3StorageService implements OnModuleInit {
@@ -55,24 +83,54 @@ export class S3StorageService implements OnModuleInit {
   public async ensureBucketsExist(): Promise<void> {
     if (this.bucketsInitialized) return;
     const buckets = [this.quarantineBucket, this.cleanBucket, this.reportsBucket];
+    let allReady = true;
     for (const bucket of buckets) {
       try {
         await this.s3.send(new HeadBucketCommand({ Bucket: bucket }));
-      } catch (err: any) {
+      } catch {
         try {
           await this.s3.send(new CreateBucketCommand({ Bucket: bucket }));
           this.logger.log(`Created missing S3 bucket: ${bucket}`);
         } catch (createErr: any) {
           if (
-            createErr.name !== 'BucketAlreadyOwnedByYou' &&
-            createErr.name !== 'BucketAlreadyExists'
+            createErr?.name !== 'BucketAlreadyOwnedByYou' &&
+            createErr?.name !== 'BucketAlreadyExists'
           ) {
-            this.logger.warn(`Could not create bucket ${bucket}: ${createErr.message}`);
+            allReady = false;
+            this.logger.warn(`Could not create bucket ${bucket}: ${createErr?.message}`);
           }
         }
       }
     }
-    this.bucketsInitialized = true;
+    // Only cache success: if any bucket is missing we retry on the next use.
+    this.bucketsInitialized = allReady;
+  }
+
+  /** Clamps a requested pre-signed URL lifespan to the 15-minute platform maximum. */
+  public static clampTtl(ttlSeconds?: number): number {
+    const requested = Number(ttlSeconds);
+    if (!Number.isFinite(requested) || requested <= 0) return MAX_PRESIGNED_TTL_SECONDS;
+    return Math.min(Math.floor(requested), MAX_PRESIGNED_TTL_SECONDS);
+  }
+
+  /** Quarantine bucket key: tenants/{org}/projects/{project}/quarantine/{fileId}/{name} */
+  public buildQuarantineKey(
+    organizationId: string,
+    projectId: string,
+    fileId: string,
+    fileName: string
+  ): string {
+    return buildQuarantineKey(organizationId, projectId, fileId, fileName);
+  }
+
+  /** Clean bucket key: tenants/{org}/projects/{project}/{fileId}/{name} */
+  public buildCleanKey(
+    organizationId: string,
+    projectId: string,
+    fileId: string,
+    fileName: string
+  ): string {
+    return buildCleanKey(organizationId, projectId, fileId, fileName);
   }
 
   /**
@@ -88,9 +146,13 @@ export class S3StorageService implements OnModuleInit {
     ttlSeconds?: number;
   }): Promise<{ uploadUrl: string; storagePath: string; expiresInSeconds: number }> {
     await this.ensureBucketsExist();
-    const ttl = params.ttlSeconds || 900;
-    const safeFileName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `quarantine/${params.organizationId}/${params.projectId}/${params.fileId}/${safeFileName}`;
+    const ttl = S3StorageService.clampTtl(params.ttlSeconds);
+    const storagePath = this.buildQuarantineKey(
+      params.organizationId,
+      params.projectId,
+      params.fileId,
+      params.fileName
+    );
 
     const command = new PutObjectCommand({
       Bucket: this.quarantineBucket,
@@ -109,7 +171,7 @@ export class S3StorageService implements OnModuleInit {
 
   /**
    * Generates a short-lived pre-signed GET download URL for the clean bucket or reports bucket.
-   * Default TTL: 30 minutes (1800 seconds).
+   * Default and maximum TTL: 15 minutes (900 seconds).
    */
   public async createDownloadPresignedUrl(params: {
     bucketType: 'clean' | 'reports';
@@ -117,7 +179,7 @@ export class S3StorageService implements OnModuleInit {
     downloadFileName?: string;
     ttlSeconds?: number;
   }): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
-    const ttl = params.ttlSeconds || 1800;
+    const ttl = S3StorageService.clampTtl(params.ttlSeconds);
     const bucket = params.bucketType === 'clean' ? this.cleanBucket : this.reportsBucket;
 
     const command = new GetObjectCommand({
@@ -130,34 +192,6 @@ export class S3StorageService implements OnModuleInit {
 
     const downloadUrl = await getSignedUrl(this.s3, command, { expiresIn: ttl });
     return { downloadUrl, expiresInSeconds: ttl };
-  }
-
-  /**
-   * Promotes a verified, clean artifact from Quarantine to Clean bucket.
-   */
-  public async promoteQuarantineToClean(
-    quarantineKey: string,
-    cleanKey: string
-  ): Promise<void> {
-    try {
-      await this.s3.send(
-        new CopyObjectCommand({
-          CopySource: `${this.quarantineBucket}/${quarantineKey}`,
-          Bucket: this.cleanBucket,
-          Key: cleanKey,
-        })
-      );
-      await this.s3.send(
-        new DeleteObjectCommand({
-          Bucket: this.quarantineBucket,
-          Key: quarantineKey,
-        })
-      );
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed S3 copy/delete during quarantine promotion (may be in mock/test mode): ${err.message}`
-      );
-    }
   }
 
   /**

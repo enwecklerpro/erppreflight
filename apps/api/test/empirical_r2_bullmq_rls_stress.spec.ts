@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { EngineType, TargetRelease, ArtifactType } from '@erppreflight/schemas';
 import { Readable } from 'node:stream';
 import { Job, Queue } from 'bullmq';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () => {
   let mockDb: any;
@@ -37,28 +38,51 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
   // 1. BullMQ Queue Submission & Durability Options (JobsService)
   // ==========================================================================
   describe('JobsService.triggerAnalysis BullMQ Enqueueing & Options', () => {
-    it('enqueues job to analysis-queue with exponential backoff and durability options', async () => {
-      const dbQueries: Array<{ text: string; params: any[]; options: any }> = [];
+    const fileId = 'f7777777-7777-4777-8777-777777777777';
 
-      mockDb = {
-        query: vi.fn().mockImplementation(async (text, params, options) => {
+    function makeDb(
+      dbQueries: Array<{ text: string; params: any[]; options: any }>,
+      projId: string,
+      fileRows?: any[]
+    ) {
+      return {
+        query: vi.fn().mockImplementation(async (text: string, params: any[], options: any) => {
           dbQueries.push({ text, params, options });
+          if (text.includes('FROM projects')) {
+            return { rows: [{ id: projId, target_release: 'S4H_2023' }] };
+          }
+          if (text.includes('FROM uploaded_files')) {
+            return {
+              rows: fileRows ?? [
+                {
+                  id: fileId,
+                  file_name: 'opd.xml',
+                  storage_path: `tenants/org/projects/${projId}/${fileId}/opd.xml`,
+                  quarantine_status: 'CLEAN',
+                  metadata: { detectedFormat: 'XML' },
+                },
+              ],
+            };
+          }
           return { rows: [] };
         }),
       };
+    }
 
-      const jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
-
+    it('enqueues job to analysis-queue with exponential backoff and durability options', async () => {
+      const dbQueries: Array<{ text: string; params: any[]; options: any }> = [];
       const orgId = '11111111-1111-4111-8111-111111111111';
       const projId = '22222222-2222-4222-8222-222222222222';
       const userId = '33333333-3333-4333-8333-333333333333';
+
+      mockDb = makeDb(dbQueries, projId);
+      const jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
 
       const dto: TriggerAnalysisDto = {
         projectId: projId,
         engineTypes: ['OPD_GUARD', 'FORM_DOCTOR'],
         targetRelease: 'S4H_2023',
-        artifactS3Key: 'artifacts/opd.xml',
-        artifactType: 'XML',
+        fileIds: [fileId],
         configuration: { customParam: 'test' },
       };
 
@@ -70,17 +94,24 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
       expect(result.engineTypes).toEqual(dto.engineTypes);
       expect(result.targetRelease).toBe('S4H_2023');
 
-      // 2. Inserts analyses record with QUEUED status and tenant context
-      expect(mockDb.query).toHaveBeenCalled();
-      const insertQuery = dbQueries.find((q) => q.text.includes("VALUES ($1, $2, $3, 'QUEUED'")) || dbQueries[0];
-      expect(insertQuery).toBeDefined();
-      expect(insertQuery.text).toContain("VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)");
-      expect(insertQuery.params[0]).toBe(result.analysisId);
-      expect(insertQuery.params[1]).toBe(orgId);
-      expect(insertQuery.params[2]).toBe(projId);
-      expect(insertQuery.options).toEqual({ tenantId: orgId });
+      // 2. Project ownership and file resolution are tenant + project scoped
+      const projectQuery = dbQueries.find((q) => q.text.includes('FROM projects'));
+      expect(projectQuery?.text).toContain('organization_id = $2');
+      expect(projectQuery?.params).toEqual([projId, orgId]);
+      const fileQuery = dbQueries.find((q) => q.text.includes('FROM uploaded_files'));
+      expect(fileQuery?.text).toContain('organization_id = $2 AND project_id = $3');
+      expect(fileQuery?.params).toEqual([[fileId], orgId, projId]);
 
-      // 3. Dispatches job to BullMQ queue with exact required durability options
+      // 3. Inserts analyses record with QUEUED status and tenant context
+      const insertQuery = dbQueries.find((q) => q.text.includes("VALUES ($1, $2, $3, 'QUEUED'"));
+      expect(insertQuery).toBeDefined();
+      expect(insertQuery!.text).toContain("VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)");
+      expect(insertQuery!.params[0]).toBe(result.analysisId);
+      expect(insertQuery!.params[1]).toBe(orgId);
+      expect(insertQuery!.params[2]).toBe(projId);
+      expect(insertQuery!.options).toEqual({ tenantId: orgId });
+
+      // 4. Dispatches job to BullMQ queue with server-resolved artifacts only
       expect(mockQueue.add).toHaveBeenCalledTimes(1);
       const [jobName, jobData, jobOptions] = mockQueue.add.mock.calls[0];
 
@@ -92,52 +123,137 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
         userId: userId,
         engineTypes: ['OPD_GUARD', 'FORM_DOCTOR'],
         targetRelease: 'S4H_2023',
-        artifactS3Key: 'artifacts/opd.xml',
-        artifactType: 'XML',
-        rawContent: null,
+        files: [
+          {
+            fileId,
+            fileName: 'opd.xml',
+            storagePath: `tenants/org/projects/${projId}/${fileId}/opd.xml`,
+            artifactType: 'XML',
+          },
+        ],
         configuration: {
           customParam: 'test',
           deterministicOnly: false,
           allowAiAssistance: true,
         },
       });
+      expect(jobData).not.toHaveProperty('artifactS3Key');
+      expect(jobData).not.toHaveProperty('rawContent');
 
       // Assert BullMQ retry & retention options:
-      // attempts: 3, exponential backoff, removeOnComplete: 100, removeOnFail: 500
-      expect(jobOptions).toBeDefined();
       expect(jobOptions.attempts).toBe(3);
       expect(jobOptions.backoff).toEqual({ type: 'exponential', delay: 1000 });
       expect(jobOptions.removeOnComplete).toBe(100);
       expect(jobOptions.removeOnFail).toBe(500);
     });
 
+    it('rejects client-supplied artifactS3Key / rawContent and missing fileIds with 400 (strict Zod contract)', async () => {
+      const dbQueries: any[] = [];
+      const projId = '22222222-2222-4222-8222-222222222222';
+      mockDb = makeDb(dbQueries, projId);
+      const jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
+      const orgId = '11111111-1111-4111-8111-111111111111';
+
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', {
+          projectId: projId,
+          engineTypes: ['OPD_GUARD'],
+          fileIds: [fileId],
+          artifactS3Key: 'tenants/other-tenant/projects/x/y/secret.xml',
+        })
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', {
+          projectId: projId,
+          engineTypes: ['OPD_GUARD'],
+          fileIds: [fileId],
+          rawContent: '<x/>',
+        })
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', { projectId: projId, engineTypes: ['OPD_GUARD'], fileIds: [] })
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', { projectId: 'not-a-uuid', engineTypes: ['OPD_GUARD'], fileIds: [fileId] })
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', { projectId: projId, engineTypes: ['NOT_AN_ENGINE'], fileIds: [fileId] })
+      ).rejects.toThrow(BadRequestException);
+
+      // Nothing was touched in the DB or queue
+      expect(dbQueries.length).toBe(0);
+      expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 for a project outside the tenant and for fileIds not in tenant/project', async () => {
+      const orgId = '11111111-1111-4111-8111-111111111111';
+      const projId = '22222222-2222-4222-8222-222222222222';
+
+      // Project not visible to tenant
+      mockDb = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+      let jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', { projectId: projId, engineTypes: ['OPD_GUARD'], fileIds: [fileId] })
+      ).rejects.toThrow(NotFoundException);
+
+      // Project visible, file belongs to another tenant/project (query returns nothing)
+      const dbQueries: any[] = [];
+      mockDb = makeDb(dbQueries, projId, []);
+      jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
+      await expect(
+        jobsService.triggerAnalysis(orgId, 'u', { projectId: projId, engineTypes: ['OPD_GUARD'], fileIds: [fileId] })
+      ).rejects.toThrow(NotFoundException);
+
+      expect(dbQueries.some((q) => q.text.includes('INSERT INTO analyses'))).toBe(false);
+      expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('rejects files that are not CLEAN (quarantined / pending) with 400', async () => {
+      const orgId = '11111111-1111-4111-8111-111111111111';
+      const projId = '22222222-2222-4222-8222-222222222222';
+      for (const status of ['QUARANTINED', 'PENDING_SCAN', 'REJECTED', 'SCANNING']) {
+        const dbQueries: any[] = [];
+        mockDb = makeDb(dbQueries, projId, [
+          { id: fileId, file_name: 'x.xml', storage_path: 'k', quarantine_status: status, metadata: {} },
+        ]);
+        const jobsService = new JobsService(mockDb, mockConfig, mockQueue as unknown as Queue);
+        await expect(
+          jobsService.triggerAnalysis(orgId, 'u', { projectId: projId, engineTypes: ['OPD_GUARD'], fileIds: [fileId] })
+        ).rejects.toThrow(BadRequestException);
+      }
+      expect(mockQueue.add).not.toHaveBeenCalled();
+    });
+
     it('falls back to asynchronous direct run when BullMQ queue is not injected', async () => {
-      mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-      };
-
-      // No queue injected
-      const jobsService = new JobsService(mockDb, mockConfig, undefined);
-
+      const dbQueries: any[] = [];
       const orgId = '11111111-1111-4111-8111-111111111119';
       const projId = '22222222-2222-4222-8222-222222222229';
       const userId = '33333333-3333-4333-8333-333333333339';
+      mockDb = makeDb(dbQueries, projId);
 
-      const dto: TriggerAnalysisDto = {
+      // No queue injected, no storage => the fallback run fails closed (FAILED), never COMPLETED
+      const jobsService = new JobsService(mockDb, mockConfig, undefined);
+
+      const result = await jobsService.triggerAnalysis(orgId, userId, {
         projectId: projId,
         engineTypes: ['OPD_GUARD'],
-      };
-
-      const result = await jobsService.triggerAnalysis(orgId, userId, dto);
+        fileIds: [fileId],
+      });
 
       expect(result.status).toBe('QUEUED');
       expect(result.analysisId).toBeDefined();
-      // Should insert record
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO analyses'),
         expect.any(Array),
         { tenantId: orgId }
       );
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(
+        dbQueries.some(
+          (q: any) => q.text.includes("SET status = 'FAILED'") && q.params[0] === result.analysisId
+        )
+      ).toBe(true);
     });
   });
 

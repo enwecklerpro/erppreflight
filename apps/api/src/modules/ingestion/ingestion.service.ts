@@ -4,15 +4,83 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { S3StorageService } from '../storage/s3-storage.service';
+import {
+  S3StorageService,
+  buildCleanKey,
+  buildQuarantineKey,
+} from '../storage/s3-storage.service';
 import { MimeMagicValidator } from './mime-magic.validator';
 import { ArchiveSafetyGuard } from './archive-safety.guard';
 import { ClamAvScanner } from './clamav.scanner';
 import { SecretRedactorService } from '../redaction/secret-redactor.service';
 import { RequestPresignedUploadDto } from '@erppreflight/schemas';
 import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * Text formats (as returned by MimeMagicValidator.detectedFormat) whose content
+ * must pass secret redaction before being promoted to the clean bucket.
+ */
+export const REDACTABLE_TEXT_FORMATS: ReadonlySet<string> = new Set([
+  'XML',
+  'XSD',
+  'WSDL',
+  'EDMX',
+  'XDP',
+  'JSON',
+  'CSV',
+  'ABAP',
+  'TXT',
+  'PROG',
+  'INCL',
+]);
+
+function parseMetadata(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value as Record<string, any>;
+}
+
+/**
+ * File list item: keeps the historical snake_case keys and adds the camelCase
+ * contract consumed by the web client.
+ */
+export function toFileListItem(row: any) {
+  const metadata = parseMetadata(row.metadata);
+  const ext = String(row.file_name ?? '').split('.').pop()?.toUpperCase() || null;
+  const detectedFormat: string | null = metadata.detectedFormat ?? ext;
+  const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at;
+  const sizeBytes = row.file_size === null || row.file_size === undefined ? null : Number(row.file_size);
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    fileName: row.file_name,
+    originalName: metadata.originalName ?? row.file_name,
+    detectedFormat,
+    mimeType: row.mime_type,
+    sizeBytes,
+    quarantineStatus: row.quarantine_status,
+    redactionStatus: row.redaction_status,
+    checksumSha256: row.checksum_sha256,
+    createdAt,
+    // Backward-compatible snake_case keys
+    file_name: row.file_name,
+    file_size: sizeBytes,
+    mime_type: row.mime_type,
+    quarantine_status: row.quarantine_status,
+    redaction_status: row.redaction_status,
+    checksum_sha256: row.checksum_sha256,
+    created_at: createdAt,
+  };
+}
 
 @Injectable()
 export class IngestionService {
@@ -46,8 +114,8 @@ export class IngestionService {
     }
 
     const fileId = uuidv4();
-    const safeFileName = dto.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `quarantine/${tenantId}/${projectId}/${fileId}/${safeFileName}`;
+    // Tenant-scoped quarantine key (same layout the storage service signs).
+    const storagePath = buildQuarantineKey(tenantId, projectId, fileId, dto.fileName);
 
     // 2. Insert record in uploaded_files with PENDING_SCAN status
     await this.db.query(
@@ -110,8 +178,8 @@ export class IngestionService {
 
     // Transition status to SCANNING
     await this.db.query(
-      "UPDATE uploaded_files SET quarantine_status = 'SCANNING' WHERE id = $1",
-      [fileId]
+      "UPDATE uploaded_files SET quarantine_status = 'SCANNING' WHERE id = $1 AND organization_id = $2 AND project_id = $3",
+      [fileId, tenantId, projectId]
     );
 
     // Run processing
@@ -145,11 +213,18 @@ export class IngestionService {
         buffer = Buffer.concat(chunks);
       } catch (err: any) {
         this.logger.warn(`Could not fetch S3 quarantine stream for ${fileId}: ${err.message}`);
-        buffer = Buffer.from('');
+        buffer = undefined;
       }
     }
 
     try {
+      if (!buffer) {
+        // Never promote an artifact we could not read: fail closed.
+        throw new UnprocessableEntityException({
+          code: 'ARTIFACT_NOT_UPLOADED',
+          message: `Artifact '${fileName}' could not be read from quarantine storage; upload it before confirming.`,
+        });
+      }
       // Stage 1: MIME & Binary Magic-Bytes
       const mimeResult = this.mimeValidator.validate(fileName, buffer);
 
@@ -186,9 +261,7 @@ export class IngestionService {
       // Stage 4: Secret & Credential Redaction
       let cleanBuffer = buffer;
       let redactionCount = 0;
-      let isTextFormat = ['XML', 'XDP', 'JSON', 'CSV', 'ABAP', 'TXT', 'PROG', 'INCL'].includes(
-        mimeResult.detectedFormat
-      );
+      const isTextFormat = REDACTABLE_TEXT_FORMATS.has(mimeResult.detectedFormat);
 
       if (isTextFormat) {
         const text = buffer.toString('utf-8');
@@ -198,10 +271,17 @@ export class IngestionService {
       }
 
       // Stage 5: Clean Bucket Promotion
-      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const cleanKey = `tenants/${tenantId}/projects/${projectId}/${fileId}/${safeName}`;
+      // Only the REDACTED buffer is written to the clean bucket. The unredacted
+      // quarantine original is deleted, never copied over the clean key.
+      const cleanKey = buildCleanKey(tenantId, projectId, fileId, fileName);
       await this.storage.putCleanObject(cleanKey, cleanBuffer, mimeResult.detectedMime);
-      await this.storage.promoteQuarantineToClean(quarantinePath, cleanKey);
+      try {
+        await this.storage.deleteQuarantineObject(quarantinePath);
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not delete quarantine object ${quarantinePath} for ${fileId}: ${err.message}`
+        );
+      }
 
       // Stage 6: Update DB Record
       await this.db.query(
@@ -209,13 +289,19 @@ export class IngestionService {
          SET quarantine_status = 'CLEAN',
              redaction_status = $1,
              storage_path = $2,
-             checksum_sha256 = $3
+             checksum_sha256 = $3,
+             metadata = metadata || $5::jsonb
          WHERE id = $4`,
         [
           redactionCount > 0 ? 'REDACTED' : 'PASSED',
           cleanKey,
           mimeResult.sha256,
           fileId,
+          JSON.stringify({
+            detectedFormat: mimeResult.detectedFormat,
+            detectedMime: mimeResult.detectedMime,
+            redactionsCount: redactionCount,
+          }),
         ],
         { bypassRls: true }
       );
@@ -280,7 +366,7 @@ export class IngestionService {
       bucketType: 'clean',
       storagePath: file.storage_path,
       downloadFileName: file.file_name,
-      ttlSeconds: 1800, // 30 minutes
+      ttlSeconds: 900, // 15 minutes (maximum permitted pre-signed URL lifespan)
     });
 
     return {
@@ -293,10 +379,14 @@ export class IngestionService {
 
   public async listFiles(tenantId: string, projectId: string) {
     const res = await this.db.query(
-      'SELECT id, file_name, file_size, mime_type, quarantine_status, redaction_status, checksum_sha256, created_at FROM uploaded_files WHERE organization_id = $1 AND project_id = $2 ORDER BY created_at DESC',
+      `SELECT id, project_id, file_name, file_size, mime_type, quarantine_status, redaction_status,
+              checksum_sha256, metadata, created_at
+         FROM uploaded_files
+        WHERE organization_id = $1 AND project_id = $2
+        ORDER BY created_at DESC`,
       [tenantId, projectId]
     );
-    return res.rows || [];
+    return (res.rows || []).map((row: any) => toFileListItem(row));
   }
 
   public async getFile(tenantId: string, projectId: string, fileId: string) {

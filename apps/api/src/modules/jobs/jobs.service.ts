@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,47 +8,47 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { z } from 'zod';
 import { DatabaseService } from '../database/database.service';
+import { S3StorageService } from '../storage/s3-storage.service';
 import {
   EngineType,
+  EngineTypeEnum,
   TargetRelease,
-  ArtifactType,
-  toWireJobRequest,
-  AnalysisJobResponseSchema,
+  TargetReleaseEnum,
   FindingSchema,
-  EvidenceItemSchema,
 } from '@erppreflight/schemas';
-import { createFindingFingerprint } from '@erppreflight/evidence';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  AnalysisExecutor,
+  AnalysisJobFile,
+  applyDataPolicy,
+  resolveArtifactType,
+} from './analysis-executor';
+import { mapEvidenceRow } from '../findings/evidence.mapper';
 
-export interface TriggerAnalysisDto {
-  projectId: string;
-  engineTypes: EngineType[];
-  targetRelease?: TargetRelease;
-  artifactS3Key?: string;
-  artifactType?: ArtifactType;
-  rawContent?: string;
-  configuration?: Record<string, unknown>;
-}
+/**
+ * Public request contract for POST /analyses and POST /jobs/analyze.
+ * Clients reference previously uploaded, CLEAN artifacts by id; the server
+ * resolves storage locations itself. Client-supplied S3 keys or inline content
+ * are rejected (strict schema).
+ */
+export const TriggerAnalysisSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    engineTypes: z.array(EngineTypeEnum).min(1).max(64),
+    targetRelease: z
+      .preprocess(
+        (v) => (typeof v === 'string' ? v.trim().toUpperCase() : v),
+        TargetReleaseEnum
+      )
+      .optional(),
+    fileIds: z.array(z.string().uuid()).min(1).max(100),
+    configuration: z.record(z.unknown()).optional(),
+  })
+  .strict();
 
-function inferArtifactType(artifactS3Key?: string, rawContent?: string): ArtifactType {
-  if (artifactS3Key) {
-    const ext = artifactS3Key.split('.').pop()?.toUpperCase();
-    if (ext === 'XML') return 'XML';
-    if (ext === 'JSON') return 'JSON';
-    if (ext === 'CSV') return 'CSV';
-    if (ext === 'ZIP') return 'ZIP';
-    if (ext === 'ABAP') return 'ABAP';
-    if (ext === 'XDP') return 'XDP';
-    if (ext === 'WSDL') return 'WSDL';
-    if (ext === 'EDMX') return 'EDMX';
-    if (ext === 'TXT') return 'TXT';
-    if (ext === 'XLSX') return 'XLSX';
-  }
-  if (rawContent?.trim().startsWith('<')) return 'XML';
-  if (rawContent?.trim().startsWith('{') || rawContent?.trim().startsWith('[')) return 'JSON';
-  return 'JSON';
-}
+export type TriggerAnalysisDto = z.infer<typeof TriggerAnalysisSchema>;
 
 @Injectable()
 export class JobsService {
@@ -59,20 +60,99 @@ export class JobsService {
     private readonly config: ConfigService,
     @Optional()
     @InjectQueue('analysis-queue')
-    private readonly analysisQueue?: Queue
+    private readonly analysisQueue?: Queue,
+    @Optional()
+    private readonly storage?: S3StorageService
   ) {
     this.analysisUrl =
       this.config.get<string>('ANALYSIS_SERVICE_URL') ||
       'http://localhost:8000';
   }
 
-  async triggerAnalysis(
-    organizationId: string,
-    userId: string,
-    dto: TriggerAnalysisDto
-  ) {
+  /**
+   * Runtime-validates the trigger payload, verifies the project belongs to the
+   * tenant, and resolves every fileId to a CLEAN uploaded artifact of that
+   * project + tenant.
+   */
+  private async resolveTrigger(organizationId: string, body: unknown) {
+    const parsed = TriggerAnalysisSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'INVALID_ANALYSIS_REQUEST',
+        message: 'Invalid analysis request payload',
+        issues: parsed.error.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+        })),
+      });
+    }
+    const dto = parsed.data;
+
+    const projectRes = await this.db.query(
+      `SELECT id, target_release FROM projects WHERE id = $1 AND organization_id = $2`,
+      [dto.projectId, organizationId],
+      { tenantId: organizationId }
+    );
+    if (!projectRes.rows?.length) {
+      throw new NotFoundException(`Project '${dto.projectId}' not found`);
+    }
+
+    const uniqueFileIds = Array.from(new Set(dto.fileIds));
+    const filesRes = await this.db.query(
+      `SELECT id, file_name, storage_path, quarantine_status, metadata
+         FROM uploaded_files
+        WHERE id = ANY($1::uuid[]) AND organization_id = $2 AND project_id = $3`,
+      [uniqueFileIds, organizationId, dto.projectId],
+      { tenantId: organizationId }
+    );
+    const rowsById = new Map<string, any>(
+      (filesRes.rows ?? []).map((r: any) => [r.id, r])
+    );
+
+    const missing = uniqueFileIds.filter((id) => !rowsById.has(id));
+    if (missing.length > 0) {
+      throw new NotFoundException({
+        code: 'ARTIFACT_NOT_FOUND',
+        message: `Artifact(s) not found in project '${dto.projectId}': ${missing.join(', ')}`,
+      });
+    }
+
+    const files: AnalysisJobFile[] = [];
+    for (const id of uniqueFileIds) {
+      const row = rowsById.get(id);
+      if (row.quarantine_status !== 'CLEAN') {
+        throw new BadRequestException({
+          code: 'ARTIFACT_NOT_CLEAN',
+          message: `Artifact '${id}' cannot be analysed: quarantine status is '${row.quarantine_status}'.`,
+        });
+      }
+      const metadata =
+        typeof row.metadata === 'string' ? safeJson(row.metadata) : row.metadata ?? {};
+      const artifactType = resolveArtifactType(metadata?.detectedFormat, row.file_name);
+      if (!artifactType) {
+        throw new BadRequestException({
+          code: 'ARTIFACT_FORMAT_NOT_ANALYSABLE',
+          message: `Artifact '${row.file_name}' has a format that no preflight engine can analyse.`,
+        });
+      }
+      files.push({
+        fileId: row.id,
+        fileName: row.file_name,
+        storagePath: row.storage_path,
+        artifactType,
+      });
+    }
+
+    const projectRelease = TargetReleaseEnum.safeParse(projectRes.rows[0].target_release);
+    const targetRelease: TargetRelease =
+      dto.targetRelease ?? (projectRelease.success ? projectRelease.data : 'S4H_2023');
+
+    return { dto, files, targetRelease };
+  }
+
+  async triggerAnalysis(organizationId: string, userId: string, body: unknown) {
+    const { dto, files, targetRelease } = await this.resolveTrigger(organizationId, body);
     const analysisId = uuidv4();
-    const targetRelease = (dto.targetRelease || 'S4H_2023') as TargetRelease;
 
     // 1. Create analysis record with status QUEUED
     await this.db.query(
@@ -89,31 +169,7 @@ export class JobsService {
       { tenantId: organizationId }
     );
 
-    // Query organization data governance policy
-    let isDeterministicOnly = false;
-    let allowAiAssistance = true;
-    try {
-      const orgRes = await this.db.query(
-        `SELECT data_policy FROM organizations WHERE id = $1`,
-        [organizationId],
-        { bypassRls: true }
-      );
-      if (orgRes.rows.length > 0 && orgRes.rows[0].data_policy) {
-        const policy = typeof orgRes.rows[0].data_policy === 'string'
-          ? JSON.parse(orgRes.rows[0].data_policy)
-          : orgRes.rows[0].data_policy;
-        if (policy.deterministicOnly) isDeterministicOnly = true;
-        if (policy.allowAiAssistance === false) allowAiAssistance = false;
-      }
-    } catch {
-      // default to secure deterministic execution
-    }
-
-    const effectiveConfig = {
-      ...(dto.configuration ?? {}),
-      deterministicOnly: isDeterministicOnly || (dto.configuration as any)?.deterministicOnly === true,
-      allowAiAssistance: !isDeterministicOnly && allowAiAssistance && (dto.configuration as any)?.allowAiAssistance !== false,
-    };
+    const effectiveConfig = await applyDataPolicy(this.db, organizationId, dto.configuration);
 
     // 2. Dispatch job to BullMQ analysis queue
     const jobPayload = {
@@ -123,9 +179,7 @@ export class JobsService {
       userId,
       engineTypes: dto.engineTypes,
       targetRelease,
-      artifactS3Key: dto.artifactS3Key ?? null,
-      artifactType: dto.artifactType,
-      rawContent: dto.rawContent ?? null,
+      files,
       configuration: effectiveConfig,
     };
 
@@ -147,9 +201,7 @@ export class JobsService {
         dto.projectId,
         dto.engineTypes,
         targetRelease,
-        dto.artifactS3Key,
-        dto.artifactType,
-        dto.rawContent,
+        files,
         effectiveConfig
       ).catch((err) => {
         this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
@@ -165,146 +217,41 @@ export class JobsService {
     };
   }
 
+  /**
+   * In-process fallback when no BullMQ queue is available. Shares the exact
+   * pipeline of AnalysisProcessor (status semantics, multi-artifact fan-out,
+   * fetch failure => FAILED).
+   */
   private async runEngines(
     analysisId: string,
     organizationId: string,
     projectId: string,
     engineTypes: EngineType[],
-    targetRelease: string,
-    artifactS3Key?: string,
-    artifactTypeParam?: ArtifactType,
-    rawContent?: string,
+    targetRelease: TargetRelease,
+    files: AnalysisJobFile[],
     configuration?: Record<string, unknown>
   ) {
-    await this.db.query(
-      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1`,
-      [analysisId],
-      { bypassRls: true }
-    );
-
-    let totalFindings = 0;
-    const failedEngines: EngineType[] = [];
-    const artifactType = artifactTypeParam || inferArtifactType(artifactS3Key, rawContent);
-
-    for (const engine of engineTypes) {
-      try {
-        const wirePayload = toWireJobRequest({
-          jobId: analysisId,
-          tenantId: organizationId,
-          projectId: projectId,
-          engineType: engine,
-          targetRelease: targetRelease as TargetRelease,
-          artifactS3Key: artifactS3Key ?? null,
-          artifactType,
-          configuration: configuration ?? {},
-          rawContent: rawContent ?? null,
-        });
-
-        const res = await fetch(`${this.analysisUrl}/api/v1/analyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-Tenant-Id': organizationId,
-          },
-          body: JSON.stringify(wirePayload),
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          this.logger.error(
-            `Engine '${engine}' analysis failed [HTTP ${res.status}]: ${errText}`
-          );
-          failedEngines.push(engine);
-          continue;
-        }
-
-        const rawData = await res.json();
-        const validatedResponse = AnalysisJobResponseSchema.parse(rawData);
-
-        if (Array.isArray(validatedResponse.findings)) {
-          for (const f of validatedResponse.findings) {
-            const findingId = f.id || uuidv4();
-            const firstObjName = f.affectedObjects[0]?.name || 'GLOBAL';
-            const firstArtifact = f.evidence[0]?.artifactPath || 'UNKNOWN_SOURCE';
-            const fingerprint =
-              f.fingerprint || createFindingFingerprint(f.ruleId, firstObjName, firstArtifact);
-
-            await this.db.query(
-              `INSERT INTO findings (
-                id, organization_id, project_id, analysis_id, engine, rule_id,
-                severity, category, title, description, confidence_class,
-                confidence_score, remediation, affected_objects, technical_details, fingerprint
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-              [
-                findingId,
-                organizationId,
-                projectId,
-                analysisId,
-                engine,
-                f.ruleId,
-                f.severity,
-                f.category,
-                f.title,
-                f.description,
-                f.confidence,
-                f.confidenceScore,
-                f.remediation,
-                JSON.stringify(f.affectedObjects || []),
-                JSON.stringify(f.technicalDetails || {}),
-                fingerprint,
-              ],
-              { bypassRls: true }
-            );
-
-            if (Array.isArray(f.evidence) && f.evidence.length > 0) {
-              for (const ev of f.evidence) {
-                await this.db.query(
-                  `INSERT INTO evidence (
-                    id, organization_id, finding_id, artifact_path, line_number,
-                    column_number, snippet, sha256, provenance, source_title,
-                    source_url, trust_score
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-                  [
-                    ev.id || uuidv4(),
-                    organizationId,
-                    findingId,
-                    ev.artifactPath,
-                    ev.lineNumber ?? null,
-                    ev.columnNumber ?? null,
-                    ev.snippet ?? null,
-                    ev.sha256,
-                    ev.provenance || 'VERIFIED',
-                    ev.sourceTitle ?? null,
-                    ev.sourceUrl ?? null,
-                    ev.trustScore ?? 1.0,
-                  ],
-                  { bypassRls: true }
-                );
-              }
-            }
-
-            totalFindings++;
-          }
-        }
-      } catch (err: any) {
-        this.logger.warn(`Engine '${engine}' execution skipped/failed: ${err.message}`);
-        failedEngines.push(engine);
-      }
+    const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger);
+    try {
+      return await executor.run({
+        analysisId,
+        organizationId,
+        projectId,
+        engineTypes,
+        targetRelease,
+        files,
+        configuration,
+      });
+    } catch (err: any) {
+      await this.db
+        .query(
+          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
+          [analysisId, organizationId],
+          { tenantId: organizationId }
+        )
+        .catch(() => {});
+      throw err;
     }
-
-    const finalStatus =
-      failedEngines.length === 0
-        ? 'COMPLETED'
-        : failedEngines.length === engineTypes.length
-        ? 'FAILED'
-        : 'PARTIAL';
-
-    await this.db.query(
-      `UPDATE analyses SET status = $1, completed_at = NOW() WHERE id = $2`,
-      [finalStatus, analysisId],
-      { bypassRls: true }
-    );
   }
 
   async getAnalysis(organizationId: string, analysisId: string) {
@@ -331,11 +278,14 @@ export class JobsService {
 
     if (findingIds.length > 0) {
       const evidenceRes = await this.db.query(
-        `SELECT * FROM evidence WHERE organization_id = $1 AND finding_id = ANY($2::uuid[])`,
+        `SELECT id, finding_id, artifact_path, line_number, column_number, snippet, sha256,
+                provenance, source_title, source_url, trust_score, created_at
+           FROM evidence WHERE organization_id = $1 AND finding_id = ANY($2::uuid[])
+          ORDER BY created_at ASC, id ASC`,
         [organizationId, findingIds]
       );
       for (const evRow of evidenceRes.rows) {
-        const ev = EvidenceItemSchema.parse(evRow);
+        const ev = mapEvidenceRow(evRow);
         const list = evidenceMap.get(evRow.finding_id) || [];
         list.push(ev);
         evidenceMap.set(evRow.finding_id, list);
@@ -470,5 +420,13 @@ export class JobsService {
     );
 
     return res.rows[0];
+  }
+}
+
+function safeJson(value: string): any {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
   }
 }

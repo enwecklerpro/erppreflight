@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { JobsService, TriggerAnalysisDto } from '../jobs/jobs.service';
+import { JobsService } from '../jobs/jobs.service';
+import { EVIDENCE_JSON_AGG_SQL, mapEvidenceList } from '../findings/evidence.mapper';
 
 @Injectable()
 export class AnalysesService {
@@ -9,8 +10,9 @@ export class AnalysesService {
     private readonly jobsService: JobsService
   ) {}
 
-  async triggerAnalysis(tenantId: string, userId: string, dto: TriggerAnalysisDto) {
-    return this.jobsService.triggerAnalysis(tenantId, userId, dto);
+  /** Payload is runtime-validated (Zod, strict) by JobsService.triggerAnalysis. */
+  async triggerAnalysis(tenantId: string, userId: string, body: unknown) {
+    return this.jobsService.triggerAnalysis(tenantId, userId, body);
   }
 
   async findAll(tenantId: string, projectId?: string) {
@@ -81,7 +83,7 @@ export class AnalysesService {
 
     const res = await this.db.query(
       `SELECT f.*,
-              (SELECT json_agg(e.*) FROM evidence e WHERE e.finding_id = f.id) AS evidence
+              ${EVIDENCE_JSON_AGG_SQL} AS evidence
        FROM findings f
        WHERE f.organization_id = $1 AND f.analysis_id = $2
        ORDER BY
@@ -116,7 +118,7 @@ export class AnalysesService {
       technicalDetails: row.technical_details || {},
       fingerprint: row.fingerprint,
       createdAt: row.created_at,
-      evidence: Array.isArray(row.evidence) ? row.evidence : [],
+      evidence: mapEvidenceList(row.evidence),
     }));
   }
 }

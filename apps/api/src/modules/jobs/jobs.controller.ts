@@ -6,7 +6,7 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
-import { JobsService, TriggerAnalysisDto } from './jobs.service';
+import { JobsService } from './jobs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -21,9 +21,9 @@ export class JobsController {
   async triggerAnalysis(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
-    @Body() dto: TriggerAnalysisDto
+    @Body() body: unknown
   ) {
-    return this.jobsService.triggerAnalysis(tenantId, userId, dto);
+    return this.jobsService.triggerAnalysis(tenantId, userId, body);
   }
 
   @Get(':id')

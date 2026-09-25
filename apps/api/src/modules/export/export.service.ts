@@ -131,15 +131,15 @@ export class ExportService {
       ]
     );
 
-    // 5. Generate Pre-signed Download URL (30-minute TTL)
+    // 5. Generate Pre-signed Download URL (15-minute TTL, platform maximum)
     const presigned = await this.storage.createDownloadPresignedUrl({
       bucketType: 'reports',
       storagePath: s3Key,
       downloadFileName: fileName,
-      ttlSeconds: 1800,
+      ttlSeconds: 900,
     });
 
-    const expiresAt = new Date(Date.now() + 1800 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + (presigned.expiresInSeconds || 900) * 1000).toISOString();
 
     return {
       reportId,
@@ -530,7 +530,7 @@ export class ExportService {
       bucketType: 'reports',
       storagePath: report.s3_key,
       downloadFileName: report.file_name,
-      ttlSeconds: 1800,
+      ttlSeconds: 900,
     });
 
     return {
@@ -538,7 +538,7 @@ export class ExportService {
       format: report.format,
       fileName: report.file_name,
       downloadUrl: presigned.downloadUrl,
-      expiresAt: new Date(Date.now() + 1800 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + (presigned.expiresInSeconds || 900) * 1000).toISOString(),
       checksumSha256: report.checksum_sha256,
     };
   }

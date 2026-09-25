@@ -26,23 +26,24 @@ export class ProjectsService {
       [id, organizationId, dto.name, `${slug}-${Date.now().toString().slice(-4)}`, dto.description || null, targetRelease, userId]
     );
 
-    return res.rows[0];
+    return toProjectResponse(res.rows[0]);
   }
 
   async findAll(organizationId: string) {
     const res = await this.db.query(
-      `SELECT p.*, COUNT(f.id)::int as total_findings
+      `SELECT p.*,
+              (SELECT COUNT(*)::int FROM findings f
+                WHERE f.project_id = p.id AND f.organization_id = p.organization_id) AS total_findings
        FROM projects p
-       LEFT JOIN findings f ON f.project_id = p.id
        WHERE p.organization_id = $1
-       GROUP BY p.id
        ORDER BY p.created_at DESC`,
       [organizationId]
     );
-    return res.rows;
+    return res.rows.map((row: any) => toProjectResponse(row));
   }
 
-  async findOne(organizationId: string, id: string) {
+  /** Raw tenant-scoped project row (snake_case) for internal use. */
+  private async getProjectRow(organizationId: string, id: string) {
     const res = await this.db.query(
       'SELECT * FROM projects WHERE organization_id = $1 AND id = $2',
       [organizationId, id]
@@ -53,8 +54,12 @@ export class ProjectsService {
     return res.rows[0];
   }
 
+  async findOne(organizationId: string, id: string) {
+    return toProjectResponse(await this.getProjectRow(organizationId, id));
+  }
+
   async update(organizationId: string, id: string, dto: UpdateProjectDto) {
-    await this.findOne(organizationId, id); // Ensure exists
+    await this.getProjectRow(organizationId, id); // Ensure exists within tenant
 
     const res = await this.db.query(
       `UPDATE projects
@@ -64,22 +69,28 @@ export class ProjectsService {
            updated_at = NOW()
        WHERE organization_id = $4 AND id = $5
        RETURNING *`,
-      [dto.name || null, dto.description || null, dto.targetRelease || null, organizationId, id]
+      [dto.name || null, dto.description ?? null, dto.targetRelease || null, organizationId, id]
     );
-    return res.rows[0];
+    if (!res.rows?.length) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
+    return toProjectResponse(res.rows[0]);
   }
 
   async remove(organizationId: string, id: string) {
-    await this.findOne(organizationId, id);
-    await this.db.query(
+    await this.getProjectRow(organizationId, id);
+    const res = await this.db.query(
       'DELETE FROM projects WHERE organization_id = $1 AND id = $2',
       [organizationId, id]
     );
+    if (res && typeof res.rowCount === 'number' && res.rowCount === 0) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
     return { success: true, deletedId: id };
   }
 
   async setBaseline(organizationId: string, projectId: string, analysisId: string) {
-    await this.findOne(organizationId, projectId);
+    await this.getProjectRow(organizationId, projectId);
 
     const analysisRes = await this.db.query(
       `SELECT * FROM analyses WHERE organization_id = $1 AND project_id = $2 AND id = $3`,
@@ -115,12 +126,12 @@ export class ProjectsService {
       success: true,
       projectId,
       baselineAnalysisId: analysisId,
-      project: res.rows[0],
+      project: res.rows[0] ? toProjectResponse(res.rows[0]) : null,
     };
   }
 
   async getDrift(organizationId: string, projectId: string, targetAnalysisId?: string) {
-    const project = await this.findOne(organizationId, projectId);
+    const project = await this.getProjectRow(organizationId, projectId);
     const baselineAnalysisId = project.baseline_analysis_id;
 
     if (!baselineAnalysisId) {
@@ -325,7 +336,7 @@ export class ProjectsService {
     );
 
     const analysesRes = await this.db.query(
-      `SELECT a.id, a.name, a.status, a.target_release, a.created_at,
+      `SELECT a.id, a.status, a.target_release, a.created_at,
               (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.id) as findings_count
        FROM analyses a
        WHERE a.organization_id = $1 AND a.project_id = $2
@@ -335,8 +346,9 @@ export class ProjectsService {
     );
 
     const artifactsRes = await this.db.query(
-      `SELECT id, file_name, file_size, mime_type, sha256_hash, created_at
-       FROM artifacts
+      `SELECT id, file_name, file_size, mime_type, checksum_sha256 AS sha256_hash,
+              quarantine_status, created_at
+       FROM uploaded_files
        WHERE organization_id = $1 AND project_id = $2
        ORDER BY created_at DESC
        LIMIT 20`,
@@ -406,6 +418,37 @@ export class ProjectsService {
       integritySignature,
     };
   }
+}
+
+function toIso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/**
+ * Maps a projects row to the camelCase API contract
+ * ({ id, organizationId, name, description, targetRelease, status, createdAt, updatedAt, ... }).
+ * The projects table has no lifecycle column; every persisted project is ACTIVE.
+ */
+export function toProjectResponse(row: any) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    organizationId: row.organization_id ?? row.organizationId,
+    name: row.name,
+    slug: row.slug ?? null,
+    description: row.description ?? null,
+    targetRelease: row.target_release ?? row.targetRelease ?? 'S4H_2023',
+    status: row.status ?? 'ACTIVE',
+    baselineAnalysisId: row.baseline_analysis_id ?? row.baselineAnalysisId ?? null,
+    createdBy: row.created_by ?? row.createdBy ?? null,
+    totalFindings:
+      row.total_findings !== undefined && row.total_findings !== null
+        ? Number(row.total_findings)
+        : undefined,
+    createdAt: toIso(row.created_at ?? row.createdAt),
+    updatedAt: toIso(row.updated_at ?? row.updatedAt),
+  };
 }
 
 export function computeCleanCoreIndex(findings: any[]): number {
