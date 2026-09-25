@@ -190,10 +190,10 @@ export default function ArtifactsPage() {
           <span className="text-xs text-muted-foreground font-mono">Zero Customer PII Retention</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-          SAP-Native Artifact Ingestion Center
+          Supported Artifact Formats (Documentation)
         </h1>
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Comprehensive extraction procedures, file specifications, and security redaction policies for all recognized SAP enterprise artifacts across the 19 preflight engines.
+          This reference guide outlines the supported SAP artifacts, extraction procedures, and security redaction policies for the preflight engines. Actual artifact ingestion is performed dynamically within individual project workspaces.
         </p>
       </div>
 

@@ -115,4 +115,28 @@ export class TelemetryService {
 
     return lines.join('\n') + '\n';
   }
+
+  async getTenantSummary(tenantId: string) {
+    const sum = this.requestDurations.reduce((a, b) => a + b, 0);
+    const meanLatency = this.requestDurations.length > 0 ? Math.round(sum / this.requestDurations.length) : 0;
+    
+    let totalReq = 0;
+    for (const count of this.httpRequestsTotal.values()) {
+      totalReq += count;
+    }
+
+    const completed = this.analysesTotal.get('COMPLETED') || 0;
+    const failed = this.analysesTotal.get('FAILED') || 0;
+    const totalAnalyses = completed + failed;
+    const determinism = totalAnalyses > 0 ? (completed / totalAnalyses) : 1.0;
+
+    return {
+      monthlyAdvisoryTokens: {
+        consumed: totalReq,
+        limit: 100000,
+      },
+      meanAdvisoryLatencyMs: meanLatency,
+      engineDeterminismRatio: Number(determinism.toFixed(4)),
+    };
+  }
 }

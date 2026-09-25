@@ -61,9 +61,43 @@ interface AuthResponse {
   };
 }
 
+import { useMutation } from '@tanstack/react-query';
+
 export default function SignupPage() {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
+
+  const signupMutation = useMutation({
+    mutationFn: async (value: SignupFormData) => {
+      return await customInstance<AuthResponse>('/api/v1/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationName: value.organizationName.trim(),
+          fullName: value.fullName?.trim() || undefined,
+          email: value.email.trim(),
+          password: value.password,
+        }),
+      });
+    },
+    onSuccess: (res) => {
+      if (res?.accessToken) {
+        setStoredAuthToken(res.accessToken);
+      }
+      if (res?.user?.organizationId) {
+        setStoredTenantId(res.user.organizationId);
+      }
+      router.push('/projects');
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) {
+        setServerError(err.message);
+      } else if (err instanceof Error) {
+        setServerError(err.message);
+      } else {
+        setServerError('Registration failed. Please check your information and try again.');
+      }
+    },
+  });
 
   const form = useForm({
     defaultValues: {
@@ -79,34 +113,7 @@ export default function SignupPage() {
     },
     onSubmit: async ({ value }) => {
       setServerError(null);
-      try {
-        const res = await customInstance<AuthResponse>('/api/v1/auth/register', {
-          method: 'POST',
-          body: JSON.stringify({
-            organizationName: value.organizationName.trim(),
-            fullName: value.fullName?.trim() || undefined,
-            email: value.email.trim(),
-            password: value.password,
-          }),
-        });
-
-        if (res?.accessToken) {
-          setStoredAuthToken(res.accessToken);
-        }
-        if (res?.user?.organizationId) {
-          setStoredTenantId(res.user.organizationId);
-        }
-
-        router.push('/projects');
-      } catch (err: unknown) {
-        if (err instanceof ApiError) {
-          setServerError(err.message);
-        } else if (err instanceof Error) {
-          setServerError(err.message);
-        } else {
-          setServerError('Registration failed. Please check your information and try again.');
-        }
-      }
+      signupMutation.mutate(value);
     },
   });
 
@@ -315,10 +322,10 @@ export default function SignupPage() {
 
                     <button
                       type="submit"
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || signupMutation.isPending}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
                     >
-                      {isSubmitting ? (
+                      {isSubmitting || signupMutation.isPending ? (
                         <>
                           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
                           <span>Provisioning workspace...</span>

@@ -124,10 +124,10 @@ export default function ProcurementPage() {
           <span className="text-xs text-muted-foreground font-mono">SOC 2 & ISO 27001 Prepared</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-          Enterprise Procurement & Assurance Portal
+          Enterprise Procurement Documentation
         </h1>
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Pre-approved security documentation, architecture whitepapers, DPA templates, and software supply chain attestations designed to accelerate enterprise vendor risk assessment.
+          Static reference of pre-approved security documentation, architecture whitepapers, DPA templates, and software supply chain attestations designed to accelerate enterprise vendor risk assessment.
         </p>
       </div>
 

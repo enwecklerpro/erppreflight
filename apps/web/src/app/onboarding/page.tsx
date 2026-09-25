@@ -42,6 +42,8 @@ const RELEASES = [
   { id: 'ECC_608', label: 'SAP ECC 6.0 EHP8' },
 ];
 
+import { useMutation } from '@tanstack/react-query';
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -49,32 +51,39 @@ export default function OnboardingPage() {
   const [selectedDomain, setSelectedDomain] = useState(DOMAINS[0].id);
   const [selectedRelease, setSelectedRelease] = useState(RELEASES[0].id);
   const [projectName, setProjectName] = useState('My First S/4HANA Preflight');
-  const [loading, setLoading] = useState(false);
+
+  const createProjectMutation = useMutation({
+    mutationFn: createProject,
+    onSuccess: (created) => {
+      router.push(`/projects/${created.id}`);
+    },
+    onError: (err) => {
+      console.error(err);
+    }
+  });
+
+  const exploreDemoMutation = useMutation({
+    mutationFn: exploreDemoProject,
+    onSuccess: (demo) => {
+      router.push(`/projects/${demo.project.id}`);
+    },
+    onError: (err) => {
+      console.error(err);
+    }
+  });
+
+  const loading = createProjectMutation.isPending || exploreDemoMutation.isPending;
 
   async function handleComplete() {
-    setLoading(true);
-    try {
-      const created = await createProject({
-        name: projectName,
-        description: `Configured during onboarding for ${selectedRole} focusing on ${selectedDomain}`,
-        targetRelease: selectedRelease,
-      });
-      router.push(`/projects/${created.id}`);
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-    }
+    createProjectMutation.mutate({
+      name: projectName,
+      description: `Configured during onboarding for ${selectedRole} focusing on ${selectedDomain}`,
+      targetRelease: selectedRelease,
+    });
   }
 
   async function handleExploreDemo() {
-    setLoading(true);
-    try {
-      const demo = await exploreDemoProject();
-      router.push(`/projects/${demo.project.id}`);
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-    }
+    exploreDemoMutation.mutate();
   }
 
   return (

@@ -1,6 +1,8 @@
-import { Controller, Get, Header } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Header, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TelemetryService } from './telemetry.service';
+import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Telemetry & Observability')
 @Controller()
@@ -17,5 +19,14 @@ export class TelemetryController {
   @ApiResponse({ status: 200, description: 'Prometheus metrics successfully returned' })
   async getMetrics(): Promise<string> {
     return await this.telemetryService.getPrometheusMetrics();
+  }
+
+  @Get('telemetry/summary')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get Telemetry Summary for the tenant' })
+  @ApiResponse({ status: 200, description: 'Summary successfully returned' })
+  async getSummary(@CurrentTenant() tenantId: string) {
+    return this.telemetryService.getTenantSummary(tenantId);
   }
 }

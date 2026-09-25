@@ -17,61 +17,21 @@ import {
 } from 'lucide-react';
 import { exploreDemoProject } from '@/lib/api-client';
 
-const SCENARIOS = [
-  {
-    title: '1. OPD Missing Email Determination',
-    engine: 'OPD_GUARD',
-    severity: 'CRITICAL',
-    icon: FileSpreadsheet,
-    desc: 'BRFplus rule evaluates to no dispatch channel for sales org 1010 under Billing Type F2.',
-  },
-  {
-    title: '2. Adobe Form Binding Broken',
-    engine: 'FORM_DOCTOR',
-    severity: 'MAJOR',
-    icon: FileCode,
-    desc: 'Invoice layout context field CustomerTaxId disconnected from KNA1/BUT000 schema provider.',
-  },
-  {
-    title: '3. Clean Core Tier 3 Direct DB Mutation',
-    engine: 'CLEAN_CORE_OBJECT_GUARD',
-    severity: 'BLOCKER',
-    icon: ShieldAlert,
-    desc: 'Direct Open SQL UPDATE into standard financial table BKPF violating Tier 1/2 extensibility.',
-  },
-  {
-    title: '4. SPRO Configuration Gap in CBC',
-    engine: 'SPRO2CLOUD',
-    severity: 'CRITICAL',
-    icon: Database,
-    desc: 'Customizing table T001G company code parameters has no 1:1 successor in Cloud CBC.',
-  },
-  {
-    title: '5. API Contract Breaking Change',
-    engine: 'API_CHANGE_GUARD',
-    severity: 'CRITICAL',
-    icon: Layers,
-    desc: 'Deprecated TaxJurisdictionCode property dropped in target S/4HANA 2023 OData v4 payload.',
-  },
-  {
-    title: '6. Transport Prerequisite Missing',
-    engine: 'TRANSPORT_DEPENDENCY_ANALYZER',
-    severity: 'BLOCKER',
-    icon: Truck,
-    desc: 'Transport TRK900102 references active dictionary table created in unreleased TRK900099.',
-  },
-  {
-    title: '7. MFS Telegram First-Divergence Collision',
-    engine: 'MFS_BLACKBOX',
-    severity: 'MAJOR',
-    icon: Flame,
-    desc: 'Conveyor diverter lock triggered by out-of-order telegram ACK handshake sequence.',
-  },
-];
+import { useQuery } from '@tanstack/react-query';
+import { customInstance } from '@/lib/api/custom-instance';
 
 export default function DemoSandboxPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+
+  const { data: scenarios, isLoading: scenariosLoading, isError } = useQuery({
+    queryKey: ['demo', 'scenarios'],
+    queryFn: async () => {
+      const res = await customInstance('/api/v1/demo/scenarios');
+      return res as any[];
+    },
+    retry: false,
+  });
 
   async function handleLaunch() {
     setLoading(true);
@@ -115,10 +75,14 @@ export default function DemoSandboxPage() {
           </div>
         </div>
 
-        {/* 7 Canonical Scenarios Grid */}
+        {/* Scenarios Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
-          {SCENARIOS.map((sc, idx) => {
-            const Icon = sc.icon;
+          {scenariosLoading ? (
+            <div className="col-span-full text-center py-12 text-slate-400">Loading demo scenarios...</div>
+          ) : isError || !scenarios || scenarios.length === 0 ? (
+            <div className="col-span-full text-center py-12 text-slate-400">Demo scenarios are being configured. Please check back later.</div>
+          ) : scenarios.map((sc, idx) => {
+            const Icon = sc.icon || FileCode;
             const isBlocker = sc.severity === 'BLOCKER';
             const isCritical = sc.severity === 'CRITICAL';
             return (

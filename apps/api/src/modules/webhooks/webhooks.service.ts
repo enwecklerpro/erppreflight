@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CreateWebhookDto } from './dto/webhook.dto';
@@ -20,13 +20,15 @@ function isSafeUrl(urlString: string): boolean {
 }
 
 @Injectable()
-export class WebhooksService {
+export class WebhooksService implements OnModuleInit {
   private readonly logger = new Logger(WebhooksService.name);
 
   constructor(
     private readonly db: DatabaseService,
     private readonly outbox: OutboxService
-  ) {
+  ) {}
+
+  onModuleInit() {
     this.outbox.subscribe('*', async (event) => {
       await this.dispatchEvent(event.organizationId, event.eventType, event.payload);
     });
