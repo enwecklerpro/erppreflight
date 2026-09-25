@@ -256,6 +256,7 @@ class CleanCoreEngine(BaseEngine):
     """Engine analyzing custom ABAP code against SAP Clean Core principles."""
 
     engine_type = EngineType.CLEAN_CORE_OBJECT_GUARD
+    rule_prefix = "CLEAN_CORE"
     name = "Clean Core Object Guard"
     description = "Tier 1/2/3 extensibility classification, classic modification detector"
     version = "1.0.0"

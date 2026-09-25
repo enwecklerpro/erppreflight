@@ -40,6 +40,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_object
 
 
 # ==============================================================================
@@ -108,7 +110,7 @@ class AuditLogEntry(BaseModel):
 
 class DecommissionNormalizedData(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    target_user: str = "BATCH_ADMIN"
+    target_user: Optional[str] = None
     grace_period_days: int = 90
     evaluation_date: Optional[str] = None
     users: Dict[str, USR02Entry] = Field(default_factory=dict)
@@ -116,20 +118,23 @@ class DecommissionNormalizedData(BaseModel):
     rfc_destinations: List[RFCDESEntry] = Field(default_factory=list)
     work_items: List[SWWWIHEADEntry] = Field(default_factory=list)
     audit_logs: List[AuditLogEntry] = Field(default_factory=list)
+    # Tables actually supplied in the input (even if empty) — a positive verdict requires all of
+    # REQUIRED_VERDICT_TABLES; absence of a table is never treated as "no dependencies".
+    supplied_tables: List[str] = Field(default_factory=list)
 
 
 # ==============================================================================
 # Helper Utilities & Evidence Coordinate Resolver (Point 6)
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -142,7 +147,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _normalize_bool(val: Any) -> bool:
@@ -168,6 +173,15 @@ def _parse_date(date_val: Optional[str]) -> Optional[date]:
     return None
 
 
+REQUIRED_VERDICT_TABLES = ("usr02", "tbtco", "rfcdes", "swwwihead")
+_TABLE_KEYS = {
+    "usr02": ("usr02", "users"),
+    "tbtco": ("tbtco", "jobs"),
+    "rfcdes": ("rfcdes", "rfc_destinations", "rfc"),
+    "swwwihead": ("swwwihead", "work_items", "workflows"),
+    "sm20": ("sm20", "st03n", "audit_logs"),
+}
+
 ACTIVE_JOB_STATUSES = {"P", "S", "R", "Y", "SCHEDULED", "RELEASED", "RUNNING", "READY"}
 PENDING_WORK_ITEM_STATUSES = {"READY", "SELECTED", "STARTED"}
 
@@ -182,6 +196,7 @@ class DecommissionAuditEngine(BaseEngine):
 
     # Point 1: Metadata
     engine_type = EngineType.SAFE_DECOMMISSION_PREFLIGHT
+    rule_prefix = "DECOM"
     name = "Safe Decommission Preflight"
     description = "Unused Z-program, table, and interface retirement preflight validator"
     version = "2.0.0"
@@ -202,12 +217,10 @@ class DecommissionAuditEngine(BaseEngine):
 
         data = DecommissionNormalizedData()
 
-        # Parse raw content or configuration
-        if raw_text and raw_text.strip().startswith("{"):
-            try:
-                parsed = json.loads(raw_text)
-            except Exception:
-                parsed = request.configuration or {}
+        # Parse raw content or configuration (malformed JSON is reported, never replaced by {})
+        stripped = raw_text.strip() if raw_text else ""
+        if stripped.startswith("{") or stripped.startswith("["):
+            parsed = parse_json_object(raw_text, self.rule_prefix)
         elif not raw_text and request.configuration:
             parsed = request.configuration
         elif raw_text and ("\n" in raw_text or "," in raw_text or ";" in raw_text):
@@ -215,16 +228,27 @@ class DecommissionAuditEngine(BaseEngine):
         else:
             parsed = request.configuration or {}
 
-        # 1. Target user & options
+        # 1. Target user & options (no default identity: the decommissioning candidate must be supplied)
         t_user = (
             parsed.get("target_user")
             or parsed.get("bname")
             or parsed.get("username")
             or parsed.get("user")
-            or request.configuration.get("target_user", "BATCH_ADMIN")
+            or request.configuration.get("target_user")
         )
-        data.target_user = str(t_user).strip().upper()
-        data.grace_period_days = int(parsed.get("grace_period_days", request.configuration.get("grace_period_days", 90)))
+        if isinstance(t_user, str) and t_user.strip():
+            data.target_user = t_user.strip().upper()
+        raw_grace = parsed.get("grace_period_days", request.configuration.get("grace_period_days", 90))
+        try:
+            data.grace_period_days = int(raw_grace)
+        except (TypeError, ValueError):
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT",
+                "Field 'grace_period_days' must be an integer number of days.",
+            )
+        for table, keys in _TABLE_KEYS.items():
+            if any(isinstance(parsed.get(k), list) for k in keys):
+                data.supplied_tables.append(table)
         data.evaluation_date = (
             parsed.get("evaluation_date")
             or parsed.get("snapshot_date")
@@ -239,14 +263,19 @@ class DecommissionAuditEngine(BaseEngine):
                 fn = art.file_name.lower()
                 if "usr02" in fn:
                     self._populate_usr02(data, c)
+                    data.supplied_tables.append("usr02")
                 elif "tbtco" in fn or "jobs" in fn:
                     self._populate_tbtco(data, c)
+                    data.supplied_tables.append("tbtco")
                 elif "rfcdes" in fn or "rfc" in fn:
                     self._populate_rfcdes(data, c)
+                    data.supplied_tables.append("rfcdes")
                 elif "swwwihead" in fn or "workflow" in fn:
                     self._populate_swwwihead(data, c)
+                    data.supplied_tables.append("swwwihead")
                 elif "sm20" in fn or "st03n" in fn or "audit" in fn:
                     self._populate_audit(data, c)
+                    data.supplied_tables.append("sm20")
 
         # 2. Extract USR02
         raw_usr02 = parsed.get("usr02", parsed.get("users", []))
@@ -471,6 +500,17 @@ class DecommissionAuditEngine(BaseEngine):
         findings: List[Finding] = []
 
         data, artifact_path, raw_text = self._parse_inputs(request)
+        if not data.target_user:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No decommissioning candidate supplied: provide 'target_user' (or bname/username).",
+            )
+        if not data.supplied_tables:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "None of the required tables (USR02, TBTCO, RFCDES, SWWWIHEAD) were supplied; "
+                "no decommissioning assessment can be made.",
+            )
         target = data.target_user
 
         ref_date_str = (
@@ -543,7 +583,7 @@ class DecommissionAuditEngine(BaseEngine):
             job_names = sorted(list({j.job_name for j in matching_jobs}))
             first_job = job_names[0]
             line_no, col_no, snippet = _locate_line_in_text(raw_text, first_job)
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
 
             ev = EvidenceEngine.create_evidence(
@@ -596,7 +636,7 @@ class DecommissionAuditEngine(BaseEngine):
             rfc_names = sorted(list({r.destination for r in matching_rfcs}))
             first_rfc = rfc_names[0]
             line_no, col_no, snippet = _locate_line_in_text(raw_text, first_rfc)
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
 
             ev = EvidenceEngine.create_evidence(
@@ -652,7 +692,7 @@ class DecommissionAuditEngine(BaseEngine):
             wi_ids = [w.wi_id for w in matching_wf]
             first_wi = wi_ids[0]
             line_no, col_no, snippet = _locate_line_in_text(raw_text, first_wi)
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
 
             sev = Severity.CRITICAL if len(matching_wf) >= 5 else Severity.MAJOR
@@ -766,7 +806,7 @@ class DecommissionAuditEngine(BaseEngine):
         ]
         if is_locked and recent_failed_attempts:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, "FAILED_LOGON")
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
 
             ev = EvidenceEngine.create_evidence(
@@ -808,9 +848,31 @@ class DecommissionAuditEngine(BaseEngine):
         # Rule 6: Safe Decommission Verdict
         # ----------------------------------------------------------------------
         rules_evaluated += 1
-        user_missing = bool(data.users and not user_entry)
+        user_missing = not user_entry
+        missing_tables = [t for t in REQUIRED_VERDICT_TABLES if t not in data.supplied_tables]
         has_blockers = bool(matching_jobs or matching_rfcs or matching_wf or user_missing)
-        if not has_blockers and days_since_active >= data.grace_period_days:
+        verdict_withheld = False
+        if missing_tables and not (matching_jobs or matching_rfcs or matching_wf):
+            # A positive verdict needs every required table; absent tables are not "zero dependencies".
+            verdict_withheld = True
+            f = Finding(
+                rule_id="DECOM_INSUFFICIENT_INPUT",
+                severity=Severity.INFO,
+                category="DECOMMISSION_PREFLIGHT",
+                title=f"Decommission Verdict Withheld for '{target}': Required Tables Missing",
+                description=(
+                    "A safe-to-decommission verdict requires USR02, TBTCO, RFCDES and SWWWIHEAD extracts. "
+                    f"Missing: {', '.join(t.upper() for t in missing_tables)}."
+                ),
+                confidence=ConfidenceClass.UNKNOWN,
+                confidence_score=0.30,
+                remediation="Export the missing tables for the relevant client and re-run the preflight.",
+                evidence=[],
+                affected_objects=[target],
+                technical_details={"missingTables": [t.upper() for t in missing_tables]},
+            )
+            findings.append(ConfidenceClassifier.classify(f))
+        if not has_blockers and not missing_tables and days_since_active >= data.grace_period_days:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -913,7 +975,7 @@ class DecommissionAuditEngine(BaseEngine):
         return AnalysisResponse(
             job_id=request.job_id,
             engine_type=self.engine_type,
-            status=AnalysisStatus.COMPLETED,
+            status=AnalysisStatus.PARTIAL if verdict_withheld else AnalysisStatus.COMPLETED,
             findings=findings,
             metrics=AnalysisMetrics(
                 execution_time_ms=execution_time_ms,
@@ -921,6 +983,7 @@ class DecommissionAuditEngine(BaseEngine):
                 artifacts_scanned=1,
                 additional_metrics={
                     "targetUser": target,
+                    "suppliedTables": sorted(set(data.supplied_tables)),
                     "activeJobsCount": len(matching_jobs),
                     "activeRfcCount": len(matching_rfcs),
                     "pendingWorkItemsCount": len(matching_wf),

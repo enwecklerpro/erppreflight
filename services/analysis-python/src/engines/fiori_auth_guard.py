@@ -110,6 +110,7 @@ class Fiori403Engine(BaseEngine):
     """
 
     engine_type = EngineType.FIORI_403_ROOT_CAUSE_DOCTOR
+    rule_prefix = "FIORI_403"
     name = "Fiori 403 Root-Cause Doctor"
     description = "Deterministic 7-step decision-tree diagnosis across HTTP 403 / unauthorized errors"
     version = "2.0.0"

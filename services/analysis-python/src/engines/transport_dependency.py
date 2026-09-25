@@ -58,8 +58,8 @@ class E070Record(BaseModel):
     tarsystem: Optional[str] = Field(None, description="Target system (e.g. QAS, PRD)")
     strkorr: Optional[str] = Field(None, description="Parent transport request for tasks")
     timestamp: Optional[str] = Field(None, description="Combined sortable timestamp string")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -72,8 +72,8 @@ class E071Record(BaseModel):
     object: str = Field(..., description="Object Type (CLAS, TABL, PROG, FUGR, VIEW, etc.)")
     obj_name: str = Field(..., description="Repository Object Name")
     objfunc: str = Field(" ", description="Function (' '=Standard, K=Key entries, D=Delete)")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
     @property
@@ -96,8 +96,8 @@ class E071KRecord(BaseModel):
     mastertype: Optional[str] = Field(None, description="Master type")
     mastername: Optional[str] = Field(None, description="Master name")
     tabkey: str = Field("*", description="Transported table key specification")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -110,8 +110,8 @@ class CallReference(BaseModel):
     callee_tr: Optional[str] = Field(None, description="Target transport defining the referenced object")
     callee_object: str = Field(..., description="Referenced object (e.g. CLAS ZCL_ORDER_HANDLER)")
     reference_type: str = Field("CALL_METHOD", description="CALL_METHOD, CALL_FUNCTION, SELECT_TABLE, INHERITS_FROM")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -146,14 +146,14 @@ class CTSNormalizedData(BaseModel):
 # Helper Functions (Point 6: Coordinate & Evidence Extraction)
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token in raw text."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     # Primary exact search
     for idx, line in enumerate(lines, 1):
@@ -168,7 +168,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _normalize_obj_string(obj_str: str) -> Tuple[str, str, str]:
@@ -203,6 +203,7 @@ class TransportDependencyEngine(BaseEngine):
 
     # Point 1: Metadata
     engine_type = EngineType.TRANSPORT_DEPENDENCY_ANALYZER
+    rule_prefix = "TR"
     name = "Transport Dependency Analyzer"
     description = "CTS transport sequence, cross-transport dictionary dependency validator"
     version = "2.0.0"
@@ -1230,24 +1231,23 @@ class TransportDependencyEngine(BaseEngine):
             obj_name = raw_f.get("object", "UNKNOWN")
             conf_str = raw_f.get("confidence", "VERIFIED")
 
-            # Determine coordinates and evidence snippet
-            line_no = 1
-            col_no = 1
+            # Determine coordinates and evidence snippet (None when the token cannot be located;
+            # the confidence classifier then demotes the finding to UNKNOWN)
+            line_no: Optional[int] = None
+            col_no: Optional[int] = None
             snip = ""
 
-            # Try locating in source text
             if data.raw_content:
-                line, c, s = _locate_line_in_text(data.raw_content, obj_name)
-                line_no = line
-                col_no = c
-                snip = s
-            elif raw_f.get("transports"):
-                # Use first transport ID to locate
-                first_tr = raw_f["transports"][0]
-                line, c, s = _locate_line_in_text(data.raw_content, first_tr)
-                line_no = line
-                col_no = c
-                snip = s
+                candidates: List[str] = [str(obj_name)]
+                parts = str(obj_name).split()
+                if len(parts) > 1:
+                    candidates.append(parts[-1])
+                candidates.extend(str(t) for t in (raw_f.get("transports") or []))
+                for token in candidates:
+                    line, c, s = _locate_line_in_text(data.raw_content, token)
+                    if line is not None:
+                        line_no, col_no, snip = line, c, s
+                        break
 
             # Epistemic Confidence Mapping
             if conf_str == "VERIFIED":

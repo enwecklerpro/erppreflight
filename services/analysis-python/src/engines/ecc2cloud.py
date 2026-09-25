@@ -703,6 +703,7 @@ class EccArtifactParser:
 @register_engine
 class ECC2CloudEngine(BaseEngine):
     engine_type = EngineType.ECC2CLOUD_NAVIGATOR
+    rule_prefix = "ECC"
     name = "ECC2Cloud Navigator"
     description = "Custom code remediation, obsolete transaction / table migration roadmap"
     version = "2.0.0"

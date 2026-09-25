@@ -664,6 +664,7 @@ class SproArtifactParser:
 @register_engine
 class SPRO2CloudEngine(BaseEngine):
     engine_type = EngineType.SPRO2CLOUD
+    rule_prefix = "SPRO"
     name = "SPRO2Cloud"
     description = "On-premise IMG/SPRO configuration to Cloud CBC mapping and delta analysis"
     version = "2.0.0"

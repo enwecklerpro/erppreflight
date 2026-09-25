@@ -38,6 +38,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_object
 
 
 # ==============================================================================
@@ -75,8 +77,12 @@ class ChangePointerNormalizedData(BaseModel):
     bd50_msg_types: Set[str] = Field(default_factory=set)
     bd52_fields: List[Tuple[str, str]] = Field(default_factory=list)
     expected_fields: List[Tuple[str, str]] = Field(default_factory=list)
-    change_document_object: str = "MATERIAL"
-    target_message_type: str = "MATMAS"
+    change_document_object: str = ""
+    # No default message type: it must come from the customer's configuration (BD50 / target_message_type).
+    target_message_type: Optional[str] = None
+    bd52_supplied: bool = False
+    # CUSTOMER (explicit expected_fields), STANDARD_PROFILE (curated SAP profile) or BD52 (self-consistency only)
+    expected_fields_source: str = "BD52"
     dd04l_metadata: Dict[str, DD04LEntry] = Field(default_factory=dict)
     bdcp2_samples: List[BDCP2SampleEntry] = Field(default_factory=list)
     bd53_reduced_fields: Set[str] = Field(default_factory=set)
@@ -134,14 +140,14 @@ CUSTOM_FIELD_PATTERN = re.compile(r"^(YY1_|ZZ|Z_)", re.IGNORECASE)
 # Line Location Helper for Cryptographic Evidence Chains (Point 6)
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token in raw text."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -155,7 +161,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 # ==============================================================================
@@ -168,6 +174,7 @@ class ChangePointerEngine(BaseEngine):
 
     # Point 1: Metadata
     engine_type = EngineType.CHANGE_POINTER_COVERAGE_AUDITOR
+    rule_prefix = "CP"
     name = "Change Pointer Coverage Auditor"
     description = "BD61/BD50/BD52 change pointer configuration and event trigger validation"
     version = "2.0.0"
@@ -198,12 +205,10 @@ class ChangePointerEngine(BaseEngine):
 
         data = ChangePointerNormalizedData()
 
-        if raw_text and raw_text.strip().startswith("{"):
-            # Parse JSON input
-            try:
-                parsed = json.loads(raw_text)
-            except Exception:
-                parsed = request.configuration or {}
+        stripped = raw_text.strip() if raw_text else ""
+        if stripped.startswith("{") or stripped.startswith("["):
+            # Parse JSON input (malformed JSON is reported, never replaced by {})
+            parsed = parse_json_object(raw_text, self.rule_prefix)
         elif not raw_text and request.configuration:
             parsed = request.configuration
         elif raw_text and ("\n" in raw_text or "," in raw_text or ";" in raw_text):
@@ -236,18 +241,24 @@ class ChangePointerEngine(BaseEngine):
         target_msg = parsed.get("target_message_type", parsed.get("message_type"))
         if not target_msg and data.bd50_msg_types:
             target_msg = sorted(list(data.bd50_msg_types))[0]
-        data.target_message_type = str(target_msg or "MATMAS").upper()
+        data.target_message_type = str(target_msg).strip().upper() if target_msg else None
 
         cd_obj = parsed.get("change_document_object", parsed.get("cd_object"))
-        if not cd_obj:
-            cd_obj = MESSAGE_TYPE_OBJECT_MAP.get(data.target_message_type, "MATERIAL")
-        data.change_document_object = str(cd_obj).upper()
+        if not cd_obj and data.target_message_type:
+            cd_obj = MESSAGE_TYPE_OBJECT_MAP.get(data.target_message_type, "")
+        data.change_document_object = str(cd_obj or "").upper()
 
         # If BD50 is empty in payload, default to checking target_message_type
-        if not data.bd50_msg_types and "bd50_msg_types" not in parsed and "bd50" not in parsed:
+        if (
+            data.target_message_type
+            and not data.bd50_msg_types
+            and "bd50_msg_types" not in parsed
+            and "bd50" not in parsed
+        ):
             data.bd50_msg_types.add(data.target_message_type)
 
         # 3. Parse BD52 configured fields
+        data.bd52_supplied = any(k in parsed for k in ("bd52_fields", "bd52", "fields"))
         raw_bd52 = parsed.get("bd52_fields", parsed.get("bd52", parsed.get("fields", [])))
         data.bd52_fields = self._normalize_field_list(raw_bd52)
 
@@ -255,6 +266,7 @@ class ChangePointerEngine(BaseEngine):
         raw_expected = parsed.get("expected_fields", parsed.get("expected", []))
         if raw_expected:
             data.expected_fields = self._normalize_field_list(raw_expected)
+            data.expected_fields_source = "CUSTOMER"
         else:
             # Fallback to standard message type profile or BD52 fields
             default_profile = STANDARD_MESSAGE_PROFILES.get(data.target_message_type)
@@ -264,6 +276,7 @@ class ChangePointerEngine(BaseEngine):
                     data.expected_fields = []
                 else:
                     data.expected_fields = list(default_profile)
+                    data.expected_fields_source = "STANDARD_PROFILE"
             else:
                 data.expected_fields = list(data.bd52_fields)
 
@@ -417,6 +430,18 @@ class ChangePointerEngine(BaseEngine):
 
         # Parse and normalize inputs
         data, artifact_path, raw_text = self._parse_inputs(request)
+        if not data.target_message_type:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No message type supplied: provide 'target_message_type' or active BD50 message types.",
+            )
+        if not data.bd52_supplied:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                f"BD52 (TBD62) field configuration for message type '{data.target_message_type}' was not supplied; "
+                "field-level change pointer coverage cannot be assessed.",
+            )
+        from_standard_profile = data.expected_fields_source == "STANDARD_PROFILE"
 
         # ----------------------------------------------------------------------
         # Rule 1: Global Change Pointer Activation (BD61)
@@ -424,7 +449,7 @@ class ChangePointerEngine(BaseEngine):
         rules_evaluated += 1
         if not data.bd61_active:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, "bd61")
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 snippet = '"bd61_active": false'
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -464,7 +489,7 @@ class ChangePointerEngine(BaseEngine):
         msg_type_active = data.target_message_type in data.bd50_msg_types
         if not msg_type_active:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, data.target_message_type)
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 snippet = f'"bd50_msg_types": {list(data.bd50_msg_types)}'
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -511,16 +536,17 @@ class ChangePointerEngine(BaseEngine):
                 missing_fields.append((tbl, fld))
                 token_to_search = fld if fld in raw_text else tbl
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, token_to_search)
-                if line_no == 1 and not snippet:
-                    snippet = f'"{tbl}", "{fld}"'
+                if line_no is None:
+                    snippet = None
                 ev = EvidenceEngine.create_evidence(
                     artifact_path=artifact_path,
-                    content=raw_text or f"{tbl}-{fld}",
+                    content=raw_text,
                     line_number=line_no,
                     column_number=col_no,
                     snippet=snippet,
-                    provenance=ConfidenceClass.VERIFIED,
-                    source_type=TrustLevel.CUSTOMER_EVIDENCE,
+                    # Expectations from the built-in SAP profile are curated knowledge, not customer evidence.
+                    provenance=ConfidenceClass.RULE_DERIVED if from_standard_profile else ConfidenceClass.VERIFIED,
+                    source_type=TrustLevel.CURATED_RULE if from_standard_profile else TrustLevel.CUSTOMER_EVIDENCE,
                 )
                 f = Finding(
                     rule_id="CP_FIELD_NOT_CONFIGURED_BD52",
@@ -532,8 +558,8 @@ class ChangePointerEngine(BaseEngine):
                         f"'{data.target_message_type}' (Change Document Object '{data.change_document_object}'), "
                         "but is missing in table TBD62 (transaction BD52). Modifications to this field will not generate change pointers."
                     ),
-                    confidence=ConfidenceClass.VERIFIED,
-                    confidence_score=1.0,
+                    confidence=ConfidenceClass.RULE_DERIVED if from_standard_profile else ConfidenceClass.VERIFIED,
+                    confidence_score=0.85 if from_standard_profile else 1.0,
                     remediation=(
                         f"Execute transaction BD52, enter message type '{data.target_message_type}', and add an entry: "
                         f"Object='{data.change_document_object}', Table='{tbl}', Field='{fld}'."
@@ -544,6 +570,7 @@ class ChangePointerEngine(BaseEngine):
                         "changeDocumentObject": data.change_document_object,
                         "table": tbl,
                         "field": fld,
+                        "expectedFieldSource": data.expected_fields_source,
                     },
                     affected_objects=[f"{tbl}-{fld}"],
                 )
@@ -562,7 +589,7 @@ class ChangePointerEngine(BaseEngine):
             if dd_entry is not None and not dd_entry.change_document_flag:
                 dd04l_missing_flags.append(field_key)
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, fld)
-                if line_no == 1 and not snippet:
+                if line_no is None:
                     snippet = f'"{field_key}": {{"change_document_flag": false}}'
                 ev = EvidenceEngine.create_evidence(
                     artifact_path=artifact_path,

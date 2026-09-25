@@ -176,6 +176,7 @@ class TestConfidenceClassifierChallenges:
             evidence_list = [
                 Evidence(
                     artifact_path="manifest.xml",
+                    line_number=1,
                     sha256="abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
                     provenance=confidence,
                 )
@@ -294,6 +295,7 @@ class TestConfidenceClassifierChallenges:
         # Create an engine finding that has AI provenance in evidence
         ai_evidence = Evidence(
             artifact_path="ai_generated.txt",
+            line_number=1,
             sha256="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
             provenance=ConfidenceClass.INFERRED,
             source_type=TrustLevel.INFERRED,

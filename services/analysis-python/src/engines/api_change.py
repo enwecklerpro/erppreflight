@@ -83,8 +83,8 @@ class NormalizedProperty(BaseModel):
     scale: Optional[int] = None
     enums: List[str] = Field(default_factory=list)
     deprecated: bool = False
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedEntity(BaseModel):
@@ -94,8 +94,8 @@ class NormalizedEntity(BaseModel):
     properties: Dict[str, NormalizedProperty] = Field(default_factory=dict)
     keys: List[str] = Field(default_factory=list)
     navigation_properties: List[str] = Field(default_factory=list)
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedParameter(BaseModel):
@@ -107,8 +107,8 @@ class NormalizedParameter(BaseModel):
     type: str = "string"
     format: Optional[str] = None
     schema_ref: Optional[str] = None
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedOperation(BaseModel):
@@ -121,8 +121,8 @@ class NormalizedOperation(BaseModel):
     request_body_required: bool = False
     responses: Dict[str, str] = Field(default_factory=dict)
     deprecated: bool = False
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedEndpoint(BaseModel):
@@ -130,8 +130,8 @@ class NormalizedEndpoint(BaseModel):
 
     path: str
     operations: Dict[str, NormalizedOperation] = Field(default_factory=dict)
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedApiSchema(BaseModel):
@@ -155,12 +155,12 @@ class NormalizedApiSchema(BaseModel):
 # =============================================================================
 
 
-def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tuple[int, int, str]:
+def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
-    start_idx = max(0, start_line - 1)
+    start_idx = max(0, (start_line or 1) - 1)
     # 1. Exact quoted match e.g. "token": or 'token':
     exact_patterns = [f'"{token}"', f"'{token}'", f"{token}:", token]
     for pattern in exact_patterns:
@@ -169,12 +169,14 @@ def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tup
             pos = line.find(pattern)
             if pos != -1:
                 return idx + 1, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _extract_context_snippet(raw_text: str, line_number: int, radius: int = 2) -> str:
     """Extracts a snippet of source lines centered on line_number."""
     if not raw_text:
+        return ""
+    if not line_number:
         return ""
     lines = raw_text.splitlines()
     target_idx = max(0, line_number - 1)
@@ -197,6 +199,7 @@ class ApiChangeEngine(BaseEngine):
     """
 
     engine_type = EngineType.API_CHANGE_GUARD
+    rule_prefix = "API"
     name = "API Change Guard"
     description = "OData, SOAP, RFC compatibility and deprecation impact scanner"
     version = "2.0.0"

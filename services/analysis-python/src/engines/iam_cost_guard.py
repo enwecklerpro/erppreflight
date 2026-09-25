@@ -169,14 +169,14 @@ CRITICAL_AUTH_OBJECTS: Set[str] = {
 # Helper Utilities
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[Optional[int], Optional[int], str]:
     """Scans raw_text for token and returns (1-based line, 1-based col, line_snippet)."""
     if not raw_text:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -190,7 +190,7 @@ def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 # ==============================================================================
@@ -202,6 +202,7 @@ class IAMCostEngine(BaseEngine):
     """Production-grade Cloud IAM & BTP Role Tailoring Cost Guard."""
 
     engine_type = EngineType.IAM_COST_OPTIMIZER
+    rule_prefix = "IAM"
     name = "IAM Cost Optimizer"
     description = (
         "Role catalog over-licensing, license tier escalation driver pinpointing, "

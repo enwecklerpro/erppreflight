@@ -11,6 +11,7 @@ def _create_evidence(
 ) -> Evidence:
     return Evidence(
         artifact_path=artifact_path,
+        line_number=1,
         sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         provenance=provenance,
         source_type=source_type,

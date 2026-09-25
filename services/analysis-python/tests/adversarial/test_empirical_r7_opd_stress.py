@@ -28,6 +28,7 @@ from src.core.exceptions import SecurityViolationError
 from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest, ArtifactReference
 from src.platform.evidence import EvidenceEngine
+from src.core.runner import EngineRunner
 
 
 # ============================================================================
@@ -149,9 +150,11 @@ class TestOPDGuardEngineAdversarial:
             raw_content="<OutputParameterDetermination><UnclosedTag>",
             target_release="S4H_2023",
         )
-        response = await engine.analyze(request)
-        assert response.status in (AnalysisStatus.COMPLETED, AnalysisStatus.PARTIAL)
-        assert isinstance(response.findings, list)
+        # M4: malformed XML must not crash and must not be reported as a clean COMPLETED run.
+        response = await EngineRunner.execute(request)
+        assert response.status == AnalysisStatus.FAILED
+        assert [f.rule_id for f in response.findings] == ["OPD_PARSE_ERROR"]
+        assert response.findings[0].confidence == ConfidenceClass.UNKNOWN
 
     @pytest.mark.asyncio
     async def test_opd_guard_handles_missing_row_tags_safely(self, engine):

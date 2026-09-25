@@ -118,6 +118,7 @@ class WorkflowStuckEngine(BaseEngine):
     """
 
     engine_type = EngineType.WORKFLOW_STUCK_EXPLAINER
+    rule_prefix = "WF"
     name = "Workflow Stuck Explainer"
     description = "Deterministic diagnostic analysis of stuck, failed, or overdue SAP Business Workflows"
     version = "2.0.0"

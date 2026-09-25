@@ -116,14 +116,14 @@ STANDARD_VALUATION_CLASSES: List[str] = ["3000", "3100", "7900", "7920"]
 # Helper Utilities
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[Optional[int], Optional[int], str]:
     """Scans raw_text for token and returns (1-based line, 1-based col, line_snippet)."""
     if not raw_text:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -137,7 +137,7 @@ def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 # ==============================================================================
@@ -149,6 +149,7 @@ class AccountDeterminationEngine(BaseEngine):
     """Production-grade Universal Account Determination Verifier."""
 
     engine_type = EngineType.ACCOUNT_DETERMINATION_PREFLIGHT
+    rule_prefix = "ACCT"
     name = "Account Determination Preflight"
     description = (
         "OBYC, VKOA, and FBKP automatic account determination rule validator, "

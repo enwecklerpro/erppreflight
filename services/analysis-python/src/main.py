@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.config import get_settings
 from src.api.router import api_router
-from src.api.middleware import CorrelationIdMiddleware
+from src.api.middleware import CorrelationIdMiddleware, PayloadSizeLimitMiddleware
 import src.engines  # noqa: F401 — triggers auto-registration of all 19 engines
 
 
@@ -26,6 +26,11 @@ def create_app() -> FastAPI:
 
     # Middleware
     app.add_middleware(CorrelationIdMiddleware)
+    # Base64 inflates binary artifacts by 4/3; allow for it plus JSON envelope overhead.
+    app.add_middleware(
+        PayloadSizeLimitMiddleware,
+        max_bytes=int(settings.MAX_PAYLOAD_SIZE_MB * 1024 * 1024 * 4 / 3) + 64 * 1024,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,

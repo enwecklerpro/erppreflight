@@ -88,16 +88,16 @@ CATEGORY_WEIGHTS: Dict[ExtensionObjectType, float] = {
 DEPTH_ATTENUATION_FACTOR = 0.85
 
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     for idx, line in enumerate(lines, 1):
         pos = line.find(token)
         if pos != -1:
             return idx, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _infer_extension_type(object_id: str) -> ExtensionObjectType:
@@ -123,6 +123,7 @@ class ExtensionImpactEngine(BaseEngine):
     """Engine calculating extension dependency blast radius, cycles, and deletion gates."""
 
     engine_type = EngineType.EXTENSION_IMPACT_GUARD
+    rule_prefix = "EXT"
     name = "Extension Impact Guard"
     description = "Cloud BAdI, key-user extensibility, and upgrade stability analyzer"
     version = "1.0.0"

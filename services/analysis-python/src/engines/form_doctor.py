@@ -47,6 +47,7 @@ class LineNumberTreeBuilder(TreeBuilder):
 @register_engine
 class FormDoctorEngine(BaseEngine):
     engine_type = EngineType.FORM_DOCTOR
+    rule_prefix = "FORM"
     name = "FormDoctor"
     description = "SAPscript, Smart Forms to Adobe Forms (XDP) migration & syntax validator"
     version = "2.0.0"

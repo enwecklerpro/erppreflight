@@ -35,6 +35,8 @@ from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.parsers.safe_xml import SafeXmlParser
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.safe_zip import ArchiveSecurityError, SafeZipReader
 
 
 # ==============================================================================
@@ -75,8 +77,8 @@ class SoftwareCollectionItem(BaseModel):
     status: str = "PUBLISHED"
     dependencies: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -133,8 +135,8 @@ class SoftwareCollection(BaseModel):
     status: str = "EXPORTED"
     items: List[SoftwareCollectionItem] = Field(default_factory=list)
     dependencies: List[str] = Field(default_factory=list)  # Direct collection-level prerequisites
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -181,16 +183,16 @@ SAP_STANDARD_PREFIXES = (
 )
 
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     for idx, line in enumerate(lines, 1):
         pos = line.find(token)
         if pos != -1:
             return idx, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _is_probable_uuid(token: str) -> bool:
@@ -207,6 +209,8 @@ class SoftwareCollectionEngine(BaseEngine):
     """Preflights SAP S/4HANA Cloud Key-User Software Collections and export manifests."""
 
     engine_type = EngineType.SOFTWARE_COLLECTION_DEPENDENCY_GUARD
+    rule_prefix = "SC"
+    accepts_binary_input = True
     name = "Software Collection Dependency Guard"
     description = "Export software collection item cross-reference and release validator"
     version = "1.0.0"
@@ -348,8 +352,15 @@ class SoftwareCollectionEngine(BaseEngine):
         if byte_data.startswith(b"PK\x03\x04") or artifact_type == ArtifactType.ZIP:
             try:
                 return cls._parse_zip_content(byte_data, artifact_path)
-            except Exception:
-                pass
+            except ArchiveSecurityError as exc:
+                if not byte_data.startswith(b"PK\x03\x04"):
+                    # Declared ZIP but not an archive: fall back to text parsing below.
+                    pass
+                else:
+                    raise EngineInputError(
+                        f"{cls.rule_prefix}_ARCHIVE_REJECTED",
+                        f"Software collection archive rejected by ingestion safety limits: {exc}",
+                    ) from exc
 
         if isinstance(raw_content, bytes):
             try:
@@ -548,43 +559,28 @@ class SoftwareCollectionEngine(BaseEngine):
 
     @classmethod
     def _parse_zip_content(cls, zip_bytes: bytes, artifact_path: str) -> SoftwareCollectionManifest:
-        """Securely parses in-memory ZIP archive preventing Zip Bomb and Zip Slip attacks."""
-        manifest = SoftwareCollectionManifest()
-        stream = io.BytesIO(zip_bytes)
+        """Securely parses an in-memory ZIP archive via SafeZipReader (zip bomb / zip slip protection).
 
-        try:
-            with zipfile.ZipFile(stream, "r") as zf:
-                infolist = zf.infolist()
-                if len(infolist) > 1000:
-                    return manifest  # Reject excessive file counts
+        Raises ArchiveSecurityError when the archive violates ingestion limits.
+        """
+        with SafeZipReader(zip_bytes) as zf:
+            names = zf.namelist()
+            # Locate manifest.json or manifest.xml
+            manifest_files = [f for f in names if f.lower().endswith(("manifest.json", "collections.json", "manifest.xml", "collections.xml"))]
+            if manifest_files:
+                target_file = sorted(manifest_files)[0]
+                content = zf.read(target_file)
+                if target_file.lower().endswith(".json"):
+                    return cls._parse_json_content(content.decode("utf-8", errors="replace"), target_file)
+                return cls._parse_xml_content(content.decode("utf-8", errors="replace"), target_file)
 
-                total_uncompressed = sum(info.file_size for info in infolist)
-                if total_uncompressed > 500 * 1024 * 1024:  # 500 MB max
-                    return manifest
+            # Fallback: scan JSON files in zip (deterministic order)
+            json_files = sorted(f for f in names if f.lower().endswith(".json"))
+            if json_files:
+                content = zf.read(json_files[0])
+                return cls._parse_json_content(content.decode("utf-8", errors="replace"), json_files[0])
 
-                # Zip slip validation
-                for info in infolist:
-                    if ".." in info.filename or info.filename.startswith(("/", "\\")):
-                        return manifest
-
-                # Locate manifest.json or manifest.xml
-                manifest_files = [f for f in zf.namelist() if f.lower().endswith(("manifest.json", "collections.json", "manifest.xml", "collections.xml"))]
-                if manifest_files:
-                    target_file = sorted(manifest_files)[0]
-                    content = zf.read(target_file)
-                    if target_file.lower().endswith(".json"):
-                        return cls._parse_json_content(content.decode("utf-8", errors="replace"), target_file)
-                    else:
-                        return cls._parse_xml_content(content.decode("utf-8", errors="replace"), target_file)
-
-                # Fallback: scan all JSON files in zip
-                json_files = [f for f in zf.namelist() if f.lower().endswith(".json")]
-                if json_files:
-                    content = zf.read(json_files[0])
-                    return cls._parse_json_content(content.decode("utf-8", errors="replace"), json_files[0])
-
-        except Exception:
-            return manifest
+        return SoftwareCollectionManifest()
 
         return manifest
 
@@ -600,13 +596,16 @@ class SoftwareCollectionEngine(BaseEngine):
 
         raw_text = request.raw_content or ""
         artifact_path = request.artifact_s3_key or "software_collection/manifest.json"
+        raw_bytes = request.get_raw_bytes()
+        # Binary ZIP exports arrive base64-encoded; pass exact bytes to the parser.
+        is_binary = request.raw_content is None and bool(raw_bytes)
 
         # ----------------------------------------------------------------------
         # Step 1: Parse Input Artifact
         # ----------------------------------------------------------------------
         rules_evaluated += 1
         manifest = self.parse_artifact(
-            raw_content=raw_text,
+            raw_content=raw_bytes if is_binary else raw_text,
             artifact_type=request.artifact_type,
             artifact_path=artifact_path,
         )

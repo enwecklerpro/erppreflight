@@ -22,7 +22,7 @@ import csv
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +41,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_object
 
 
 # ==============================================================================
@@ -72,7 +74,7 @@ class SCOTConfig(BaseModel):
 
 class LogicalSystemConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    client: str = Field("100", description="SAP client number")
+    client: str = Field("", description="SAP client number")
     logical_system: str = Field(..., description="Assigned logical system name, e.g. PRDCLNT100 or QASCLNT100")
     expected_logical_system: Optional[str] = None
     bdls_executed: bool = Field(True, description="Flag indicating BDLS conversion was successfully executed")
@@ -98,9 +100,10 @@ class PrinterConfig(BaseModel):
 
 class IsolationPolicy(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    target_sid: str = Field("QAS", description="Expected SID of refreshed non-production system")
-    target_client: str = Field("100", description="Expected primary client")
-    environment_type: str = Field("QAS", description="Environment type: QAS, DEV, SANDBOX, TRAINING")
+    # No default identities: the expected SID / client must come from the customer's policy.
+    target_sid: Optional[str] = Field(None, description="Expected SID of refreshed non-production system")
+    target_client: Optional[str] = Field(None, description="Expected primary client")
+    environment_type: Optional[str] = Field(None, description="Environment type: QAS, DEV, SANDBOX, TRAINING")
     production_sids: List[str] = Field(default_factory=lambda: ["PRD", "PROD"])
     production_host_patterns: List[str] = Field(
         default_factory=lambda: [r".*prd.*", r".*prod.*", r"^10\.100\..*", r"^10\.200\..*"]
@@ -122,8 +125,10 @@ class IsolationPolicy(BaseModel):
 
 class SystemSnapshot(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    sid: str = "QAS"
-    client: str = "100"
+    sid: Optional[str] = None
+    client: Optional[str] = None
+    # Configuration sections actually present in the export (even if empty)
+    supplied_sections: List[str] = Field(default_factory=list)
     rfc_destinations: List[RFCDestConfig] = Field(default_factory=list)
     scot: Optional[SCOTConfig] = None
     logical_systems: List[LogicalSystemConfig] = Field(default_factory=list)
@@ -138,18 +143,29 @@ class SystemRefreshNormalizedData(BaseModel):
     policy: IsolationPolicy = Field(default_factory=IsolationPolicy)
 
 
+_SNAPSHOT_SECTION_KEYS = {
+    "rfc_destinations": ("rfc_destinations", "rfcdes", "rfc"),
+    "scot": ("scot", "smtp"),
+    "logical_systems": ("logical_systems", "bd54", "t000"),
+    "jobs": ("jobs", "tbtco"),
+    "printers": ("printers", "spad"),
+}
+# Sections that must be present in the export before isolation can be declared VERIFIED.
+REQUIRED_VERDICT_SECTIONS = ("rfc_destinations", "scot", "logical_systems")
+
+
 # ==============================================================================
 # Helper Utilities & Evidence Coordinate Resolver (Point 6)
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -162,7 +178,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _normalize_bool(val: Any) -> bool:
@@ -189,6 +205,7 @@ class SystemRefreshEngine(BaseEngine):
 
     # Point 1: Metadata
     engine_type = EngineType.SYSTEM_REFRESH_DELTA_GUARD
+    rule_prefix = "REFRESH"
     name = "System Refresh Delta Guard"
     description = "Post-refresh BDLS, RFC destination, and logical system change validator"
     version = "2.0.0"
@@ -208,12 +225,10 @@ class SystemRefreshEngine(BaseEngine):
 
         data = SystemRefreshNormalizedData()
 
-        # Parse raw JSON or configuration
-        if raw_text and raw_text.strip().startswith("{"):
-            try:
-                parsed = json.loads(raw_text)
-            except Exception:
-                parsed = request.configuration or {}
+        # Parse raw JSON or configuration (malformed JSON is reported, never replaced by {})
+        stripped = raw_text.strip() if raw_text else ""
+        if stripped.startswith("{") or stripped.startswith("["):
+            parsed = parse_json_object(raw_text, self.rule_prefix)
         elif not raw_text and request.configuration:
             parsed = request.configuration
         elif raw_text and ("\n" in raw_text or "," in raw_text or ";" in raw_text):
@@ -225,6 +240,8 @@ class SystemRefreshEngine(BaseEngine):
         raw_policy = parsed.get("isolation_policy", parsed.get("policy", request.configuration.get("policy", {})))
         if isinstance(raw_policy, dict):
             data.policy = IsolationPolicy(**raw_policy)
+        elif raw_policy not in (None, {}):
+            raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", "Field 'isolation_policy' must be an object.")
 
         # 2. Parse Pre-Refresh Snapshot (if present)
         raw_pre = parsed.get("pre_refresh", parsed.get("baseline"))
@@ -263,23 +280,36 @@ class SystemRefreshEngine(BaseEngine):
         return data, artifact_path, raw_text
 
     def _parse_snapshot(self, d: Dict[str, Any]) -> SystemSnapshot:
+        raw_sid = d.get("sid", d.get("sysid", d.get("system_id")))
+        raw_client = d.get("client", d.get("mandt"))
         snap = SystemSnapshot(
-            sid=str(d.get("sid", "QAS")).strip().upper(),
-            client=str(d.get("client", "100")).strip(),
+            sid=str(raw_sid).strip().upper() if raw_sid not in (None, "") else None,
+            client=str(raw_client).strip() if raw_client not in (None, "") else None,
         )
+        for section, keys in _SNAPSHOT_SECTION_KEYS.items():
+            if any(k in d and d.get(k) is not None for k in keys):
+                snap.supplied_sections.append(section)
 
         # RFC Destinations
         raw_rfcs = d.get("rfc_destinations", d.get("rfcdes", d.get("rfc", [])))
         if isinstance(raw_rfcs, list):
             for r in raw_rfcs:
                 if isinstance(r, dict):
-                    dst = str(r.get("destination", r.get("rfcdest", ""))).strip().upper()
+                    dst = str(
+                        r.get("destination")
+                        or r.get("rfcdest")
+                        or r.get("rfc_destination")
+                        or r.get("destination_name")
+                        or r.get("dest")
+                        or r.get("name")
+                        or ""
+                    ).strip().upper()
                     if dst:
                         snap.rfc_destinations.append(
                             RFCDestConfig(
                                 destination=dst,
                                 dest_type=str(r.get("dest_type", r.get("rfctype", "3"))).strip(),
-                                target_host=r.get("target_host", r.get("rfchost")),
+                                target_host=r.get("target_host") or r.get("rfchost") or r.get("host") or r.get("ashost"),
                                 target_ip=r.get("target_ip", r.get("rfcip")),
                                 gateway_host=r.get("gateway_host", r.get("rfcgwhost")),
                                 sysid=r.get("sysid", r.get("rfcsysid")),
@@ -310,7 +340,7 @@ class SystemRefreshEngine(BaseEngine):
                     if name:
                         snap.logical_systems.append(
                             LogicalSystemConfig(
-                                client=str(ls.get("client", ls.get("mandt", snap.client))).strip(),
+                                client=str(ls.get("client", ls.get("mandt", snap.client or ""))).strip(),
                                 logical_system=name,
                                 expected_logical_system=ls.get("expected_logical_system"),
                                 bdls_executed=_normalize_bool(ls.get("bdls_executed", True)),
@@ -364,6 +394,7 @@ class SystemRefreshEngine(BaseEngine):
     def _parse_csv_content(self, text: str) -> Dict[str, Any]:
         """Parses CSV content with table section headers."""
         result: Dict[str, Any] = {"rfc_destinations": [], "logical_systems": [], "jobs": [], "printers": []}
+        seen_sections: Set[str] = set()
         current_section = "rfc_destinations"
         lines = text.splitlines()
         reader = csv.reader(lines)
@@ -376,8 +407,11 @@ class SystemRefreshEngine(BaseEngine):
                 tag = first[1:-1].strip().lower()
                 if tag in result:
                     current_section = tag
+                    seen_sections.add(tag)
                 continue
 
+            if len(row) >= 2:
+                seen_sections.add(current_section)
             if current_section == "rfc_destinations" and len(row) >= 2:
                 # e.g. RFCDEST,RFCHOST,RFCSYSID
                 result["rfc_destinations"].append({
@@ -404,7 +438,7 @@ class SystemRefreshEngine(BaseEngine):
                     "device_type": row[1].strip(),
                 })
 
-        return {"post_refresh": result}
+        return {"post_refresh": {k: v for k, v in result.items() if k in seen_sections}}
 
     # ==========================================================================
     # Main Engine Evaluation Pipeline (Point 4: Pure Rule Evaluation)
@@ -419,6 +453,14 @@ class SystemRefreshEngine(BaseEngine):
         policy = data.policy
         post = data.post_refresh
         pre = data.pre_refresh
+        if not post.supplied_sections and not post.sid:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No post-refresh configuration (SID, RFC destinations, SCOT, logical systems, jobs, printers) "
+                "was supplied; isolation cannot be assessed.",
+            )
+        sid_label = post.sid or "(SID not supplied)"
+        sid_objects = [post.sid] if post.sid else []
 
         total_settings_compared = 0
         identical_count = 0
@@ -435,14 +477,14 @@ class SystemRefreshEngine(BaseEngine):
         # ----------------------------------------------------------------------
         rules_evaluated += 1
         total_settings_compared += 1
-        if post.sid.upper() != policy.target_sid.upper():
+        if post.sid and policy.target_sid and post.sid.upper() != policy.target_sid.upper():
             line_no, col_no, snippet = _locate_line_in_text(raw_text, post.sid)
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
-                content=raw_text or f"sid: {post.sid}",
+                content=raw_text or f"sid: {sid_label}",
                 line_number=line_no,
                 column_number=col_no,
-                snippet=snippet or f"Target snapshot SID is '{post.sid}', expected '{policy.target_sid}'",
+                snippet=snippet or f"Target snapshot SID is '{sid_label}', expected '{policy.target_sid}'",
                 provenance=ConfidenceClass.VERIFIED,
                 source_type=TrustLevel.CUSTOMER_EVIDENCE,
             )
@@ -450,9 +492,9 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_INPUT_SID_MISMATCH",
                 severity=Severity.BLOCKER,
                 category="LANDSCAPE_ISOLATION",
-                title=f"Refreshed System SID Mismatch ('{post.sid}' vs Expected '{policy.target_sid}')",
+                title=f"Refreshed System SID Mismatch ('{sid_label}' vs Expected '{policy.target_sid}')",
                 description=(
-                    f"The post-refresh configuration export reports SID '{post.sid}', but the configured target "
+                    f"The post-refresh configuration export reports SID '{sid_label}', but the configured target "
                     f"isolation policy specifies '{policy.target_sid}'. Evaluating isolation rules against the wrong "
                     "system ID will produce false positive or invalid isolation results."
                 ),
@@ -545,9 +587,9 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_RFC_TARGETS_PRODUCTION",
                 severity=Severity.CRITICAL,
                 category="LANDSCAPE_ISOLATION",
-                title=f"RFC Destination(s) Point to Production System in Refreshed {post.sid}",
+                title=f"RFC Destination(s) Point to Production System in Refreshed {sid_label}",
                 description=(
-                    f"Detected {len(dangerous_rfcs)} RFC destination(s) in refreshed non-production system {post.sid} "
+                    f"Detected {len(dangerous_rfcs)} RFC destination(s) in refreshed non-production system {sid_label} "
                     f"that point to production hostnames, IPs, or production SIDs: {', '.join(rfc_dest_names[:5])}. "
                     "Executing test transactions or background interfaces in this refreshed system will trigger live "
                     "remote calls and financial/inventory postings in production systems."
@@ -559,7 +601,7 @@ class SystemRefreshEngine(BaseEngine):
                     "destinations to QA mock endpoints (e.g. qa-*.acme.corp) before unlocking dialog users."
                 ),
                 evidence=[ev],
-                affected_objects=[post.sid] + rfc_dest_names[:10],
+                affected_objects=sid_objects + rfc_dest_names[:10],
                 technical_details={"dangerousRfcCount": len(dangerous_rfcs), "dangerousRfcs": dangerous_rfcs},
             )
             findings.append(ConfidenceClassifier.classify(f))
@@ -595,7 +637,7 @@ class SystemRefreshEngine(BaseEngine):
             if is_email_hazardous:
                 hazardous_deltas_count += 1
                 line_no, col_no, snippet = _locate_line_in_text(raw_text, "smtp_active")
-                if line_no == 1 and not snippet:
+                if line_no is None:
                     line_no, col_no, snippet = _locate_line_in_text(raw_text, "scot")
 
                 ev = EvidenceEngine.create_evidence(
@@ -611,9 +653,9 @@ class SystemRefreshEngine(BaseEngine):
                     rule_id="REFRESH_SCOT_OUTBOUND_ACTIVE",
                     severity=Severity.CRITICAL,
                     category="LANDSCAPE_ISOLATION",
-                    title=f"SCOT Email Routing Active Without Redirection in {post.sid}",
+                    title=f"SCOT Email Routing Active Without Redirection in {sid_label}",
                     description=(
-                        f"SAPconnect (SCOT) outbound email transmission is actively enabled in refreshed system {post.sid} "
+                        f"SAPconnect (SCOT) outbound email transmission is actively enabled in refreshed system {sid_label} "
                         "without a mandatory catch-all test redirection address or domain whitelist. Test business "
                         "transactions (billing runs, purchase orders, dunning) will dispatch real emails to actual "
                         "customers, vendors, and partners."
@@ -626,7 +668,7 @@ class SystemRefreshEngine(BaseEngine):
                         "or set the SMTP node to HOLD state."
                     ),
                     evidence=[ev],
-                    affected_objects=["SCOT", post.sid],
+                    affected_objects=["SCOT"] + sid_objects,
                     technical_details={
                         "smtpActive": scot.smtp_active,
                         "routingDomain": scot.routing_domain,
@@ -680,9 +722,9 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_LOGICAL_SYSTEM_UNADJUSTED",
                 severity=Severity.CRITICAL,
                 category="LANDSCAPE_ISOLATION",
-                title=f"Logical System Name Unadjusted (BDLS Incomplete) in {post.sid}",
+                title=f"Logical System Name Unadjusted (BDLS Incomplete) in {sid_label}",
                 description=(
-                    f"Client {first_ls.client} in refreshed system {post.sid} is still assigned production logical system "
+                    f"Client {first_ls.client} in refreshed system {sid_label} is still assigned production logical system "
                     f"'{first_ls.logical_system}'. Incomplete BDLS conversion leaves ALE/IDoc partner profiles, BW extractors, "
                     "and workflow event linkages pointing to the production landscape."
                 ),
@@ -690,7 +732,7 @@ class SystemRefreshEngine(BaseEngine):
                 confidence_score=1.0,
                 remediation=(
                     f"Execute logical system conversion in transaction BDLS: Convert old logical system "
-                    f"'{first_ls.logical_system}' to target logical system (e.g. '{post.sid}CLNT{first_ls.client}')."
+                    f"'{first_ls.logical_system}' to target logical system (e.g. '{sid_label}CLNT{first_ls.client}')."
                 ),
                 evidence=[ev],
                 affected_objects=[first_ls.logical_system, f"CLIENT_{first_ls.client}"],
@@ -741,10 +783,10 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_CRITICAL_JOB_SCHEDULED",
                 severity=Severity.CRITICAL,
                 category="LANDSCAPE_ISOLATION",
-                title=f"Sensitive Production Batch Jobs Scheduled in Refreshed {post.sid}",
+                title=f"Sensitive Production Batch Jobs Scheduled in Refreshed {sid_label}",
                 description=(
                     f"Detected {len(critical_jobs)} sensitive production background job(s) in active status "
-                    f"(SCHEDULED/RELEASED) in {post.sid}: {', '.join(job_names[:5])}. "
+                    f"(SCHEDULED/RELEASED) in {sid_label}: {', '.join(job_names[:5])}. "
                     "Uncancelled production payment runs (F110), EDI dispatches, and billing runs copied from PRD "
                     "will execute automatically upon background work process startup."
                 ),
@@ -755,7 +797,7 @@ class SystemRefreshEngine(BaseEngine):
                     "Delete or cancel production payment and interface jobs via SM37."
                 ),
                 evidence=[ev],
-                affected_objects=[post.sid] + job_names[:10],
+                affected_objects=sid_objects + job_names[:10],
                 technical_details={"criticalJobCount": len(critical_jobs), "jobs": job_names},
             )
             findings.append(ConfidenceClassifier.classify(f))
@@ -784,7 +826,7 @@ class SystemRefreshEngine(BaseEngine):
                 content=raw_text or f"prod_printer: {first_p}",
                 line_number=line_no,
                 column_number=col_no,
-                snippet=snippet or f"Physical production printer '{first_p}' configured in {post.sid}",
+                snippet=snippet or f"Physical production printer '{first_p}' configured in {sid_label}",
                 provenance=ConfidenceClass.VERIFIED,
                 source_type=TrustLevel.CUSTOMER_EVIDENCE,
             )
@@ -792,10 +834,10 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_PRODUCTION_PRINTER_ACTIVE",
                 severity=Severity.MAJOR,
                 category="LANDSCAPE_ISOLATION",
-                title=f"Production Physical Network Printers Configured in Refreshed {post.sid}",
+                title=f"Production Physical Network Printers Configured in Refreshed {sid_label}",
                 description=(
                     f"Found {len(active_prod_printers)} production physical printer(s) in spool administration (SPAD) "
-                    f"in {post.sid}: {', '.join(p_names[:5])}. Test print requests will physically output onto "
+                    f"in {sid_label}: {', '.join(p_names[:5])}. Test print requests will physically output onto "
                     "production plant or warehouse floor printers."
                 ),
                 confidence=ConfidenceClass.VERIFIED,
@@ -814,14 +856,37 @@ class SystemRefreshEngine(BaseEngine):
         # Rule 6: Sanitary Isolation Confirmation
         # ----------------------------------------------------------------------
         rules_evaluated += 1
-        if hazardous_deltas_count == 0 and findings == []:
+        missing_sections = [sec for sec in REQUIRED_VERDICT_SECTIONS if sec not in post.supplied_sections]
+        if not post.sid:
+            missing_sections.insert(0, "sid")
+        verdict_withheld = False
+        if hazardous_deltas_count == 0 and findings == [] and missing_sections:
+            verdict_withheld = True
+            f = Finding(
+                rule_id="REFRESH_INSUFFICIENT_INPUT",
+                severity=Severity.INFO,
+                category="LANDSCAPE_ISOLATION",
+                title=f"Refresh Isolation Verdict Withheld for {sid_label}: Required Sections Missing",
+                description=(
+                    "Isolation can only be verified when the post-refresh export contains the system SID, RFC "
+                    f"destinations, SCOT settings and logical systems. Missing: {', '.join(missing_sections)}."
+                ),
+                confidence=ConfidenceClass.UNKNOWN,
+                confidence_score=0.30,
+                remediation="Export the missing configuration sections from the refreshed system and re-run the guard.",
+                evidence=[],
+                affected_objects=sid_objects,
+                technical_details={"missingSections": missing_sections},
+            )
+            findings.append(ConfidenceClassifier.classify(f))
+        elif hazardous_deltas_count == 0 and findings == []:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, post.sid)
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
-                content=raw_text or f"isolation_verified: {post.sid}",
+                content=raw_text or f"isolation_verified: {sid_label}",
                 line_number=line_no,
                 column_number=col_no,
-                snippet=snippet or f"System {post.sid} isolation verified cleanly",
+                snippet=snippet or f"System {sid_label} isolation verified cleanly",
                 provenance=ConfidenceClass.VERIFIED,
                 source_type=TrustLevel.CUSTOMER_EVIDENCE,
             )
@@ -829,9 +894,9 @@ class SystemRefreshEngine(BaseEngine):
                 rule_id="REFRESH_ISOLATION_VERIFIED",
                 severity=Severity.INFO,
                 category="LANDSCAPE_ISOLATION",
-                title=f"System Refresh Isolation Verified for {post.sid}",
+                title=f"System Refresh Isolation Verified for {sid_label}",
                 description=(
-                    f"Differential configuration audit verified that non-production system {post.sid} is completely "
+                    f"Differential configuration audit verified that non-production system {sid_label} is completely "
                     "isolated from the production landscape. All RFC destinations point to non-prod endpoints, SCOT "
                     "email redirection is active or held, logical system names are converted, and sensitive batch "
                     "jobs are sanitized."
@@ -840,8 +905,12 @@ class SystemRefreshEngine(BaseEngine):
                 confidence_score=1.0,
                 remediation="System is safely isolated. Proceed with post-refresh user unlock and test execution.",
                 evidence=[ev],
-                affected_objects=[post.sid],
-                technical_details={"isIsolated": True, "totalSettingsCompared": total_settings_compared},
+                affected_objects=sid_objects,
+                technical_details={
+                    "isIsolated": True,
+                    "totalSettingsCompared": total_settings_compared,
+                    "sectionsAssessed": sorted(post.supplied_sections),
+                },
             )
             findings.append(ConfidenceClassifier.classify(f))
 
@@ -895,7 +964,7 @@ class SystemRefreshEngine(BaseEngine):
             remediation_checklist.append({
                 "step": "CONVERT_LOGICAL_SYSTEMS",
                 "transaction": "BDLS",
-                "action": f"Execute BDLS conversion from PRD logical system to {post.sid}CLNT{unadjusted_logsys[0].client}.",
+                "action": f"Execute BDLS conversion from PRD logical system to {sid_label}CLNT{unadjusted_logsys[0].client}.",
             })
         if critical_jobs:
             remediation_checklist.append({
@@ -915,7 +984,7 @@ class SystemRefreshEngine(BaseEngine):
         return AnalysisResponse(
             job_id=request.job_id,
             engine_type=self.engine_type,
-            status=AnalysisStatus.COMPLETED,
+            status=AnalysisStatus.PARTIAL if verdict_withheld else AnalysisStatus.COMPLETED,
             findings=findings,
             metrics=AnalysisMetrics(
                 execution_time_ms=execution_time_ms,

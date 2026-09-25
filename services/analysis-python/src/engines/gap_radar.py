@@ -135,10 +135,10 @@ class RequirementItem(BaseModel):
     product_edition: Optional[str] = "Public"
 
 
-def _locate_token_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_token_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     # Case-insensitive search for token
     token_lower = token.lower()
@@ -146,7 +146,7 @@ def _locate_token_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         pos = line.lower().find(token_lower)
         if pos != -1:
             return idx, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 @register_engine
@@ -154,6 +154,7 @@ class GapRadarEngine(BaseEngine):
     """Engine resolving customer requirements against SAP Cloud Clean Core hierarchy."""
 
     engine_type = EngineType.SAP_GAP_RADAR
+    rule_prefix = "GAP_RADAR"
     name = "SAP Gap Radar"
     description = "Fit-to-standard vs custom delta analyzer with Clean Core recommendations"
     version = "1.0.0"

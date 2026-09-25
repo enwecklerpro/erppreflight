@@ -31,6 +31,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_object
 
 
 class HopStatus(str, Enum):
@@ -158,16 +160,16 @@ STANDARD_PROPAGATION_CATALOG: Dict[Tuple[str, str], Dict[str, Any]] = {
 }
 
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     for idx, line in enumerate(lines, 1):
         pos = line.find(token)
         if pos != -1:
             return idx, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 @register_engine
@@ -175,6 +177,7 @@ class CustomFieldFlowEngine(BaseEngine):
     """Engine verifying custom field lineage, hop compatibility, and BAdI requirements."""
 
     engine_type = EngineType.CUSTOM_FIELD_FLOW_DOCTOR
+    rule_prefix = "FIELD"
     name = "Custom Field Flow Doctor"
     description = "Extension field lineage from CDS views through BAPIs to UI annotations"
     version = "1.0.0"
@@ -193,17 +196,29 @@ class CustomFieldFlowEngine(BaseEngine):
 
         # Parse payload from raw_content or configuration
         payload: Dict[str, Any] = {}
-        if raw_text:
-            try:
-                payload = json.loads(raw_text)
-            except Exception:
-                payload = request.configuration or {}
+        if raw_text and raw_text.strip():
+            # Malformed JSON is reported as FIELD_PARSE_ERROR, never replaced by {}
+            payload = parse_json_object(raw_text, self.rule_prefix)
         else:
             payload = request.configuration or {}
 
-        field_name = str(payload.get("field_name") or payload.get("id") or "YY1_CUSTOM_FIELD")
+        raw_field_name = payload.get("field_name") or payload.get("id")
+        if not raw_field_name or not str(raw_field_name).strip():
+            # No default identity: the custom field under analysis must be supplied.
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No custom field supplied: provide 'field_name' and its 'hops' / 'field_definitions'.",
+            )
+        field_name = str(raw_field_name).strip()
         raw_hops = payload.get("hops") or []
         raw_field_defs = payload.get("field_definitions") or {}
+        if not isinstance(raw_hops, list):
+            raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", "Field 'hops' must be a list.")
+        if not isinstance(raw_field_defs, dict):
+            raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", "Field 'field_definitions' must be an object.")
+        for list_key in ("active_scenarios", "active_badis", "badi_implementations"):
+            if payload.get(list_key) is not None and not isinstance(payload.get(list_key), list):
+                raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", f"Field '{list_key}' must be a list.")
         active_scenarios: Set[str] = set(payload.get("active_scenarios") or [])
         active_badis: Set[str] = set(payload.get("active_badis") or [])
 
@@ -375,7 +390,7 @@ class CustomFieldFlowEngine(BaseEngine):
                 # Length truncation check
                 elif src_len > 0 and tgt_len > 0 and src_len > tgt_len:
                     line_no, col_no, snippet = _locate_line_in_text(raw_text, f'"length": {tgt_len}')
-                    if line_no == 1:
+                    if line_no is None:
                         line_no, col_no, snippet = _locate_line_in_text(raw_text, target_ctx)
                     ev = EvidenceEngine.create_evidence(
                         artifact_path=artifact_path,

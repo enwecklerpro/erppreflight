@@ -106,14 +106,14 @@ class MFSNormalizedData(BaseModel):
 # Helper Functions: Line Location, Delimiter Detection & Timestamp Extraction
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token in raw text."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -127,7 +127,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _detect_delimiter(text: str) -> str:
@@ -172,6 +172,7 @@ class MFSBlackBoxEngine(BaseEngine):
 
     # Point 1: Metadata
     engine_type = EngineType.MFS_BLACKBOX
+    rule_prefix = "MFS"
     name = "MFS BlackBox"
     description = "Material Flow System / EWM telegram sequence and telegram buffer auditor"
     version = "1.0.0"
@@ -292,7 +293,7 @@ class MFSBlackBoxEngine(BaseEngine):
             hu = t.get("hu_id")
             token_for_search = hu or t_type
             line_no, col_no, snippet = _locate_line_in_text(text, token_for_search)
-            if line_no == 1 and not snippet:
+            if line_no is None:
                 line_no = idx
 
             seq = t.get("seq_no")

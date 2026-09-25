@@ -13,11 +13,18 @@ class BaseEngine(ABC):
     description: str
     version: str = "1.0.0"
     supported_artifact_types: List[ArtifactType] = [ArtifactType.JSON]
+    # Prefix for runner-generated input findings (<prefix>_INSUFFICIENT_INPUT / _PARSE_ERROR / _INVALID_INPUT).
+    rule_prefix: str = ""
+    # True when the engine can consume binary payloads (request.get_raw_bytes()), e.g. ZIP / XLSX.
+    accepts_binary_input: bool = False
 
     @abstractmethod
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         """Executes deterministic analysis against input request."""
         pass
+
+    def get_rule_prefix(self) -> str:
+        return self.rule_prefix or self.engine_type.value
 
     def get_metadata(self) -> Dict[str, Any]:
         return {
