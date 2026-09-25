@@ -1,0 +1,21 @@
+{
+  "name": "@erppreflight/cli",
+  "version": "0.1.0",
+  "description": "Official CLI for ERP Preflight — Automated SAP Preflight Analysis & Clean Core CI/CD Quality Gate",
+  "bin": {
+    "erp-preflight": "./bin/erp-preflight.js"
+  },
+  "scripts": {
+    "test": "node ./bin/erp-preflight.js --help"
+  },
+  "keywords": [
+    "sap",
+    "preflight",
+    "clean-core",
+    "s4hana",
+    "abap",
+    "ci-cd"
+  ],
+  "author": "ERP Preflight Engineering Team",
+  "license": "UNLICENSED"
+}

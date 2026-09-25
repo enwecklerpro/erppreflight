@@ -1,0 +1,43 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { LandscapesService } from './landscapes.service';
+import { CreateLandscapeDto } from './dto/landscape.dto';
+
+@ApiTags('Enterprise Landscape Registry')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('landscapes')
+export class LandscapesController {
+  constructor(private readonly landscapesService: LandscapesService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Register a new SAP system in the Landscape Registry' })
+  async create(@Req() req: any, @Body() dto: CreateLandscapeDto) {
+    const orgId = req.user.organizationId;
+    return await this.landscapesService.create(orgId, dto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List all landscape systems (DEV, QA, PROD) for current organization' })
+  async findAll(@Req() req: any) {
+    const orgId = req.user.organizationId;
+    return await this.landscapesService.findAll(orgId);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Remove a system from the Landscape Registry' })
+  async remove(@Req() req: any, @Param('id') id: string) {
+    const orgId = req.user.organizationId;
+    return await this.landscapesService.remove(orgId, id);
+  }
+}

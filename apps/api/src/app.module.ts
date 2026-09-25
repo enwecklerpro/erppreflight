@@ -21,6 +21,18 @@ import { AnalysesModule } from './modules/analyses/analyses.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ChangeSetsModule } from './modules/changesets/changesets.module';
+import { TraceabilityModule } from './modules/traceability/traceability.module';
+import { DemoModule } from './modules/demo/demo.module';
+import { KnowledgeModule } from './modules/knowledge/knowledge.module';
+import { McpModule } from './modules/mcp/mcp.module';
+import { AgentGateModule } from './modules/agent-gate/agent-gate.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { LandscapesModule } from './modules/landscapes/landscapes.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { ChangelogModule } from './modules/changelog/changelog.module';
 
 @Module({
   imports: [
@@ -57,13 +69,36 @@ import { AdminModule } from './modules/admin/admin.module';
     DashboardModule,
     OrganizationsModule,
     AdminModule,
+    ChangeSetsModule,
+    TraceabilityModule,
+    DemoModule,
+    KnowledgeModule,
+    McpModule,
+    AgentGateModule,
+    ApiKeysModule,
+    WebhooksModule,
+    LandscapesModule,
+    TemplatesModule,
+    FeedbackModule,
+    ChangelogModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenancyMiddleware)
-      .exclude('health/(.*)', 'health', 'auth/login', 'auth/register', 'admin/(.*)', 'admin')
+      .exclude(
+        'health/(.*)',
+        'health',
+        'auth/login',
+        'auth/register',
+        'admin/(.*)',
+        'admin',
+        'knowledge/(.*)',
+        'knowledge',
+        'changelog/(.*)',
+        'changelog'
+      )
       .forRoutes('*');
   }
 }

@@ -330,3 +330,313 @@ export async function fetchAdminQueues(): Promise<AdminQueueData> {
   return customInstance<AdminQueueData>('/admin/queues');
 }
 
+// Enterprise ChangeSets
+export interface ChangeSetItem {
+  id: string;
+  name: string;
+  description: string | null;
+  target_environment: string;
+  target_release: string;
+  approval_status: 'DRAFT' | 'SIMULATED' | 'APPROVED' | 'REJECTED';
+  proposal_hash: string;
+  simulation_result: {
+    simulatedAt: string;
+    verdict: 'CLEAR' | 'CONDITIONAL_APPROVAL_REQUIRED' | 'BLOCKED';
+    riskDelta: 'INCREASED' | 'DECREASED' | 'NEUTRAL';
+    blastRadiusObjects: Array<{ name: string; type: string; impact: string }>;
+    newFindings: Array<{ ruleId: string; severity: string; title: string; remediation: string }>;
+    resolvedFindings: Array<{ id: string; ruleId: string; title: string }>;
+    requiredTests: Array<{ title: string; type: string }>;
+  } | null;
+  created_at: string;
+}
+
+export async function fetchChangeSets(projectId: string): Promise<ChangeSetItem[]> {
+  return customInstance<ChangeSetItem[]>(`/projects/${projectId}/changesets`);
+}
+
+export async function createChangeSet(projectId: string, payload: any): Promise<ChangeSetItem> {
+  return customInstance<ChangeSetItem>(`/projects/${projectId}/changesets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function simulateChangeSet(projectId: string, changesetId: string): Promise<ChangeSetItem> {
+  return customInstance<ChangeSetItem>(`/projects/${projectId}/changesets/${changesetId}/simulate`, {
+    method: 'POST',
+  });
+}
+
+export async function approveChangeSet(projectId: string, changesetId: string, reason: string): Promise<any> {
+  return customInstance(`/projects/${projectId}/changesets/${changesetId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// Enterprise Traceability
+export interface TraceabilityNodeItem {
+  id: string;
+  process_hierarchy: string;
+  requirement_id: string;
+  requirement_title: string;
+  finding_id: string | null;
+  finding_title?: string;
+  finding_severity?: string;
+  finding_rule_id?: string;
+  remediation_task_id: string | null;
+  task_status: string;
+  test_case_id: string | null;
+  test_status: string;
+  defect_id: string | null;
+  transport_id: string | null;
+  release_id: string;
+  business_criticality: string;
+  external_system: string;
+}
+
+export interface TraceabilityMatrixResponse {
+  nodes: TraceabilityNodeItem[];
+  summary: {
+    totalRequirements: number;
+    requirementsWithoutTests: number;
+    criticalFindingsWithoutTasks: number;
+    transportsWithBlockers: number;
+    overallReadinessPercent: number;
+  };
+}
+
+export async function fetchTraceabilityMatrix(projectId: string): Promise<TraceabilityMatrixResponse> {
+  return customInstance<TraceabilityMatrixResponse>(`/projects/${projectId}/traceability`);
+}
+
+export async function syncTraceability(projectId: string): Promise<any> {
+  return customInstance(`/projects/${projectId}/traceability/sync`, { method: 'POST' });
+}
+
+export async function createTraceabilityTask(projectId: string, findingId: string, externalSystem = 'SAP_CLOUD_ALM'): Promise<any> {
+  return customInstance(`/projects/${projectId}/traceability/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ findingId, externalSystem }),
+  });
+}
+
+// Demo Project Sandbox
+export async function exploreDemoProject(): Promise<{ isNew: boolean; project: { id: string; name: string; slug: string } }> {
+  return customInstance('/demo/explore', { method: 'POST' });
+}
+
+// Release Compatibility Matrix & Knowledge
+export interface ReleaseMatrixEntry {
+  engineId: string;
+  engineName: string;
+  domain: string;
+  product: string;
+  edition: string;
+  targetRelease: string;
+  supportedFormats: string[];
+  status: 'SUPPORTED_VERIFIED' | 'SUPPORTED_BETA' | 'PARTIAL' | 'FILE_MODE_ONLY';
+  verifiedFixtures: number;
+}
+
+export async function fetchReleaseMatrix(): Promise<ReleaseMatrixEntry[]> {
+  return customInstance<ReleaseMatrixEntry[]>('/knowledge/matrix');
+}
+
+// API Keys
+export interface ApiKeyItem {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  status: string;
+  created_at: string;
+}
+
+export async function fetchApiKeys(): Promise<ApiKeyItem[]> {
+  return customInstance<ApiKeyItem[]>('/api-keys');
+}
+
+export async function createApiKey(payload: { name: string; scopes?: string[] }): Promise<any> {
+  return customInstance('/api-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function revokeApiKey(id: string): Promise<any> {
+  return customInstance(`/api-keys/${id}`, { method: 'DELETE' });
+}
+
+// Webhooks
+export interface WebhookItem {
+  id: string;
+  url: string;
+  events: string[];
+  status: string;
+  failure_count: number;
+  last_triggered_at: string | null;
+  created_at: string;
+}
+
+export async function fetchWebhooks(): Promise<WebhookItem[]> {
+  return customInstance<WebhookItem[]>('/webhooks');
+}
+
+export async function createWebhook(payload: { url: string; events?: string[] }): Promise<any> {
+  return customInstance('/webhooks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeWebhook(id: string): Promise<any> {
+  return customInstance(`/webhooks/${id}`, { method: 'DELETE' });
+}
+
+export async function testWebhook(id: string): Promise<any> {
+  return customInstance(`/webhooks/${id}/test`, { method: 'POST' });
+}
+
+// Landscapes
+export interface LandscapeItem {
+  id: string;
+  system_id: string;
+  product: string;
+  edition: string;
+  release: string;
+  environment: string;
+  url: string | null;
+  business_role: string;
+  criticality: string;
+  status: string;
+}
+
+export async function fetchLandscapes(): Promise<LandscapeItem[]> {
+  return customInstance<LandscapeItem[]>('/landscapes');
+}
+
+export async function createLandscape(payload: any): Promise<LandscapeItem> {
+  return customInstance<LandscapeItem>('/landscapes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeLandscape(id: string): Promise<any> {
+  return customInstance(`/landscapes/${id}`, { method: 'DELETE' });
+}
+
+// -----------------------------------------------------------------------------
+// Enterprise Analysis Templates (Part 14.3)
+// -----------------------------------------------------------------------------
+export interface AnalysisTemplateItem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  targetDomain: string;
+  engines: string[];
+  requiredInputs: string[];
+  optionalInputs: string[];
+  standardChecks: string[];
+  reportType: string;
+  isSystemTemplate: boolean;
+  createdAt: string;
+}
+
+export async function fetchAnalysisTemplates(): Promise<AnalysisTemplateItem[]> {
+  return customInstance<AnalysisTemplateItem[]>('/templates');
+}
+
+export async function createAnalysisTemplate(payload: {
+  name: string;
+  description: string;
+  targetDomain: string;
+  engines: string[];
+  requiredInputs?: string[];
+  optionalInputs?: string[];
+  standardChecks?: string[];
+  reportType?: string;
+}): Promise<AnalysisTemplateItem> {
+  return customInstance<AnalysisTemplateItem>('/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Customer Feedback & Gap Voting (Part 14.50)
+// -----------------------------------------------------------------------------
+export interface CustomerFeedbackItem {
+  id: string;
+  organizationId: string;
+  projectId?: string;
+  findingId?: string;
+  feedbackType: 'FEATURE_REQUEST' | 'ACCURACY_DISPUTE' | 'GAP_VOTE';
+  title: string;
+  description: string;
+  status: 'UNDER_REVIEW' | 'PLANNED' | 'IN_PROGRESS' | 'SHIPPED' | 'DECLINED';
+  votes: number;
+  targetEngine?: string;
+  hasVoted?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchFeedbackItems(): Promise<CustomerFeedbackItem[]> {
+  return customInstance<CustomerFeedbackItem[]>('/feedback');
+}
+
+export async function createFeedbackItem(payload: {
+  title: string;
+  description: string;
+  feedbackType?: 'FEATURE_REQUEST' | 'ACCURACY_DISPUTE' | 'GAP_VOTE';
+  projectId?: string;
+  targetEngine?: string;
+}): Promise<CustomerFeedbackItem> {
+  return customInstance<CustomerFeedbackItem>('/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function voteOnFeedbackItem(id: string): Promise<{ votes: number; hasVoted: boolean }> {
+  return customInstance<{ votes: number; hasVoted: boolean }>(`/feedback/${id}/vote`, {
+    method: 'POST',
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Product Release Notes & Knowledge Changelogs (Part 14.51 & 14.52)
+// -----------------------------------------------------------------------------
+export interface ReleaseNoteItem {
+  id: string;
+  version: string;
+  releaseDate: string;
+  category: 'PLATFORM' | 'KNOWLEDGE_SNAPSHOT' | 'ENGINE_RULE_BUNDLE';
+  title: string;
+  summary: string;
+  features: string[];
+  engineChanges: string[];
+  knowledgeUpdates: string[];
+  breakingChanges: string[];
+}
+
+export async function fetchChangelogs(category?: string): Promise<ReleaseNoteItem[]> {
+  const query = category ? `?category=${category}` : '';
+  return customInstance<ReleaseNoteItem[]>(`/changelog${query}`);
+}
+
+

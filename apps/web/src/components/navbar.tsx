@@ -13,7 +13,10 @@ import {
   ShieldAlert,
   LogOut,
   LogIn,
-  User,
+  Search,
+  Sparkles,
+  Server,
+  Sliders,
 } from 'lucide-react';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
@@ -37,6 +40,11 @@ export function Navbar() {
     { label: 'Executive Dashboard', href: '/', icon: LayoutDashboard },
     { label: 'Project Workspaces', href: '/projects', icon: FolderGit2 },
     { label: 'Analysis Inspector', href: '/inspector', icon: SearchCode },
+    { label: 'Templates', href: '/templates', icon: Layers },
+    { label: 'Artifacts', href: '/artifacts', icon: SearchCode },
+    { label: 'Release Matrix', href: '/matrix', icon: ShieldCheck },
+    { label: 'Landscapes', href: '/landscapes', icon: Server },
+    { label: 'Settings', href: '/settings', icon: Sliders },
   ];
 
   if (isSuperAdmin) {
@@ -57,8 +65,12 @@ export function Navbar() {
     router.push('/login');
   };
 
+  const triggerCommandPalette = () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, metaKey: true }));
+  };
+
   return (
-    <header className="border-b border-border bg-card sticky top-0 z-50 shadow-sm">
+    <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <Link href="/" className="flex items-center space-x-3">
@@ -76,7 +88,7 @@ export function Navbar() {
           </Link>
         </div>
 
-        <nav className="flex space-x-1 sm:space-x-3">
+        <nav className="hidden lg:flex space-x-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active =
@@ -87,23 +99,45 @@ export function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
                   active
                     ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 font-semibold'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                <span className="hidden md:inline">{item.label}</span>
+                <Icon className="h-3.5 w-3.5" />
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
         <div className="flex items-center space-x-3 text-xs">
+          {/* Cmd+K Search Button */}
+          <button
+            onClick={triggerCommandPalette}
+            className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs"
+            title="Search & Commands (Cmd+K)"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="text-[11px]">Search...</span>
+            <kbd className="font-mono text-[9px] bg-background border border-border px-1 py-0.2 rounded font-bold">
+              ⌘K
+            </kbd>
+          </button>
+
+          {/* Demo Sandbox Link */}
+          <Link
+            href="/demo"
+            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 font-semibold transition-colors"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Demo Sandbox</span>
+          </Link>
+
           {currentUser ? (
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col items-end">
+              <div className="hidden xl:flex flex-col items-end">
                 <span className="font-semibold text-foreground">{currentUser.email}</span>
                 <span
                   className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${

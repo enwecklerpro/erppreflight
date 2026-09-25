@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Upload,
   ShieldCheck,
+  GitCompare,
 } from 'lucide-react';
 import {
   ALL_18_ENGINES,
@@ -254,7 +255,21 @@ export default function ProjectWorkspacePage() {
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/projects/${project.id}/simulation`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
+            >
+              <GitCompare className="h-3.5 w-3.5 text-cyan-500" />
+              What-If Simulation
+            </Link>
+            <Link
+              href={`/projects/${project.id}/traceability`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
+            >
+              <Layers className="h-3.5 w-3.5 text-emerald-500" />
+              Traceability Matrix
+            </Link>
             <button
               onClick={() => setActiveTab('launcher')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
