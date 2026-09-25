@@ -62,6 +62,9 @@ jobs:
       - name: Monorepo Build
         run: pnpm run build
 
+      - name: API Boot Smoke Test (AppModule DI graph)
+        run: pnpm --filter @erppreflight/api run test:boot
+
   test-node:
     name: TypeScript Unit & Integration Tests (NestJS, Web, Schemas)
     runs-on: ubuntu-latest
