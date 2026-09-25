@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ReactFlow,
@@ -47,15 +48,12 @@ const INITIAL_PROPOSED_CHANGES = [
 ];
 
 export default function ChangeSimulationPage() {
+  const queryClient = useQueryClient();
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
 
-  const [changesets, setChangesets] = useState<ChangeSetItem[]>([]);
   const [selectedChangeSet, setSelectedChangeSet] = useState<ChangeSetItem | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [simulating, setSimulating] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [approvalReason, setApprovalReason] = useState('Architect approved after What-If impact analysis.');
   const [approvedEvidencePack, setApprovedEvidencePack] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'canvas' | 'table'>('canvas');
@@ -64,12 +62,11 @@ export default function ChangeSimulationPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
+  const { data: changesets = [], isLoading: loading } = useQuery({
+    queryKey: ['projects', projectId, 'changesets'],
+    queryFn: async () => {
       let list = await fetchChangeSets(projectId);
       if (list.length === 0) {
-        // Create initial default changeset
         const initial = await createChangeSet(projectId, {
           name: 'What-If: Deprecate Custom Field YY1_CLASS',
           description: 'Simulate blast radius of removing custom purchasing classification field',
@@ -79,18 +76,15 @@ export default function ChangeSimulationPage() {
         });
         list = [initial];
       }
-      setChangesets(list);
-      setSelectedChangeSet(list[0]);
-    } catch (err) {
-      console.error('Failed to load changesets:', err);
-    } finally {
-      setLoading(false);
+      return list;
     }
-  }, [projectId]);
+  });
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (changesets.length > 0 && !selectedChangeSet) {
+      setSelectedChangeSet(changesets[0]);
+    }
+  }, [changesets, selectedChangeSet]);
 
   // Construct DAG nodes & edges based on simulation result
   useEffect(() => {
@@ -163,34 +157,35 @@ export default function ChangeSimulationPage() {
     setEdges(newEdges);
   }, [selectedChangeSet, setNodes, setEdges]);
 
-  async function handleSimulate() {
-    if (!selectedChangeSet) return;
-    setSimulating(true);
-    try {
-      const updated = await simulateChangeSet(projectId, selectedChangeSet.id);
+  const simulateMutation = useMutation({
+    mutationFn: (changesetId: string) => simulateChangeSet(projectId, changesetId),
+    onSuccess: (updated) => {
       setSelectedChangeSet(updated);
-      setChangesets((prev) => prev.map((cs) => (cs.id === updated.id ? updated : cs)));
-    } catch (err) {
-      console.error('Simulation failed:', err);
-    } finally {
-      setSimulating(false);
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'changesets'] });
     }
-  }
+  });
 
-  async function handleApprove() {
-    if (!selectedChangeSet) return;
-    setApproving(true);
-    try {
-      const res = await approveChangeSet(projectId, selectedChangeSet.id, approvalReason);
+  const approveMutation = useMutation({
+    mutationFn: (changesetId: string) => approveChangeSet(projectId, changesetId, approvalReason),
+    onSuccess: (res) => {
       setSelectedChangeSet(res.changeset);
       setApprovedEvidencePack(res.evidencePack);
-      setChangesets((prev) => prev.map((cs) => (cs.id === res.changeset.id ? res.changeset : cs)));
-    } catch (err) {
-      console.error('Approval failed:', err);
-    } finally {
-      setApproving(false);
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'changesets'] });
     }
+  });
+
+  function handleSimulate() {
+    if (!selectedChangeSet) return;
+    simulateMutation.mutate(selectedChangeSet.id);
   }
+
+  function handleApprove() {
+    if (!selectedChangeSet) return;
+    approveMutation.mutate(selectedChangeSet.id);
+  }
+
+  const simulating = simulateMutation.isPending;
+  const approving = approveMutation.isPending;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">

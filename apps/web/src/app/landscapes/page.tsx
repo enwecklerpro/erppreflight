@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Server,
   Plus,
@@ -24,8 +25,12 @@ import {
 } from '@/lib/api-client';
 
 export default function LandscapesPage() {
-  const [landscapes, setLandscapes] = useState<LandscapeItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: landscapes = [], isLoading: loading } = useQuery({
+    queryKey: ['landscapes'],
+    queryFn: fetchLandscapes,
+  });
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [handshakeResult, setHandshakeResult] = useState<any | null>(null);
@@ -38,63 +43,51 @@ export default function LandscapesPage() {
   const [criticality, setCriticality] = useState('HIGH');
   const [url, setUrl] = useState('');
 
-  useEffect(() => {
-    loadLandscapes();
-  }, []);
-
-  async function loadLandscapes() {
-    try {
-      const res = await fetchLandscapes();
-      setLandscapes(res);
-    } catch (err) {
-      console.error('Failed to load landscapes:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!systemId.trim()) return;
-    try {
-      await createLandscape({
-        systemId: systemId.trim(),
-        product,
-        edition,
-        release,
-        environment,
-        criticality,
-        url: url.trim() || undefined,
-      });
+  const createMutation = useMutation({
+    mutationFn: (data: any) => createLandscape(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['landscapes'] });
       setShowAddModal(false);
       setSystemId('');
       setUrl('');
-      await loadLandscapes();
-    } catch (err) {
-      console.error('Failed to add system:', err);
     }
-  }
+  });
 
-  async function handleTest(id: string) {
-    setTestingId(id);
-    try {
-      const res = await testLandscapeConnection(id);
+  const testMutation = useMutation({
+    mutationFn: (id: string) => testLandscapeConnection(id),
+    onMutate: (id) => setTestingId(id),
+    onSuccess: (res) => {
       setHandshakeResult(res);
-      await loadLandscapes();
-    } catch (err) {
-      console.error('Handshake failed:', err);
-    } finally {
-      setTestingId(null);
-    }
+      queryClient.invalidateQueries({ queryKey: ['landscapes'] });
+    },
+    onSettled: () => setTestingId(null)
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => removeLandscape(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['landscapes'] })
+  });
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!systemId.trim()) return;
+    createMutation.mutate({
+      systemId: systemId.trim(),
+      product,
+      edition,
+      release,
+      environment,
+      criticality,
+      url: url.trim() || undefined,
+    });
   }
 
-  async function handleRemove(id: string) {
-    try {
-      await removeLandscape(id);
-      await loadLandscapes();
-    } catch (err) {
-      console.error('Failed to remove system:', err);
-    }
+  function handleTest(id: string) {
+    testMutation.mutate(id);
+  }
+
+  function handleRemove(id: string) {
+    removeMutation.mutate(id);
   }
 
   return (

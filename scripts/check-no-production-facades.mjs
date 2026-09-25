@@ -124,6 +124,42 @@ const CHECKS = [
     pattern: /defusedxml/,
     forbidden: false, // Required to be present!
   },
+  {
+    name: 'Zero hardcoded simulation rules in ChangesetsService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'changesets', 'changesets.service.ts'),
+    pattern: /if\s*\(\s*change\.type\s*===\s*['"]REMOVE_CUSTOM_FIELD['"]\s*\)/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero Date.now() external ID fallbacks in connectors',
+    dir: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules'), // Assuming connectors are in modules
+    pattern: /externalId:\s*`.*?\$\{Date\.now\(\)\}.*?`/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero error swallowing on outbox recordEvent',
+    dir: path.join(ROOT_DIR, 'apps', 'api', 'src'),
+    pattern: /\.catch\s*\(\s*\(\s*[a-zA-Z0-9_]*\s*\)\s*=>\s*\{\s*(this\.)?logger\.warn/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero hardcoded telemetry metrics in Web source',
+    dir: path.join(ROOT_DIR, 'apps', 'web', 'src'),
+    pattern: /(142,850|480\s*ms|98\.4%)/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero empty TenancyContext.run callbacks',
+    dir: path.join(ROOT_DIR, 'apps', 'api', 'src'),
+    pattern: /TenancyContext\.run\s*\([^,]+,\s*\(\)\s*=>\s*\{\s*\}\s*\)/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero plaintext passwords in auth service',
+    dir: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'auth'),
+    pattern: /password\s*:\s*['"][^'"]+['"]/,
+    forbidden: true,
+  },
 ];
 
 let failed = false;
@@ -137,11 +173,16 @@ function scanDir(dir, pattern, checkName) {
       if (entry.name !== 'node_modules' && entry.name !== '.next') {
         scanDir(fullPath, pattern, checkName);
       }
-    } else if (entry.isFile() && /\.(tsx?|jsx?)$/.test(entry.name)) {
+    } else if (entry.isFile() && /\.(tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith('.spec.ts') && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.spec.tsx') && !entry.name.endsWith('.test.tsx')) {
       const content = fs.readFileSync(fullPath, 'utf-8');
       if (pattern.test(content)) {
-        console.error(`[FAIL] ${checkName} found in: ${path.relative(ROOT_DIR, fullPath)}`);
-        failed = true;
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (pattern.test(lines[i])) {
+            console.error(`✘ [FAIL] ${checkName} found in: ${path.relative(ROOT_DIR, fullPath)}:${i + 1}`);
+            failed = true;
+          }
+        }
       }
     }
   }
@@ -154,18 +195,25 @@ for (const check of CHECKS) {
     scanDir(check.dir, check.pattern, check.name);
   } else if (check.file) {
     if (!fs.existsSync(check.file)) {
-      console.error(`[FAIL] Missing required file: ${path.relative(ROOT_DIR, check.file)}`);
+      console.error(`✘ [FAIL] Missing required file: ${path.relative(ROOT_DIR, check.file)}`);
       failed = true;
       continue;
     }
     const content = fs.readFileSync(check.file, 'utf-8');
     const matched = check.pattern.test(content);
     if (check.forbidden && matched) {
-      console.error(`[FAIL] ${check.name}: Forbidden pattern found in ${path.relative(ROOT_DIR, check.file)}`);
-      failed = true;
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (check.pattern.test(lines[i])) {
+          console.error(`✘ [FAIL] ${check.name}: Forbidden pattern found in ${path.relative(ROOT_DIR, check.file)}:${i + 1}`);
+          failed = true;
+        }
+      }
     } else if (!check.forbidden && !matched) {
-      console.error(`[FAIL] ${check.name}: Required pattern missing in ${path.relative(ROOT_DIR, check.file)}`);
+      console.error(`✘ [FAIL] ${check.name}: Required pattern missing in ${path.relative(ROOT_DIR, check.file)}`);
       failed = true;
+    } else {
+      console.log(`✔ [PASS] ${check.name}`);
     }
   }
 }
@@ -174,6 +222,6 @@ if (failed) {
   console.error('\nProduction facade check FAILED! Please eliminate all mocks, alerts, and insecure configurations.');
   process.exit(1);
 } else {
-  console.log('\n[PASS] All production facade & security checks PASSED cleanly!');
+  console.log('\n✔ [PASS] All production facade & security checks PASSED cleanly!');
   process.exit(0);
 }

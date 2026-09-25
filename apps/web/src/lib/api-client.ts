@@ -1034,7 +1034,16 @@ export async function reviewFinding(
 }
 
 
+export interface TelemetrySummary {
+  monthlyAdvisoryTokens: {
+    consumed: number;
+    limit: number;
+  };
+  meanAdvisoryLatencyMs: number;
+  engineDeterminismRatio: number;
+}
 
-
-
+export async function fetchTelemetrySummary(): Promise<TelemetrySummary> {
+  return customInstance<TelemetrySummary>('/telemetry/summary');
+}
 

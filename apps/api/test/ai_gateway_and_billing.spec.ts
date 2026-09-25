@@ -78,20 +78,33 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
         rows: [{ data_policy: { deterministicOnly: false, allowAiAssistance: true } }],
       });
 
-      const service = new AiGatewayService(mockDb, mockConfig);
-      const res = await service.explainFinding(
-        {
-          ruleId: 'CUSTOM_FIELD_BINDING_BROKEN',
-          category: 'Extensibility',
-          title: 'Missing CDS field',
-          description: 'Field removed',
-          affectedObjects: ['YY1_FIELD'],
-        },
-        { tenantId, preferredProvider: 'ANTHROPIC' }
-      );
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ text: '{"explanation": "mocked", "remediationSteps": ["step1"]}' }],
+          usage: { input_tokens: 10, output_tokens: 10 }
+        })
+      });
 
-      expect(res.confidenceScore).toBeLessThanOrEqual(0.60);
-      expect(res.confidenceClass).toBe('INFERRED');
+      try {
+        const service = new AiGatewayService(mockDb, mockConfig);
+        const res = await service.explainFinding(
+          {
+            ruleId: 'CUSTOM_FIELD_BINDING_BROKEN',
+            category: 'Extensibility',
+            title: 'Missing CDS field',
+            description: 'Field removed',
+            affectedObjects: ['YY1_FIELD'],
+          },
+          { tenantId, preferredProvider: 'ANTHROPIC' }
+        );
+
+        expect(res.confidenceScore).toBeLessThanOrEqual(0.60);
+        expect(res.confidenceClass).toBe('INFERRED');
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
 
     it('deterministically classifies intent for Adobe Form XDP files', async () => {

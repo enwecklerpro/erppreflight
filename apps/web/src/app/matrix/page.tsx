@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   CheckCircle2,
   Search,
@@ -13,24 +14,12 @@ import {
 import { fetchReleaseMatrix, ReleaseMatrixEntry } from '@/lib/api-client';
 
 export default function ReleaseMatrixPage() {
-  const [matrix, setMatrix] = useState<ReleaseMatrixEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: matrix = [], isLoading: loading } = useQuery({
+    queryKey: ['matrix'],
+    queryFn: fetchReleaseMatrix,
+  });
   const [search, setSearch] = useState('');
   const [selectedDomain, setSelectedDomain] = useState('ALL');
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetchReleaseMatrix();
-        setMatrix(res);
-      } catch (err) {
-        console.error('Failed to load matrix:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
 
   const domains = ['ALL', ...Array.from(new Set(matrix.map((m) => m.domain)))];
 

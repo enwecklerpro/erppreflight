@@ -53,41 +53,7 @@ const SUBPROCESSORS = [
 
 export default function TrustCenterPage() {
   const handleDownloadSbom = () => {
-    const sbomData = {
-      bomFormat: 'CycloneDX',
-      specVersion: '1.5',
-      serialNumber: 'urn:uuid:a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d',
-      version: 1,
-      metadata: {
-        timestamp: new Date().toISOString(),
-        tools: [{ vendor: 'ERP Preflight', name: 'CycloneDX Generator', version: '1.0.0' }],
-        component: {
-          type: 'application',
-          name: 'ERP Preflight Enterprise Suite',
-          version: '1.0.0',
-          licenses: [{ license: { id: 'Proprietary' } }],
-        },
-      },
-      components: [
-        { name: 'next', version: '15.5.26', type: 'framework', purl: 'pkg:npm/next@15.5.26' },
-        { name: '@nestjs/core', version: '11.0.0', type: 'framework', purl: 'pkg:npm/%40nestjs/core@11.0.0' },
-        { name: 'fastapi', version: '0.115.0', type: 'framework', purl: 'pkg:pypi/fastapi@0.115.0' },
-        { name: '@xyflow/react', version: '12.0.0', type: 'library', purl: 'pkg:npm/%40xyflow/react@12.0.0' },
-        { name: 'bullmq', version: '5.0.0', type: 'library', purl: 'pkg:npm/bullmq@5.0.0' },
-        { name: 'drizzle-orm', version: '0.38.0', type: 'library', purl: 'pkg:npm/drizzle-orm@0.38.0' },
-        { name: 'zod', version: '3.24.0', type: 'library', purl: 'pkg:npm/zod@3.24.0' },
-        { name: 'defusedxml', version: '0.7.1', type: 'library', purl: 'pkg:pypi/defusedxml@0.7.1' },
-      ],
-    };
-    const blob = new Blob([JSON.stringify(sbomData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `erppreflight-cyclonedx-sbom-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // SBOM generation requires build pipeline integration
   };
 
   return (
@@ -167,11 +133,11 @@ export default function TrustCenterPage() {
             </div>
             <button
               type="button"
-              onClick={handleDownloadSbom}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-200 text-xs font-semibold transition-colors shrink-0 shadow-sm"
+              disabled
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-500 text-xs font-semibold cursor-not-allowed shrink-0 shadow-sm"
             >
-              <Download className="w-3.5 h-3.5 text-cyan-400" />
-              Download CycloneDX SBOM (JSON)
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              SBOM Requires Build Pipeline Integration
             </button>
           </div>
 

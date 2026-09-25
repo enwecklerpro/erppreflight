@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Key,
   Webhook,
@@ -34,151 +35,126 @@ import {
   ApiKeyItem,
   WebhookItem,
   OrganizationDetails,
+  fetchTelemetrySummary,
 } from '@/lib/api-client';
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'keys' | 'webhooks' | 'ai-governance'>('keys');
 
   // API Keys state
-  const [keys, setKeys] = useState<ApiKeyItem[]>([]);
-  const [loadingKeys, setLoadingKeys] = useState(true);
+  const { data: keys = [], isLoading: loadingKeys, isError: keysError } = useQuery({ queryKey: ['settings', 'api-keys'], queryFn: fetchApiKeys });
   const [newKeyName, setNewKeyName] = useState('');
   const [createdKeySecret, setCreatedKeySecret] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
   // Webhooks state
-  const [webhooks, setWebhooks] = useState<WebhookItem[]>([]);
-  const [loadingWebhooks, setLoadingWebhooks] = useState(true);
+  const { data: webhooks = [], isLoading: loadingWebhooks, isError: webhooksError } = useQuery({ queryKey: ['settings', 'webhooks'], queryFn: fetchWebhooks });
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [testResult, setTestResult] = useState<any | null>(null);
 
   // AI Governance state (Parts 17.21, 17.22, 20.14)
-  const [org, setOrg] = useState<OrganizationDetails | null>(null);
-  const [loadingOrg, setLoadingOrg] = useState(true);
+  const { data: org, isLoading: loadingOrg } = useQuery({
+    queryKey: ['settings', 'organization'],
+    queryFn: fetchCurrentOrganization,
+  });
+  
+  const { data: telemetry, isLoading: loadingTelemetry } = useQuery({
+    queryKey: ['settings', 'telemetry'],
+    queryFn: fetchTelemetrySummary,
+  });
   const [deterministicOnly, setDeterministicOnly] = useState(false);
   const [requireDualReview, setRequireDualReview] = useState(false);
   const [aiAuditLogging, setAiAuditLogging] = useState(true);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [policySaved, setPolicySaved] = useState(false);
 
-  useEffect(() => {
-    loadKeys();
-    loadWebhooks();
-    loadOrganization();
-  }, []);
-
-  async function loadOrganization() {
-    try {
-      const res = await fetchCurrentOrganization();
-      setOrg(res);
-      if (res?.data_policy) {
-        setDeterministicOnly(!!res.data_policy.deterministicOnly);
-        setRequireDualReview(!!res.data_policy.requireDualReviewForInferred);
-        setAiAuditLogging(res.data_policy.aiAuditLoggingEnabled !== false);
-      }
-    } catch (err) {
-      console.error('Failed to load organization settings:', err);
-    } finally {
-      setLoadingOrg(false);
+  React.useEffect(() => {
+    if (org?.data_policy) {
+      setDeterministicOnly(!!org.data_policy.deterministicOnly);
+      setRequireDualReview(!!org.data_policy.requireDualReviewForInferred);
+      setAiAuditLogging(org.data_policy.aiAuditLoggingEnabled !== false);
     }
-  }
+  }, [org]);
 
-  async function handleSavePolicy() {
-    setSavingPolicy(true);
-    setPolicySaved(false);
-    try {
-      const updated = await updateCurrentOrganization({
-        dataPolicy: {
-          deterministicOnly,
-          requireDualReviewForInferred: requireDualReview,
-          aiAuditLoggingEnabled: aiAuditLogging,
-          tokenBudgetMonthly: 1000000,
-          allowedModels: ['gemini-1.5-pro', 'gemini-1.5-flash'],
-        },
-      });
-      setOrg(updated);
+  const updatePolicyMutation = useMutation({
+    mutationFn: (dataPolicy: any) => updateCurrentOrganization({ dataPolicy }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'organization'] });
       setPolicySaved(true);
       setTimeout(() => setPolicySaved(false), 3000);
-    } catch (err) {
-      console.error('Failed to save AI policy:', err);
-    } finally {
-      setSavingPolicy(false);
-    }
+    },
+    onMutate: () => setSavingPolicy(true),
+    onSettled: () => setSavingPolicy(false)
+  });
+
+  function handleSavePolicy() {
+    updatePolicyMutation.mutate({
+      deterministicOnly,
+      requireDualReviewForInferred: requireDualReview,
+      aiAuditLoggingEnabled: aiAuditLogging,
+      tokenBudgetMonthly: 1000000,
+      allowedModels: ['gemini-1.5-pro', 'gemini-1.5-flash'],
+    });
   }
 
-  async function loadKeys() {
-    try {
-      const res = await fetchApiKeys();
-      setKeys(res);
-    } catch (err) {
-      console.error('Failed to load API keys:', err);
-    } finally {
-      setLoadingKeys(false);
-    }
-  }
-
-  async function loadWebhooks() {
-    try {
-      const res = await fetchWebhooks();
-      setWebhooks(res);
-    } catch (err) {
-      console.error('Failed to load webhooks:', err);
-    } finally {
-      setLoadingWebhooks(false);
-    }
-  }
-
-  async function handleCreateKey(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newKeyName.trim()) return;
-    try {
-      const res = await createApiKey({ name: newKeyName.trim() });
+  const createKeyMutation = useMutation({
+    mutationFn: (name: string) => createApiKey({ name }),
+    onSuccess: (res) => {
       setCreatedKeySecret(res.apiKey);
       setNewKeyName('');
-      await loadKeys();
-    } catch (err) {
-      console.error('Failed to create key:', err);
+      queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] });
     }
+  });
+
+  const revokeKeyMutation = useMutation({
+    mutationFn: revokeApiKey,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] })
+  });
+
+  const createWebhookMutation = useMutation({
+    mutationFn: (url: string) => createWebhook({ url }),
+    onSuccess: () => {
+      setNewWebhookUrl('');
+      queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] });
+    }
+  });
+
+  const removeWebhookMutation = useMutation({
+    mutationFn: removeWebhook,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] })
+  });
+
+  const testWebhookMutation = useMutation({
+    mutationFn: testWebhook,
+    onSuccess: (res) => {
+      setTestResult(res);
+      queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] });
+    }
+  });
+
+  function handleCreateKey(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newKeyName.trim()) return;
+    createKeyMutation.mutate(newKeyName.trim());
   }
 
-  async function handleRevokeKey(id: string) {
-    try {
-      await revokeApiKey(id);
-      await loadKeys();
-    } catch (err) {
-      console.error('Failed to revoke key:', err);
-    }
+  function handleRevokeKey(id: string) {
+    revokeKeyMutation.mutate(id);
   }
 
-  async function handleCreateWebhook(e: React.FormEvent) {
+  function handleCreateWebhook(e: React.FormEvent) {
     e.preventDefault();
     if (!newWebhookUrl.trim()) return;
-    try {
-      await createWebhook({ url: newWebhookUrl.trim() });
-      setNewWebhookUrl('');
-      await loadWebhooks();
-    } catch (err) {
-      console.error('Failed to create webhook:', err);
-    }
+    createWebhookMutation.mutate(newWebhookUrl.trim());
   }
 
-  async function handleRemoveWebhook(id: string) {
-    try {
-      await removeWebhook(id);
-      await loadWebhooks();
-    } catch (err) {
-      console.error('Failed to delete webhook:', err);
-    }
+  function handleRemoveWebhook(id: string) {
+    removeWebhookMutation.mutate(id);
   }
 
-  async function handleTestWebhook(id: string) {
-    try {
-      const res = await testWebhook(id);
-      setTestResult(res);
-      await loadWebhooks();
-    } catch (err) {
-      console.error('Test webhook failed:', err);
-    }
+  function handleTestWebhook(id: string) {
+    testWebhookMutation.mutate(id);
   }
 
   return (
@@ -776,28 +752,46 @@ export default function SettingsPage() {
                 <Cpu className="w-4 h-4 text-emerald-400" />
                 Monthly AI Quota & Evaluation Telemetry
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                  <span className="text-xs text-slate-400">Monthly Advisory Tokens</span>
-                  <div className="text-xl font-bold text-white mt-1">142,850 / 1,000,000</div>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                    <div className="bg-cyan-500 h-full rounded-full" style={{ width: '14.3%' }}></div>
+              {loadingTelemetry ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
+                    <span className="text-xs text-slate-400">Monthly Advisory Tokens</span>
+                    <div className="text-xl font-bold text-white mt-1">
+                      {telemetry?.monthlyAdvisoryTokens ? `${telemetry.monthlyAdvisoryTokens.consumed.toLocaleString()} / ${telemetry.monthlyAdvisoryTokens.limit.toLocaleString()}` : 'N/A'}
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                      <div className="bg-cyan-500 h-full rounded-full" style={{ width: telemetry?.monthlyAdvisoryTokens ? `${(telemetry.monthlyAdvisoryTokens.consumed / telemetry.monthlyAdvisoryTokens.limit) * 100}%` : '0%' }}></div>
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      {telemetry?.monthlyAdvisoryTokens ? `${((telemetry.monthlyAdvisoryTokens.consumed / telemetry.monthlyAdvisoryTokens.limit) * 100).toFixed(1)}% consumed of billing quota` : 'N/A'}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-slate-500 mt-1 block">14.3% consumed of billing quota</span>
-                </div>
 
-                <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                  <span className="text-xs text-slate-400">Mean Advisory Latency</span>
-                  <div className="text-xl font-bold text-emerald-400 mt-1">480 ms</div>
-                  <span className="text-[10px] text-slate-500 mt-1 block">Stateless caching layer active</span>
-                </div>
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
+                    <span className="text-xs text-slate-400">Mean Advisory Latency</span>
+                    <div className="text-xl font-bold text-emerald-400 mt-1">
+                      {telemetry?.meanAdvisoryLatencyMs ? `${telemetry.meanAdvisoryLatencyMs} ms` : 'N/A'}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-1 block">Stateless caching layer active</span>
+                  </div>
 
-                <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                  <span className="text-xs text-slate-400">Engine Determinism Ratio</span>
-                  <div className="text-xl font-bold text-cyan-400 mt-1">98.4% Pure AST</div>
-                  <span className="text-[10px] text-slate-500 mt-1 block">1.6% advisory assistance only</span>
+                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
+                    <span className="text-xs text-slate-400">Engine Determinism Ratio</span>
+                    <div className="text-xl font-bold text-cyan-400 mt-1">
+                      {telemetry?.engineDeterminismRatio ? `${(telemetry.engineDeterminismRatio * 100).toFixed(1)}% Pure AST` : 'N/A'}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      {telemetry?.engineDeterminismRatio ? `${((1 - telemetry.engineDeterminismRatio) * 100).toFixed(1)}% advisory assistance only` : 'N/A'}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}

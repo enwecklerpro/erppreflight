@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import {
   Layers,
@@ -24,52 +25,38 @@ import {
 } from '@/lib/api-client';
 
 export default function TraceabilityMatrixPage() {
+  const queryClient = useQueryClient();
   const params = useParams();
   const projectId = params.id as string;
 
-  const [data, setData] = useState<TraceabilityMatrixResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ['projects', projectId, 'traceability'],
+    queryFn: () => fetchTraceabilityMatrix(projectId),
+  });
+
   const [creatingTask, setCreatingTask] = useState<string | null>(null);
 
-  const loadMatrix = useCallback(async () => {
-    try {
-      const res = await fetchTraceabilityMatrix(projectId);
-      setData(res);
-    } catch (err) {
-      console.error('Failed to load traceability matrix:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+  const syncMutation = useMutation({
+    mutationFn: () => syncTraceability(projectId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] })
+  });
 
-  useEffect(() => {
-    loadMatrix();
-  }, [loadMatrix]);
+  const createTaskMutation = useMutation({
+    mutationFn: (findingId: string) => createTraceabilityTask(projectId, findingId, 'SAP_CLOUD_ALM'),
+    onMutate: (id) => setCreatingTask(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] }),
+    onSettled: () => setCreatingTask(null)
+  });
 
-  async function handleSync() {
-    setSyncing(true);
-    try {
-      await syncTraceability(projectId);
-      await loadMatrix();
-    } catch (err) {
-      console.error('Sync failed:', err);
-    } finally {
-      setSyncing(false);
-    }
+  function handleSync() {
+    syncMutation.mutate();
   }
 
-  async function handleCreateTask(findingId: string) {
-    setCreatingTask(findingId);
-    try {
-      await createTraceabilityTask(projectId, findingId, 'SAP_CLOUD_ALM');
-      await loadMatrix();
-    } catch (err) {
-      console.error('Failed to create ALM task:', err);
-    } finally {
-      setCreatingTask(null);
-    }
+  function handleCreateTask(findingId: string) {
+    createTaskMutation.mutate(findingId);
   }
+  
+  const syncing = syncMutation.isPending;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-8 px-4 sm:px-6 lg:px-8">
