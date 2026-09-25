@@ -815,11 +815,67 @@ export async function fetchSapObjectById(
   return customInstance<any>(`/projects/${projectId}/objects/${objectId}`);
 }
 
-export async function createSapObject(
+export async function createWorkItemForFinding(
+  findingId: string,
+  payload: { system?: string; title?: string; process?: string }
+): Promise<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }> {
+  return customInstance<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }>(
+    `/findings/${findingId}/work-item`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function importAtcArtifact(
   projectId: string,
-  payload: any
-): Promise<any> {
-  return customInstance<any>(`/projects/${projectId}/objects`, {
+  payload: { rawContent: string; format?: string; fileName?: string }
+): Promise<{
+  success: boolean;
+  analysisId: string;
+  totalParsed: number;
+  objectsImported: number;
+  findingsCreated: number;
+  baselinedCount: number;
+  activeFindings: number;
+}> {
+  return customInstance<any>(`/projects/${projectId}/import/atc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function importReadinessCheckArtifact(
+  projectId: string,
+  payload: { rawContent: string; fileName?: string }
+): Promise<{
+  success: boolean;
+  analysisId: string;
+  sourceSystem: string;
+  targetRelease: string;
+  simplificationItemsCount: number;
+  findingsCreated: number;
+  criticalIssuesCount: number;
+}> {
+  return customInstance<any>(`/projects/${projectId}/import/readiness`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function importFioriUsageArtifact(
+  projectId: string,
+  payload: { rawContent: string; fileName?: string }
+): Promise<{
+  success: boolean;
+  recordsProcessed: number;
+  recommendations: any[];
+}> {
+  return customInstance<any>(`/projects/${projectId}/import/fiori`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -41,6 +41,7 @@ import {
   getReproducibilityBundleUrl,
 } from '../../../lib/api-client';
 import { customInstance } from '../../../lib/api/custom-instance';
+import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
 
 export interface UploadedArtifact {
   id: string;
@@ -59,7 +60,7 @@ export default function ProjectWorkspacePage() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'findings' | 'objects' | 'artifacts' | 'history' | 'launcher'
+    'overview' | 'findings' | 'objects' | 'sap-native' | 'artifacts' | 'history' | 'launcher'
   >('overview');
   const [selectedEngines, setSelectedEngines] = useState<string[]>([
     'OPD_GUARD',
@@ -316,6 +317,7 @@ export default function ProjectWorkspacePage() {
             { id: 'overview', label: 'Overview', icon: Layers },
             { id: 'findings', label: 'Findings', icon: ShieldAlert },
             { id: 'objects', label: 'Objects', icon: Boxes },
+            { id: 'sap-native', label: 'SAP Artifact Center', icon: FileCheck2 },
             { id: 'artifacts', label: 'Artifact Dropzone', icon: UploadCloud },
             { id: 'history', label: 'Run History', icon: History },
             { id: 'launcher', label: 'Analysis Launcher', icon: Play },
@@ -611,6 +613,11 @@ export default function ProjectWorkspacePage() {
             </Link>
           </div>
         </div>
+      )}
+
+      {/* Tab: SAP-Native Artifact Center (Part 15.20) */}
+      {activeTab === 'sap-native' && (
+        <SapNativeArtifactCenter projectId={projectId} />
       )}
 
       {/* Tab: Artifact Dropzone */}

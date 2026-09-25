@@ -17,6 +17,7 @@
 | **M4** | Hostinger VPS & Coolify Deployment | **COMPLETED** | 100% | `docker-compose.coolify.yml`, multi-stage non-root Dockerfiles, Traefik SSL reverse proxy, live health checks |
 | **M5** | Enterprise Platform Services (Parts 14–22) | **COMPLETED** | 100% | What-If simulation canvas (@xyflow/react + ELK.js), 8-column delivery traceability, MCP Change Gate, Templates, Feedback, Changelog |
 | **M6** | Advanced Test Lab, Baselines, Bundle & Object Catalog | **COMPLETED** | 100% | Scenario Test Lab (/lab), Digital Project Baselines & Configuration Drift, Reproducibility Bundle (.zip), SAP Object Catalog & Clean Core Inventory (/objects) |
+| **M7** | SAP-Native Importers, Work Management & MCP Stdio Server | **COMPLETED** | 100% | ATC findings importer (XML/JSON/CSV), SAP Readiness Check 2.0 importer, Finding-to-Task work items, CLI subcommands (api-diff, mfs, download), Stdio MCP server |
 
 ---
 
@@ -26,25 +27,25 @@
 |---|---|---|---|---|
 | 1 | **Monorepo Architecture** | Part 00, 21 | **COMPLETED** | `pnpm-workspace.yaml`, `turbo.json`, 9 package.json configs |
 | 2 | **Next.js 15 App Router** | Part 01, 21 | **COMPLETED** | 24 routes compiled statically & dynamically with 0 errors |
-| 3 | **NestJS 11 Core API** | Part 01, 21 | **COMPLETED** | 26 modules, Argon2id passwords, BullMQ Redis queues, PostgreSQL RLS |
-| 4 | **Python Analysis Microservice** | Part 02–06, 21 | **COMPLETED** | FastAPI, 19 engines registered, 501 pytest tests passing in 0.84s |
+| 3 | **NestJS 11 Core API** | Part 01, 21 | **COMPLETED** | 27 modules, Argon2id passwords, BullMQ Redis queues, PostgreSQL RLS |
+| 4 | **Python Analysis Microservice** | Part 02–06, 21 | **COMPLETED** | FastAPI, 19 engines registered, 501 pytest tests passing in 0.75s |
 | 5 | **19 Deterministic SAP Engines** | Part 02–06 | **COMPLETED** | OPD_GUARD, FORM_DOCTOR, MFS_BLACKBOX, CLEAN_CORE, SPRO2CLOUD, etc. |
 | 6 | **Cryptographic Evidence Chains** | Part 07, 22.5 | **COMPLETED** | SHA-256 artifact hashing, exact line/col pointers, epistemic confidence scoring |
 | 7 | **What-If Change Simulation** | Part 16.2 | **COMPLETED** | Interactive DAG canvas (`@xyflow/react` + ELK.js), blast radius, diff |
 | 8 | **8-Column Delivery Traceability** | Part 15.1 | **COMPLETED** | Business Process $\rightarrow$ Requirement $\rightarrow$ Finding $\rightarrow$ Task $\rightarrow$ Test $\rightarrow$ Release |
-| 9 | **Cloud ALM & Jira Task Creation** | Part 15.2, 15.7 | **COMPLETED** | 1-click remediation task creation linking evidence and SHA-256 hashes |
-| 10 | **Model Context Protocol (MCP)** | Part 16.14, 19 | **COMPLETED** | JSON-RPC 2.0 server exposing 7 preflight tools with agent registration |
+| 9 | **Cloud ALM & Jira Task Creation** | Part 15.2, 15.7, 15.8 | **COMPLETED** | Finding-to-Task 1-click creation with SAP Cloud ALM, Jira, ADO, GitHub, ServiceNow |
+| 10 | **Model Context Protocol (MCP)** | Part 16.14, 19 | **COMPLETED** | Standalone stdio JSON-RPC server (`erp-preflight-mcp`) with 10 tools & schema contracts |
 | 11 | **Agentic Change Gate & HMAC Tokens**| Part 19.4–19.9 | **COMPLETED** | Change proposals, preflight verdicts, proposal hash binding, 15-min tokens |
 | 12 | **Release Compatibility Matrix** | Part 17.1 | **COMPLETED** | Public `/matrix` across all 19 engines, S/4HANA releases 2020..2025, Cloud 2608 |
 | 13 | **1-Click Synthetic Demo Sandbox** | Part 14.2 | **COMPLETED** | `/demo` with all 7 failure scenarios pre-seeded with cryptographic evidence |
 | 14 | **Analysis Templates Catalog** | Part 14.3 | **COMPLETED** | `/templates` with 9 pre-configured enterprise preflight workflows |
-| 15 | **SAP-Native Artifact Center** | Part 15.20 | **COMPLETED** | `/artifacts` with export instructions for BRF+, SFP, SE80, SPRO, /SCWM/MON |
+| 15 | **SAP-Native Artifact Center** | Part 15.11–15.14, 15.20 | **COMPLETED** | Ingest ATC XML/JSON, Readiness Check 2.0, Fiori Usage CSV with deduplication & baseline state |
 | 16 | **Feature Requests & Gap Voting** | Part 14.50 | **COMPLETED** | `/feedback` with upvoting, categorization, and status tracking |
 | 17 | **Product & Knowledge Changelog** | Part 14.51–14.52 | **COMPLETED** | `/changelog` with timeline tracking platform notes and SAP snapshot diffs |
 | 18 | **Enterprise Procurement Portal** | Part 14.42, 20 | **COMPLETED** | `/procurement` with Security Overview, DPA, CycloneDX SBOM summary |
-| 19 | **Official CLI Tool** | Part 14.6 | **COMPLETED** | `packages/cli` executable binary (`erp-preflight`) with JSON output |
+| 19 | **Official CLI Tool** | Part 14.6 | **COMPLETED** | `packages/cli` executable binary (`erp-preflight`) with `clean-core`, `api-diff`, `mfs`, `report download` |
 | 20 | **Command Palette (Cmd/Ctrl + K)** | Part 14.34, 21.14 | **COMPLETED** | Accessible keyboard-driven search and navigation across all pages and objects |
-| 21 | **Developer API Keys & Webhooks** | Part 14.5, 14.7 | **COMPLETED** | `/settings` with HMAC-SHA256 webhooks and scoped API keys |
+| 21 | **Developer API Keys & Webhooks** | Part 14.5, 14.7 | **COMPLETED** | `/settings` with HMAC-SHA256 webhooks, scoped API keys, and Unified Auth Guard |
 | 22 | **Enterprise Landscape Registry** | Part 16.17 | **COMPLETED** | `/landscapes` managing DEV, QA, and PROD SAP systems |
 | 23 | **First-Run Onboarding Wizard** | Part 14.1 | **COMPLETED** | `/onboarding` 3-step role and domain personalization wizard |
 | 24 | **Public Status & Uptime Page** | Part 14.53 | **COMPLETED** | `/status` with live component telemetry, 0 mock arrays, and 99.9% SLA tracking |
@@ -59,11 +60,11 @@
 
 ## 3. Automated Test Pass Record
 
-- **TypeScript Unit & Integration Tests**: **635 passed (100% pass rate)** across 38 test files under Vitest.
-  - `@erppreflight/api`: 504 passed (504) across 30 test files
+- **TypeScript Unit & Integration Tests**: **640 passed (100% pass rate)** across 39 test files under Vitest.
+  - `@erppreflight/api`: 509 passed (509) across 31 test files
   - `@erppreflight/web`: 131 passed (131) across 8 test files
 - **Python Deterministic Engine Tests**: **501 passed (100% pass rate)** across all 19 engines under Pytest.
-- **Combined Monorepo Automated Tests**: **1,136 passed tests (100%)**.
+- **Combined Monorepo Automated Tests**: **1,141 passed tests (100%)**.
 - **TypeScript Typecheck**: 12/12 monorepo tasks passed with 0 errors under strict mode (`tsc --noEmit`).
 - **Next.js 15 Web Production Build**: All 24 routes compiled cleanly into optimized static & dynamic bundles.
 - **Compliance Gates**:
@@ -73,3 +74,4 @@
   - Web: `https://erppreflight.com` (HTTP 200 OK)
   - API Health Liveness: `https://api.erppreflight.com/health/liveness` (`status: ok`)
   - API Health Readiness: `https://api.erppreflight.com/health/readiness` (`database: healthy`)
+

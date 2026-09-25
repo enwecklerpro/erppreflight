@@ -32,6 +32,15 @@ export class TenancyGuard implements CanActivate {
       return true;
     }
 
+    // API Key Client bypass when organization matches
+    if (user.role === 'API_CLIENT') {
+      if (user.organizationId === store.tenantId) {
+        request.tenantRole = 'API_CLIENT';
+        return true;
+      }
+      throw new ForbiddenException('Access denied: API Key not authorized for this tenant');
+    }
+
     // Check user organization membership
     const membership = await this.db.query(
       'SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2',

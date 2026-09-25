@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Official CLI for ERP Preflight — Automated SAP Preflight Analysis & Clean Core CI/CD Quality Gate",
   "bin": {
-    "erp-preflight": "./bin/erp-preflight.js"
+    "erp-preflight": "./bin/erp-preflight.js",
+    "erp-preflight-mcp": "./bin/erp-preflight-mcp.js"
   },
   "scripts": {
     "test": "node ./bin/erp-preflight.js --help"

@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Param,
   Query,
   UseGuards,
@@ -9,6 +11,7 @@ import { FindingsService, FindFindingsRequest } from './findings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('findings')
 @UseGuards(JwtAuthGuard, TenancyGuard)
@@ -53,4 +56,15 @@ export class FindingsController {
   ) {
     return this.findingsService.findById(tenantId, id);
   }
+
+  @Post(':id/work-item')
+  async createWorkItem(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() body: { system?: string; title?: string; process?: string }
+  ) {
+    return this.findingsService.createWorkItem(tenantId, id, userId, body || {});
+  }
 }
+

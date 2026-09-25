@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import * as crypto from 'node:crypto';
 
 export interface FindFindingsRequest {
   projectId?: string;
@@ -207,4 +208,77 @@ export class FindingsService {
       blockerAndCriticalCount: blockers + criticals,
     };
   }
+
+  /**
+   * Part 15.7 & 15.8: Finding-to-Task Work Item Creation
+   */
+  async createWorkItem(
+    tenantId: string,
+    findingId: string,
+    userId: string,
+    dto: { system?: string; title?: string; process?: string }
+  ) {
+    const finding = await this.findById(tenantId, findingId);
+    const system = (dto.system || 'SAP_CLOUD_ALM').toUpperCase();
+    const taskPrefix = system.includes('JIRA')
+      ? 'JIRA'
+      : system.includes('AZURE')
+      ? 'ADO'
+      : system.includes('GITHUB')
+      ? 'GH'
+      : system.includes('SERVICENOW')
+      ? 'SNOW'
+      : 'CALM';
+
+    const taskId = `${taskPrefix}-TSK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const deepLink = `https://erppreflight.com/projects/${finding.projectId}/findings?findingId=${finding.id}`;
+
+    const firstEvidence = finding.evidence?.[0];
+    const evidenceSnippet = firstEvidence ? firstEvidence.snippet : 'No snippet captured';
+
+    const workItemPayload = {
+      findingId: finding.id,
+      title: dto.title || `[${finding.severity}] Remediate ${finding.ruleId}: ${finding.title}`,
+      severity: finding.severity,
+      conciseReason: finding.description,
+      exactEvidence: evidenceSnippet,
+      affectedObjects: finding.affectedObjects,
+      recommendedRemediation: finding.remediation,
+      deepLink,
+      targetRelease: 'S4H_2023',
+      reproducibilitySupportId: crypto
+        .createHash('sha256')
+        .update(`${finding.id}:${finding.fingerprint}`)
+        .digest('hex')
+        .slice(0, 16),
+    };
+
+    // Link/Insert into traceability_nodes
+    await this.db.query(
+      `INSERT INTO traceability_nodes (
+        organization_id, project_id, process_hierarchy, requirement_id, requirement_title,
+        finding_id, remediation_task_id, task_status, business_criticality, external_system
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN', $8, $9)`,
+      [
+        tenantId,
+        finding.projectId,
+        dto.process || 'Core Logistics & ERP',
+        `REQ-${taskPrefix}-${Math.floor(100 + Math.random() * 900)}`,
+        `Remediate ${finding.ruleId}`,
+        finding.id,
+        taskId,
+        finding.severity === 'BLOCKER' || finding.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+        system,
+      ]
+    );
+
+    return {
+      success: true,
+      workItemId: taskId,
+      externalSystem: system,
+      deepLink,
+      taskBody: workItemPayload,
+    };
+  }
 }
+
