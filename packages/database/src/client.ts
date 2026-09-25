@@ -1,5 +1,7 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { TenancyContext } from '@erppreflight/tenancy';
+import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
+import * as schema from './schema';
 
 export interface DatabaseConfig {
   connectionString?: string;
@@ -30,6 +32,10 @@ export class DatabasePool {
 
   getPool(): Pool {
     return this.pool;
+  }
+
+  getDrizzle(client?: PoolClient): NodePgDatabase<typeof schema> {
+    return drizzle(client || this.pool, { schema });
   }
 
   async checkHealth(): Promise<boolean> {
