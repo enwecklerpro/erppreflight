@@ -12,6 +12,10 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
   beforeEach(() => {
     mockDb = {
       query: vi.fn(),
+      withTenantTransaction: vi.fn(async (_tenantIdOrCb: any, maybeCb?: any) => {
+        const cb = typeof _tenantIdOrCb === 'function' ? _tenantIdOrCb : maybeCb;
+        return await cb(mockDb);
+      }),
     };
     mockConfig = {
       get: vi.fn(),
@@ -186,15 +190,15 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
       expect(res.received).toBe(true);
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE organizations SET plan_tier = $1'),
-        ['PROFESSIONAL', tenantId],
-        expect.any(Object)
+        ['PROFESSIONAL', tenantId]
       );
       expect(mockOutbox.recordEvent).toHaveBeenCalledWith(
         tenantId,
         'organization.plan_upgraded',
         'PROJECT',
         tenantId,
-        expect.objectContaining({ newTier: 'PROFESSIONAL' })
+        expect.objectContaining({ newTier: 'PROFESSIONAL' }),
+        mockDb
       );
     });
   });

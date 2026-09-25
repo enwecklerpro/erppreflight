@@ -10,6 +10,10 @@ describe('FindingsService', () => {
   beforeEach(() => {
     mockDb = {
       query: vi.fn(),
+      withTenantTransaction: vi.fn(async (_tenantIdOrCb: any, maybeCb?: any) => {
+        const cb = typeof _tenantIdOrCb === 'function' ? _tenantIdOrCb : maybeCb;
+        return await cb(mockDb);
+      }),
     };
     service = new FindingsService(mockDb as DatabaseService);
   });

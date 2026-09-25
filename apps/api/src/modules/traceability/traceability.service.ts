@@ -194,29 +194,36 @@ export class TraceabilityService {
     const taskId = syncResult.taskId || null;
     const taskStatus = syncResult.success ? 'IN_PROGRESS' : 'PENDING_CONFIG';
 
-    if (taskId) {
-      await this.db.query(
-        `UPDATE traceability_nodes
-         SET remediation_task_id = $1,
-             task_status = $2,
-             updated_at = NOW()
-         WHERE organization_id = $3 AND project_id = $4 AND finding_id = $5`,
-        [taskId, taskStatus, organizationId, projectId, dto.findingId]
-      );
-    }
+    await this.db.withTenantTransaction(organizationId, async (client) => {
+      if (taskId) {
+        await client.query(
+          `UPDATE traceability_nodes
+           SET remediation_task_id = $1,
+               task_status = $2,
+               updated_at = NOW()
+           WHERE organization_id = $3 AND project_id = $4 AND finding_id = $5`,
+          [taskId, taskStatus, organizationId, projectId, dto.findingId]
+        );
+      }
 
-    if (this.outbox) {
-      await this.outbox
-        .recordEvent(organizationId, 'traceability.task_dispatched', 'FINDING', finding.id, {
-          findingId: finding.id,
-          projectId,
-          externalSystem: system,
-          status: syncResult.status,
-          taskId,
-          error: syncResult.error,
-        })
-        .catch(() => {});
-    }
+      if (this.outbox) {
+        await this.outbox.recordEvent(
+          organizationId,
+          'traceability.task_dispatched',
+          'FINDING',
+          finding.id,
+          {
+            findingId: finding.id,
+            projectId,
+            externalSystem: system,
+            status: syncResult.status,
+            taskId,
+            error: syncResult.error,
+          },
+          client
+        );
+      }
+    });
 
     return {
       taskId: taskId || 'PENDING_CREATION',

@@ -457,6 +457,70 @@ describe('Enterprise Platform Services Suite', () => {
       expect(res.executionToken).toContain('EXEC_');
       expect(res.expiresAt).toBeDefined();
     });
+
+    it('should verify and consume execution token and enforce anti-replay lifecycle', async () => {
+      // 1. Approve to get valid token
+      mockDb.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'prop-exec-1',
+              agent_id: 'agent-1',
+              proposal_hash: 'hash_exec_123',
+              target_environment: 'QA',
+              verdict: 'CLEAR',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'prop-exec-1', approval_status: 'APPROVED' }],
+        });
+
+      const service = new AgentGateService(mockDb);
+      const approved = await service.approveProposal(orgId, 'prop-exec-1', userId);
+
+      // 2. Consume token successfully
+      mockDb.query
+        // verify proposal
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'prop-exec-1',
+              agent_id: 'agent-1',
+              proposal_hash: 'hash_exec_123',
+              target_environment: 'QA',
+              approval_status: 'APPROVED',
+            },
+          ],
+        })
+        // verify agent
+        .mockResolvedValueOnce({
+          rows: [{ id: 'agent-1', status: 'ACTIVE' }],
+        })
+        // update proposal status to EXECUTED
+        .mockResolvedValueOnce({ rows: [] });
+
+      const consumed = await service.verifyAndConsumeExecutionToken(orgId, approved.executionToken);
+      expect(consumed.verified).toBe(true);
+      expect(consumed.proposalId).toBe('prop-exec-1');
+
+      // 3. Replay attempt: proposal is now EXECUTED -> must throw BadRequestException
+      mockDb.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'prop-exec-1',
+            agent_id: 'agent-1',
+            proposal_hash: 'hash_exec_123',
+            target_environment: 'QA',
+            approval_status: 'EXECUTED',
+          },
+        ],
+      });
+
+      await expect(
+        service.verifyAndConsumeExecutionToken(orgId, approved.executionToken)
+      ).rejects.toThrow('replay prevention');
+    });
   });
 
   describe('ApiKeysService (Developer API)', () => {

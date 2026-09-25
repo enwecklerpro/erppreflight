@@ -50,6 +50,9 @@ jobs:
       - name: Production Facade & Security Gate
         run: pnpm run check:no-production-facades
 
+      - name: Production Truth & Anti-Facade Gate
+        run: pnpm run check:production-truth
+
       - name: Monorepo Strict Typecheck
         run: pnpm run typecheck
 

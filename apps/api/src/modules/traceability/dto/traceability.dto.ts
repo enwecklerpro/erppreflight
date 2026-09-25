@@ -62,4 +62,40 @@ export class CreateRemediationTaskDto {
   @IsString()
   @IsOptional()
   assignee?: string;
+
+  @IsString()
+  @IsOptional()
+  tokenUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  clientId?: string;
+
+  @IsString()
+  @IsOptional()
+  clientSecret?: string;
+
+  @IsString()
+  @IsOptional()
+  apiBaseUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  calmProjectId?: string;
+
+  @IsString()
+  @IsOptional()
+  jiraHost?: string;
+
+  @IsString()
+  @IsOptional()
+  jiraEmail?: string;
+
+  @IsString()
+  @IsOptional()
+  jiraApiToken?: string;
+
+  @IsString()
+  @IsOptional()
+  projectKey?: string;
 }

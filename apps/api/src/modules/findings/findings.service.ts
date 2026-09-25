@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { TraceabilityService } from '../traceability/traceability.service';
 import * as crypto from 'node:crypto';
 
 export interface FindFindingsRequest {
@@ -17,7 +18,8 @@ export interface FindFindingsRequest {
 export class FindingsService {
   constructor(
     private readonly db: DatabaseService,
-    @Optional() private readonly outbox?: OutboxService
+    @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly traceability?: TraceabilityService
   ) {}
 
   async findAll(tenantId: string, query: FindFindingsRequest) {
@@ -129,6 +131,13 @@ export class FindingsService {
     }
 
     const row = res.rows[0];
+    return this.mapFindingRow(row);
+  }
+
+  private mapFindingRow(row: any) {
+    if (!row) {
+      throw new NotFoundException('Finding not found');
+    }
     return {
       id: row.id,
       jobId: row.analysis_id,
@@ -215,78 +224,54 @@ export class FindingsService {
 
   /**
    * Part 15.7 & 15.8: Finding-to-Task Work Item Creation
+   * Dispatches finding remediation to real Cloud ALM / Jira connectors.
+   * Completely eliminates simulated task IDs and Math.random() calls.
    */
   async createWorkItem(
     tenantId: string,
     findingId: string,
     userId: string,
-    dto: { system?: string; title?: string; process?: string }
+    dto: {
+      system?: string;
+      title?: string;
+      process?: string;
+      tokenUrl?: string;
+      clientId?: string;
+      clientSecret?: string;
+      apiBaseUrl?: string;
+      jiraEmail?: string;
+      jiraApiToken?: string;
+    }
   ) {
     const finding = await this.findById(tenantId, findingId);
     const system = (dto.system || 'SAP_CLOUD_ALM').toUpperCase();
-    const taskPrefix = system.includes('JIRA')
-      ? 'JIRA'
-      : system.includes('AZURE')
-      ? 'ADO'
-      : system.includes('GITHUB')
-      ? 'GH'
-      : system.includes('SERVICENOW')
-      ? 'SNOW'
-      : 'CALM';
 
-    const taskId = `${taskPrefix}-TSK-${Math.floor(1000 + Math.random() * 9000)}`;
-    const deepLink = `https://erppreflight.com/projects/${finding.projectId}/findings?findingId=${finding.id}`;
+    if (this.traceability) {
+      return await this.traceability.createRemediationTask(tenantId, finding.projectId, {
+        findingId: finding.id,
+        externalSystem: system as any,
+        tokenUrl: dto.tokenUrl,
+        clientId: dto.clientId,
+        clientSecret: dto.clientSecret,
+        apiBaseUrl: dto.apiBaseUrl,
+        jiraEmail: dto.jiraEmail,
+        jiraApiToken: dto.jiraApiToken,
+      });
+    }
 
-    const firstEvidence = finding.evidence?.[0];
-    const evidenceSnippet = firstEvidence ? firstEvidence.snippet : 'No snippet captured';
-
-    const workItemPayload = {
-      findingId: finding.id,
-      title: dto.title || `[${finding.severity}] Remediate ${finding.ruleId}: ${finding.title}`,
-      severity: finding.severity,
-      conciseReason: finding.description,
-      exactEvidence: evidenceSnippet,
-      affectedObjects: finding.affectedObjects,
-      recommendedRemediation: finding.remediation,
-      deepLink,
-      targetRelease: 'S4H_2023',
-      reproducibilitySupportId: crypto
-        .createHash('sha256')
-        .update(`${finding.id}:${finding.fingerprint}`)
-        .digest('hex')
-        .slice(0, 16),
-    };
-
-    // Link/Insert into traceability_nodes
-    await this.db.query(
-      `INSERT INTO traceability_nodes (
-        organization_id, project_id, process_hierarchy, requirement_id, requirement_title,
-        finding_id, remediation_task_id, task_status, business_criticality, external_system
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN', $8, $9)`,
-      [
-        tenantId,
-        finding.projectId,
-        dto.process || 'Core Logistics & ERP',
-        `REQ-${taskPrefix}-${Math.floor(100 + Math.random() * 900)}`,
-        `Remediate ${finding.ruleId}`,
-        finding.id,
-        taskId,
-        finding.severity === 'BLOCKER' || finding.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
-        system,
-      ]
-    );
-
+    // Default truthful response if TraceabilityService connector is unconfigured
     return {
-      success: true,
-      workItemId: taskId,
+      success: false,
+      status: 'CREDENTIALS_REQUIRED',
+      error: `External work management system '${system}' requires configured credentials.`,
       externalSystem: system,
-      deepLink,
-      taskBody: workItemPayload,
+      findingId: finding.id,
     };
   }
 
   /**
    * Part 14.12, 14.13 & 15.13: Expert Review Mode, Risk Waiver & False-Positive Suppression
+   * Executed atomically inside a single client transaction with transactional domain event outbox.
    */
   async reviewFinding(
     tenantId: string,
@@ -313,61 +298,75 @@ export class FindingsService {
       review: reviewRecord,
     };
 
-    // Update target finding
-    await this.db.query(
-      `UPDATE findings
-       SET technical_details = $1
-       WHERE organization_id = $2 AND id = $3`,
-      [JSON.stringify(updatedTechnicalDetails), tenantId, findingId]
-    );
+    return await this.db.withTenantTransaction(tenantId, async (client) => {
+      // Update target finding
+      await client.query(
+        `UPDATE findings
+         SET technical_details = $1
+         WHERE organization_id = $2 AND id = $3`,
+        [JSON.stringify(updatedTechnicalDetails), tenantId, findingId]
+      );
 
-    // If scope is OBJECT_RULE or TENANT_OVERRIDE, cascade review to matching findings
-    if (
-      (dto.suppressScope === 'OBJECT_RULE' || dto.suppressScope === 'TENANT_OVERRIDE') &&
-      finding.ruleId
-    ) {
-      const objName =
-        (Array.isArray(finding.affectedObjects) && (finding.affectedObjects[0] as any)?.name) ||
-        null;
+      // If scope is OBJECT_RULE or TENANT_OVERRIDE, cascade review to matching findings
+      if (
+        (dto.suppressScope === 'OBJECT_RULE' || dto.suppressScope === 'TENANT_OVERRIDE') &&
+        finding.ruleId
+      ) {
+        const objName =
+          (Array.isArray(finding.affectedObjects) && (finding.affectedObjects[0] as any)?.name) ||
+          null;
 
-      if (dto.suppressScope === 'OBJECT_RULE' && objName) {
-        await this.db.query(
-          `UPDATE findings
-           SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
-           WHERE organization_id = $2
-             AND rule_id = $3
-             AND affected_objects @> $4::jsonb`,
-          [
-            JSON.stringify(reviewRecord),
-            tenantId,
-            finding.ruleId,
-            JSON.stringify([{ name: objName }]),
-          ]
-        );
-      } else if (dto.suppressScope === 'TENANT_OVERRIDE') {
-        await this.db.query(
-          `UPDATE findings
-           SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
-           WHERE organization_id = $2 AND rule_id = $3`,
-          [JSON.stringify(reviewRecord), tenantId, finding.ruleId]
+        if (dto.suppressScope === 'OBJECT_RULE' && objName) {
+          await client.query(
+            `UPDATE findings
+             SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
+             WHERE organization_id = $2
+               AND rule_id = $3
+               AND affected_objects @> $4::jsonb`,
+            [
+              JSON.stringify(reviewRecord),
+              tenantId,
+              finding.ruleId,
+              JSON.stringify([{ name: objName }]),
+            ]
+          );
+        } else if (dto.suppressScope === 'TENANT_OVERRIDE') {
+          await client.query(
+            `UPDATE findings
+             SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
+             WHERE organization_id = $2 AND rule_id = $3`,
+            [JSON.stringify(reviewRecord), tenantId, finding.ruleId]
+          );
+        }
+      }
+
+      if (this.outbox) {
+        await this.outbox.recordEvent(
+          tenantId,
+          'finding.reviewed',
+          'FINDING',
+          findingId,
+          {
+            findingId,
+            projectId: finding.projectId,
+            reviewStatus: dto.status,
+            suppressScope: dto.suppressScope,
+            justification: dto.justification,
+            reviewedBy: userId,
+          },
+          client
         );
       }
-    }
 
-    if (this.outbox) {
-      await this.outbox
-        .recordEvent(tenantId, 'finding.reviewed', 'FINDING', findingId, {
-          findingId,
-          projectId: finding.projectId,
-          reviewStatus: dto.status,
-          suppressScope: dto.suppressScope,
-          justification: dto.justification,
-          reviewedBy: userId,
-        })
-        .catch(() => {});
-    }
-
-    return await this.findById(tenantId, findingId);
+      const res = await client.query(
+        `SELECT f.*,
+                (SELECT json_agg(e.*) FROM evidence e WHERE e.finding_id = f.id) AS evidence
+         FROM findings f
+         WHERE f.organization_id = $1 AND f.id = $2`,
+        [tenantId, findingId]
+      );
+      return this.mapFindingRow(res.rows[0]);
+    });
   }
 }
 

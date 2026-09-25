@@ -101,20 +101,26 @@ export class BillingService {
    * Direct administrator plan upgrade (e.g. for enterprise agreements or invoice billing).
    */
   async upgradeTenantPlan(organizationId: string, targetTier: PlanTier): Promise<void> {
-    await this.db.query(
-      `UPDATE organizations SET plan_tier = $1, updated_at = NOW() WHERE id = $2`,
-      [targetTier, organizationId],
-      { bypassRls: true }
-    );
+    await this.db.withTenantTransaction(organizationId, async (client) => {
+      await client.query(
+        `UPDATE organizations SET plan_tier = $1, updated_at = NOW() WHERE id = $2`,
+        [targetTier, organizationId]
+      );
 
-    if (this.outbox) {
-      await this.outbox
-        .recordEvent(organizationId, 'organization.plan_upgraded', 'PROJECT', organizationId, {
+      if (this.outbox) {
+        await this.outbox.recordEvent(
           organizationId,
-          newTier: targetTier,
-        })
-        .catch(() => {});
-    }
+          'organization.plan_upgraded',
+          'PROJECT',
+          organizationId,
+          {
+            organizationId,
+            newTier: targetTier,
+          },
+          client
+        );
+      }
+    });
   }
 
   /**
