@@ -323,7 +323,7 @@ export function DataTable<TData, TValue = unknown>({
         style={enableVirtualization ? { height: virtualHeight } : undefined}
         className={cn(
           'relative w-full rounded-xl border border-border bg-card shadow-xs focus:outline-none',
-          enableVirtualization ? 'overflow-auto' : 'overflow-hidden'
+          enableVirtualization ? 'overflow-auto' : 'overflow-x-auto'
         )}
         tabIndex={0}
         role="region"

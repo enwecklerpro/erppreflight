@@ -19,7 +19,9 @@
     "codegen:api": "pnpm --filter @erppreflight/web codegen:api",
     "test:e2e": "playwright test",
     "test:e2e:mocked": "pnpm exec playwright test tests/e2e/preflight-pipeline.mocked-ui.spec.ts",
-    "test:e2e:live": "pnpm exec playwright test tests/e2e/preflight-pipeline.live.spec.ts"
+    "test:e2e:live": "pnpm exec playwright test tests/e2e/preflight-pipeline.live.spec.ts",
+    "smoke:live": "bash scripts/e2e-live-smoke.sh",
+    "smoke:ui": "node scripts/e2e-ui-smoke.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

@@ -76,6 +76,9 @@ describe('FindingsService', () => {
       })
       .mockResolvedValueOnce({
         rows: [{ total: 2 }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ total: 1 }],
       });
 
     const stats = await service.getStats('org-1');
@@ -83,6 +86,19 @@ describe('FindingsService', () => {
     expect(stats.blockerAndCriticalCount).toBe(2);
     // penalty = 1 * 15 + 1 * 8 = 23 -> cleanCoreIndex = 100 - 23 = 77
     expect(stats.cleanCoreIndex).toBe(77);
+  });
+
+  it('reports no clean core score before any analysis has completed', async () => {
+    mockDb.query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    const stats = await service.getStats('org-1', 'project-1');
+    expect(stats.totalFindings).toBe(0);
+    expect(stats.cleanCoreIndex).toBeNull();
   });
 
   describe('reviewFinding', () => {

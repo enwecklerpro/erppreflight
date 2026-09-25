@@ -171,7 +171,7 @@ export class FindingsService {
     }
     const where = conditions.join(' AND ');
 
-    const [severityRes, engineRes, totalRes] = await Promise.all([
+    const [severityRes, engineRes, totalRes, analysedRes] = await Promise.all([
       this.db.query(
         `SELECT severity, COUNT(*)::int AS count FROM findings WHERE ${where} GROUP BY severity`,
         params
@@ -182,6 +182,10 @@ export class FindingsService {
       ),
       this.db.query(
         `SELECT COUNT(*)::int AS total FROM findings WHERE ${where}`,
+        params
+      ),
+      this.db.query(
+        `SELECT COUNT(*)::int AS total FROM analyses WHERE ${where} AND status IN ('COMPLETED', 'PARTIAL')`,
         params
       ),
     ]);
@@ -212,7 +216,10 @@ export class FindingsService {
     // Clean core compliance index calculation
     // Starts at 100%, penalized deterministically by finding severity
     const penalty = Math.min(100, blockers * 15 + criticals * 8 + majors * 3);
-    const cleanCoreIndex = total === 0 ? 100 : Math.max(0, Math.round((100 - penalty) * 10) / 10);
+    // No completed analysis means there is nothing to score: report null instead of a 100% "pass".
+    const analysedRuns = analysedRes.rows[0]?.total || 0;
+    const cleanCoreIndex =
+      analysedRuns === 0 ? null : total === 0 ? 100 : Math.max(0, Math.round((100 - penalty) * 10) / 10);
 
     return {
       totalFindings: total,

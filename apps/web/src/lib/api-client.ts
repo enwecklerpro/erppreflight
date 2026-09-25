@@ -128,7 +128,7 @@ export interface FindingsQueryParams {
 }
 
 export interface DashboardSummaryData {
-  cleanCoreIndex: number;
+  cleanCoreIndex: number | null;
   activeProjects: number;
   totalProjects: number;
   blockersAndCritical: number;

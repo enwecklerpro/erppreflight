@@ -134,9 +134,15 @@ export default function ExecutiveDashboard() {
           <>
             <MetricsCard
               title="Clean Core Index"
-              value={`${summary?.cleanCoreIndex?.toFixed(1) ?? '100.0'}%`}
-              change={`${summary?.cleanCoreIndex && summary.cleanCoreIndex >= 85 ? 'Compliant' : 'Needs Review'}`}
-              isPositive={(summary?.cleanCoreIndex ?? 100) >= 80}
+              value={typeof summary?.cleanCoreIndex === 'number' ? `${summary.cleanCoreIndex.toFixed(1)}%` : '—'}
+              change={
+                typeof summary?.cleanCoreIndex !== 'number'
+                  ? 'No completed analysis yet'
+                  : summary.cleanCoreIndex >= 85
+                    ? 'Compliant'
+                    : 'Needs Review'
+              }
+              isPositive={typeof summary?.cleanCoreIndex === 'number' && summary.cleanCoreIndex >= 80}
               icon={TrendingUp}
               description="S/4HANA Tier 1 & 2 compliance ratio"
             />

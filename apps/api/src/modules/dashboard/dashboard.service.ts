@@ -4,7 +4,7 @@ import { EnginesService } from '../engines/engines.service';
 import { FindingsService } from '../findings/findings.service';
 
 export interface DashboardSummaryResponse {
-  cleanCoreIndex: number;
+  cleanCoreIndex: number | null;
   activeProjects: number;
   totalProjects: number;
   blockersAndCritical: number;

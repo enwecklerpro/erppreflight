@@ -280,7 +280,9 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                 {Object.entries(finding.technicalDetails).map(([key, val]) => (
                   <div key={key} className="flex flex-col">
                     <span className="text-muted-foreground text-[10px]">{key}:</span>
-                    <span className="text-foreground font-semibold truncate">{String(val)}</span>
+                    <span className="text-foreground font-semibold break-all whitespace-pre-wrap">
+                      {val !== null && typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                    </span>
                   </div>
                 ))}
               </div>
