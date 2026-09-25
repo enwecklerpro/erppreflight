@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsUUID, MaxLength } from 'class-validator';
 
 export enum FeedbackType {
   FEATURE_REQUEST = 'FEATURE_REQUEST',
@@ -17,26 +17,29 @@ export enum FeedbackStatus {
 export class CreateFeedbackDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(255)
   title: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10000)
   description: string;
 
   @IsEnum(FeedbackType)
   @IsOptional()
   feedbackType?: FeedbackType = FeedbackType.FEATURE_REQUEST;
 
-  @IsString()
+  @IsUUID()
   @IsOptional()
   projectId?: string;
 
-  @IsString()
+  @IsUUID()
   @IsOptional()
   findingId?: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(100)
   targetEngine?: string;
 }
 

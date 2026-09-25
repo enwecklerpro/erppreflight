@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { TelemetryService } from './telemetry.service';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { MetricsAccessGuard } from './metrics-access.guard';
 
 @ApiTags('Telemetry & Observability')
 @Controller()
@@ -10,6 +12,8 @@ export class TelemetryController {
   constructor(private readonly telemetryService: TelemetryService) {}
 
   @Get('metrics')
+  @UseGuards(MetricsAccessGuard)
+  @ApiBearerAuth()
   @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
   @ApiOperation({
     summary: 'Prometheus Plaintext Metrics Endpoint',
@@ -22,7 +26,7 @@ export class TelemetryController {
   }
 
   @Get('telemetry/summary')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, TenancyGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get Telemetry Summary for the tenant' })
   @ApiResponse({ status: 200, description: 'Summary successfully returned' })

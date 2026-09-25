@@ -5,14 +5,17 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
-import { OrganizationsService, UpdateOrganizationDto } from './organizations.service';
+import { OrganizationsService } from './organizations.service';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('organizations')
-@UseGuards(JwtAuthGuard, TenancyGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard)
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
@@ -32,6 +35,7 @@ export class OrganizationsController {
   }
 
   @Patch('current')
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
   async updateCurrent(
     @CurrentTenant() tenantId: string,
     @Body() dto: UpdateOrganizationDto

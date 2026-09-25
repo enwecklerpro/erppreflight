@@ -5,6 +5,18 @@ import { RegisterAgentDto, SubmitProposalDto } from './dto/agent-gate.dto';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * HMAC key for Agent Execution Tokens. JWT_SECRET is required (and validated at
+ * startup in production); a fixed key is only accepted inside the unit-test runner.
+ */
+function resolveExecutionTokenSecret(): string | null {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.length >= 32) {
+    return secret;
+  }
+  return process.env.NODE_ENV === 'test' ? 'unit-test-only-execution-token-signing-key' : null;
+}
+
 @Injectable()
 export class AgentGateService {
   private readonly logger = new Logger(AgentGateService.name);
@@ -168,9 +180,7 @@ export class AgentGateService {
     }
 
     // Secure secret resolution (no insecure default fallback in production)
-    const secret =
-      process.env.JWT_SECRET ||
-      (process.env.NODE_ENV !== 'production' ? 'dev_test_signing_secret_key_only' : null);
+    const secret = resolveExecutionTokenSecret();
     if (!secret) {
       throw new BadRequestException('JWT_SECRET environment variable is required to sign Agent Execution Tokens.');
     }
@@ -264,9 +274,7 @@ export class AgentGateService {
     }
 
     // 1. Verify Secret & Cryptographic HMAC Signature
-    const secret =
-      process.env.JWT_SECRET ||
-      (process.env.NODE_ENV !== 'production' ? 'dev_test_signing_secret_key_only' : null);
+    const secret = resolveExecutionTokenSecret();
     if (!secret) {
       throw new BadRequestException('JWT_SECRET environment variable is required to verify execution tokens.');
     }

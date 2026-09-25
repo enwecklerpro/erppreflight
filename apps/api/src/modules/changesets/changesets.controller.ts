@@ -9,12 +9,15 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ChangeSetsService } from './changesets.service';
 import { CreateChangeSetDto, ApproveChangeSetDto } from './dto/changeset.dto';
 
 @ApiTags('ChangeSets & What-If Simulation')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard)
 @Controller('projects/:projectId/changesets')
 export class ChangeSetsController {
   constructor(private readonly changeSetsService: ChangeSetsService) {}
@@ -61,6 +64,7 @@ export class ChangeSetsController {
   }
 
   @Post(':id/approve')
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
   @ApiOperation({ summary: 'Approve a ChangeSet and generate cryptographic Change Evidence Pack' })
   async approve(
     @Req() req: any,

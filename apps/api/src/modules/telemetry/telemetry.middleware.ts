@@ -47,7 +47,8 @@ export class TelemetryMiddleware implements NestMiddleware {
       this.telemetryService.recordHttpRequestDuration(elapsedMs);
       this.telemetryService.incrementHttpRequests(req.method, res.statusCode);
 
-      const tenantId = TenancyContext.getTenantId() || null;
+      // Never throw from a 'finish' listener: an uncaught error here crashes the process.
+      const tenantId = (req as any).tenantId || TenancyContext.get()?.tenantId || null;
       
       const logData = {
         requestId,

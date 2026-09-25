@@ -1,10 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
-export interface UpdateOrganizationDto {
-  name?: string;
-  dataPolicy?: Record<string, unknown>;
-}
+import type { UpdateOrganizationDto } from './dto/update-organization.dto';
+export type { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 @Injectable()
 export class OrganizationsService {

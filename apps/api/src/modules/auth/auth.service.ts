@@ -9,14 +9,23 @@ import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
-import { createHash } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 
 const ARGON2ID_ALGORITHM = 2; // Algorithm.Argon2id (RFC 9106 recommended)
+const ARGON2_OPTIONS = {
+  algorithm: ARGON2ID_ALGORITHM,
+  memoryCost: 19456,
+  timeCost: 2,
+  parallelism: 1,
+} as const;
+const MIN_BOOTSTRAP_PASSWORD_LENGTH = 12;
+const BOOTSTRAP_ORG_SLUG = 'erppreflight-global';
+const BOOTSTRAP_ORG_NAME = 'ERP Preflight Global';
 
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuthService.name);
+  private dummyHash?: string;
 
   constructor(
     private readonly db: DatabaseService,
@@ -27,180 +36,117 @@ export class AuthService implements OnApplicationBootstrap {
     await this.bootstrapSuperAdmins();
   }
 
+  /**
+   * Creates exactly one SUPER_ADMIN account from ADMIN_BOOTSTRAP_EMAIL /
+   * ADMIN_BOOTSTRAP_PASSWORD, and only if no user with that email exists.
+   * Existing accounts are never modified (no password / role / status resets),
+   * and no demo accounts are created.
+   */
   public async bootstrapSuperAdmins(): Promise<void> {
     const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
-    if (!bootstrapPassword) {
-      this.logger.warn('ADMIN_BOOTSTRAP_PASSWORD not set, skipping admin bootstrap');
+    const rawEmail = process.env.ADMIN_BOOTSTRAP_EMAIL || process.env.SUPER_ADMIN_EMAIL;
+    if (!bootstrapPassword || !rawEmail) {
+      this.logger.log(
+        'ADMIN_BOOTSTRAP_EMAIL / ADMIN_BOOTSTRAP_PASSWORD not set, skipping super admin bootstrap'
+      );
       return;
     }
 
-    const adminAccounts = [
-      {
-        email: (process.env.SUPER_ADMIN_EMAIL || 'contact@erppreflight.com').toLowerCase(),
-        password: bootstrapPassword,
-        fullName: 'ERP Preflight Super Admin',
-        systemRole: 'SUPER_ADMIN',
-        role: 'ORGANIZATION_OWNER',
-        orgName: 'ERP Preflight Global',
-        orgSlug: 'erppreflight-global',
-      },
-      {
-        email: 'noreplay@erppreflight.com',
-        password: bootstrapPassword,
-        fullName: 'ERP Preflight System Admin',
-        systemRole: 'SUPER_ADMIN',
-        role: 'ORGANIZATION_OWNER',
-        orgName: 'ERP Preflight Global',
-        orgSlug: 'erppreflight-global',
-      },
-      {
-        email: 'admin@erppreflight.com',
-        password: bootstrapPassword,
-        fullName: 'ERP Preflight Administrator',
-        systemRole: 'SUPER_ADMIN',
-        role: 'ORGANIZATION_OWNER',
-        orgName: 'ERP Preflight Global',
-        orgSlug: 'erppreflight-global',
-      },
-      {
-        email: 'demo.client@erppreflight.com',
-        password: bootstrapPassword,
-        fullName: 'Dr. Alexander Weber (Lead Migration Architect)',
-        systemRole: 'USER',
-        role: 'ORGANIZATION_OWNER',
-        orgName: 'Acme Global Manufacturing SAP CoE',
-        orgSlug: 'acme-sap-coe',
-      },
-      {
-        email: 'client@erppreflight.com',
-        password: bootstrapPassword,
-        fullName: 'Enterprise Migration Consultant',
-        systemRole: 'USER',
-        role: 'ORGANIZATION_OWNER',
-        orgName: 'Acme Global Manufacturing SAP CoE',
-        orgSlug: 'acme-sap-coe',
-      },
-    ];
+    const email = rawEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      this.logger.error('ADMIN_BOOTSTRAP_EMAIL is not a valid email address, skipping bootstrap');
+      return;
+    }
+    if (bootstrapPassword.length < MIN_BOOTSTRAP_PASSWORD_LENGTH) {
+      this.logger.error(
+        `ADMIN_BOOTSTRAP_PASSWORD must be at least ${MIN_BOOTSTRAP_PASSWORD_LENGTH} characters, skipping bootstrap`
+      );
+      return;
+    }
 
     try {
-      for (const account of adminAccounts) {
-        // 1. Ensure target organization exists
-        let orgRes = await this.db.query(
-          'SELECT id FROM organizations WHERE slug = $1',
-          [account.orgSlug],
-          { bypassRls: true }
-        );
-
-        let orgId: string;
-        if (orgRes.rows.length === 0) {
-          orgId = uuidv4();
-          await this.db.query(
-            `INSERT INTO organizations (id, name, slug, plan_tier, status)
-             VALUES ($1, $2, $3, 'ENTERPRISE', 'ACTIVE')
-             ON CONFLICT (slug) DO NOTHING`,
-            [orgId, account.orgName, account.orgSlug],
-            { bypassRls: true }
-          );
-          const refetch = await this.db.query(
-            'SELECT id FROM organizations WHERE slug = $1',
-            [account.orgSlug],
-            { bypassRls: true }
-          );
-          orgId = refetch.rows[0]?.id || orgId;
-        } else {
-          orgId = orgRes.rows[0].id;
-        }
-
-        // 2. Insert or update user
-        const userRes = await this.db.query(
-          'SELECT id, system_role FROM users WHERE email = $1',
-          [account.email],
-          { bypassRls: true }
-        );
-
-        const passwordHash = await this.hashPassword(account.password);
-
-        let userId: string;
-        if (userRes.rows.length === 0) {
-          userId = uuidv4();
-          await this.db.query(
-            `INSERT INTO users (id, email, password_hash, full_name, system_role, status)
-             VALUES ($1, $2, $3, $4, $5, 'ACTIVE')`,
-            [userId, account.email, passwordHash, account.fullName, account.systemRole],
-            { bypassRls: true }
-          );
-
-          await this.db.query(
-            `INSERT INTO organization_members (id, organization_id, user_id, role)
-             VALUES ($1, $2, $3, $4)`,
-            [uuidv4(), orgId, userId, account.role],
-            { bypassRls: true }
-          );
-
-          this.logger.log(`Account bootstrapped: ${account.email} (${account.systemRole})`);
-        } else {
-          userId = userRes.rows[0].id;
-          await this.db.query(
-            `UPDATE users 
-             SET system_role = $1,
-                 password_hash = $2,
-                 status = 'ACTIVE'
-             WHERE id = $3`,
-            [account.systemRole, passwordHash, userId],
-            { bypassRls: true }
-          );
-
-          const memberRes = await this.db.query(
-            'SELECT id FROM organization_members WHERE organization_id = $1 AND user_id = $2',
-            [orgId, userId],
-            { bypassRls: true }
-          );
-
-          if (memberRes.rows.length === 0) {
-            await this.db.query(
-              `INSERT INTO organization_members (id, organization_id, user_id, role)
-               VALUES ($1, $2, $3, $4)`,
-              [uuidv4(), orgId, userId, account.role],
-              { bypassRls: true }
-            );
-          }
-
-          this.logger.log(`Account verified/updated: ${account.email} (${account.systemRole})`);
-        }
+      const existing = await this.db.query(
+        'SELECT id FROM users WHERE email = $1',
+        [email],
+        { bypassRls: true }
+      );
+      if (existing.rows.length > 0) {
+        this.logger.log('Bootstrap super admin already exists; leaving account unchanged');
+        return;
       }
+
+      // Ensure the platform organization exists
+      await this.db.query(
+        `INSERT INTO organizations (id, name, slug, plan_tier, status)
+         VALUES ($1, $2, $3, 'ENTERPRISE', 'ACTIVE')
+         ON CONFLICT (slug) DO NOTHING`,
+        [uuidv4(), BOOTSTRAP_ORG_NAME, BOOTSTRAP_ORG_SLUG],
+        { bypassRls: true }
+      );
+      const orgRes = await this.db.query(
+        'SELECT id FROM organizations WHERE slug = $1',
+        [BOOTSTRAP_ORG_SLUG],
+        { bypassRls: true }
+      );
+      const orgId: string | undefined = orgRes.rows[0]?.id;
+      if (!orgId) {
+        throw new Error('platform organization could not be created');
+      }
+
+      const userId = uuidv4();
+      const passwordHash = await this.hashPassword(bootstrapPassword);
+      const inserted = await this.db.query(
+        `INSERT INTO users (id, email, password_hash, full_name, system_role, status)
+         VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 'ACTIVE')
+         ON CONFLICT (email) DO NOTHING
+         RETURNING id`,
+        [userId, email, passwordHash, 'ERP Preflight Super Admin'],
+        { bypassRls: true }
+      );
+      if (inserted.rows.length === 0) {
+        // Created concurrently by another instance: never touch it.
+        return;
+      }
+
+      await this.db.query(
+        `INSERT INTO organization_members (id, organization_id, user_id, role)
+         VALUES ($1, $2, $3, 'ORGANIZATION_OWNER')
+         ON CONFLICT (organization_id, user_id) DO NOTHING`,
+        [uuidv4(), orgId, userId],
+        { bypassRls: true }
+      );
+
+      this.logger.log(`Bootstrap super admin created: ${email}`);
     } catch (err: any) {
-      this.logger.warn(`Could not bootstrap system accounts: ${err.message}`);
+      this.logger.warn(`Could not bootstrap super admin account: ${err.message}`);
     }
   }
 
   private async hashPassword(password: string): Promise<string> {
-    return hash(password, {
-      algorithm: ARGON2ID_ALGORITHM,
-      memoryCost: 19456,
-      timeCost: 2,
-      parallelism: 1,
-    });
+    return hash(password, ARGON2_OPTIONS);
   }
 
+  /**
+   * Verifies a password against an Argon2id hash. The supplied password is used
+   * byte-for-byte (no trimming) and non-Argon2 (legacy unsalted) hashes are rejected.
+   */
   private async verifyPassword(plain: string, hashed: string): Promise<boolean> {
-    if (!hashed) return false;
-    const clean = (plain || '').trim();
-    if (hashed.startsWith('$argon2')) {
-      try {
-        const match = await verify(hashed, clean);
-        if (match) return true;
-        if (clean !== plain) {
-          if (await verify(hashed, plain)) return true;
-        }
-      } catch {
-        return false;
-      }
+    if (!hashed || typeof plain !== 'string' || !hashed.startsWith('$argon2')) {
       return false;
     }
-    // Backward-compatibility fallback: legacy SHA-256 hash check
-    const sha = createHash('sha256').update(clean).digest('hex');
-    if (sha === hashed) return true;
-    return createHash('sha256').update(plain).digest('hex') === hashed;
+    try {
+      return await verify(hashed, plain);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Equalizes response timing for unknown accounts (mitigates user enumeration). */
+  private async burnPasswordCheck(plain: string): Promise<void> {
+    if (!this.dummyHash) {
+      this.dummyHash = await this.hashPassword(uuidv4());
+    }
+    await this.verifyPassword(plain, this.dummyHash);
   }
 
   async register(dto: RegisterDto) {
@@ -270,16 +216,26 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   async login(dto: LoginDto) {
+    // Deterministic membership selection: the oldest membership in an ACTIVE organization.
     const userRes = await this.db.query(
-      `SELECT u.id, u.email, u.full_name, u.password_hash, u.system_role, m.organization_id, m.role
+      `SELECT u.id, u.email, u.full_name, u.password_hash, u.system_role, u.status,
+              m.organization_id, m.role
        FROM users u
-       LEFT JOIN organization_members m ON m.user_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT om.organization_id, om.role
+         FROM organization_members om
+         JOIN organizations o ON o.id = om.organization_id
+         WHERE om.user_id = u.id AND o.status = 'ACTIVE'
+         ORDER BY om.created_at ASC, om.organization_id ASC
+         LIMIT 1
+       ) m ON TRUE
        WHERE u.email = $1`,
       [dto.email.toLowerCase()],
       { bypassRls: true }
     );
 
     if (userRes.rows.length === 0) {
+      await this.burnPasswordCheck(dto.password);
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -289,19 +245,13 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Seamlessly rehash legacy passwords to Argon2id on successful login
-    if (row.password_hash && !row.password_hash.startsWith('$argon2')) {
-      const newHash = await this.hashPassword(dto.password);
-      await this.db.query(
-        'UPDATE users SET password_hash = $1 WHERE id = $2',
-        [newHash, row.id],
-        { bypassRls: true }
-      );
+    if (row.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
     }
 
     const organizationId = row.organization_id;
     if (!organizationId) {
-      throw new UnauthorizedException('User has no organization assignment');
+      throw new UnauthorizedException('User has no active organization assignment');
     }
     const role = row.role || 'VIEWER';
 

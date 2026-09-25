@@ -30,7 +30,9 @@ export class EntitlementGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const tenantId = request.tenantId || request.headers['x-tenant-id'] || request.user?.tenantId;
+    // Only the membership-verified tenant (TenancyMiddleware / API key) is trusted;
+    // the raw X-Tenant-Id header is never used here.
+    const tenantId = request.tenantId || request.user?.organizationId;
 
     if (!tenantId) {
       return true; // Let tenant / auth guard handle missing tenant

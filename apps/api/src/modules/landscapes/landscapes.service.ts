@@ -2,6 +2,30 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { DatabaseService } from '../database/database.service';
 import { CreateLandscapeDto } from './dto/landscape.dto';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  OutboundPolicy,
+  OutboundRequestOptions,
+  safeOutboundRequest,
+  validateOutboundUrl,
+  UnsafeOutboundUrlError,
+} from '../../common/security/outbound-request';
+
+/**
+ * Cloud instance metadata endpoints: rejected up front (before DNS), in addition to
+ * the link-local / reserved range checks of the shared outbound policy.
+ */
+const CLOUD_METADATA_HOSTS = new Set([
+  '169.254.169.254',
+  '169.254.169.253',
+  '100.100.100.200',
+  'fd00:ec2::254',
+  'metadata.google.internal',
+  'metadata',
+  'instance-data',
+]);
+
+const SSRF_BLOCKED_REASON =
+  'Target URL is blocked by SSRF protection policy (must resolve to a public address).';
 
 @Injectable()
 export class LandscapesService {
@@ -9,89 +33,52 @@ export class LandscapesService {
 
   constructor(private readonly db: DatabaseService) {}
 
+  /** Real HTTP/TLS request through the SSRF-hardened, DNS-pinned outbound client. */
+  private fetch(url: string, options: OutboundRequestOptions) {
+    return safeOutboundRequest(url, options);
+  }
+
+  /** Outbound policy for probes: private networks only with an explicit operator opt-in. */
+  private outboundPolicy(): OutboundPolicy {
+    return { allowPrivateNetworks: process.env.ALLOW_PRIVATE_LANDSCAPE_PROBES === 'true' };
+  }
+
   /**
-   * Section 4 & Part 18.1: Validates target URL against SSRF and cloud metadata exfiltration attacks.
+   * Section 4 & Part 18.1: Validates a target URL against SSRF (DNS-resolved,
+   * all A/AAAA records checked). Returns a generic reason; details are logged.
    */
-  validateUrlSafety(parsedUrl: URL): { safe: boolean; reason?: string } {
-    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-      return {
-        safe: false,
-        reason: `Disallowed protocol '${parsedUrl.protocol}'. Only HTTP and HTTPS are permitted.`,
-      };
-    }
-
-    const hostname = parsedUrl.hostname.toLowerCase();
-
-    // 1. Cloud instance metadata services (Unconditionally Blocked in all environments)
-    const blockedCloudMetadata = [
-      '169.254.169.254',
-      '169.254.169.253',
-      'metadata.google.internal',
-      'metadata.google',
-      '100.100.100.200',
-      'instance-data',
-    ];
-    if (blockedCloudMetadata.includes(hostname) || hostname.endsWith('.metadata.google.internal')) {
-      return {
-        safe: false,
-        reason: 'Target URL is blocked: Cloud instance metadata endpoint detected (SSRF protection).',
-      };
-    }
-
-    // 2. Link-local address range (169.254.0.0/16, fe80::/10)
-    if (hostname.startsWith('169.254.') || hostname.startsWith('fe80:')) {
-      return {
-        safe: false,
-        reason: 'Target URL is blocked: Link-local addresses are prohibited (SSRF protection).',
-      };
-    }
-
-    // 3. Loopback / Localhost Addresses
-    const isLoopback =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '::1' ||
-      hostname.startsWith('127.');
-
-    if (isLoopback) {
-      const allowLocal = process.env.ALLOW_LOCAL_LANDSCAPE_PROBES === 'true' || process.env.NODE_ENV === 'test';
-      if (!allowLocal) {
-        return {
-          safe: false,
-          reason: 'Target URL is blocked: Loopback addresses are prohibited in SaaS cloud deployment.',
-        };
+  async validateUrlSafety(rawUrl: string): Promise<{ safe: boolean; reason?: string }> {
+    try {
+      const host = new URL(rawUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      if (CLOUD_METADATA_HOSTS.has(host) || host.endsWith('.metadata.google.internal')) {
+        this.logger.warn(`Landscape URL rejected: cloud metadata endpoint ${host}`);
+        return { safe: false, reason: SSRF_BLOCKED_REASON };
       }
+    } catch {
+      return { safe: false, reason: SSRF_BLOCKED_REASON };
     }
-
-    // 4. Private RFC 1918 Subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-    const allowPrivate = process.env.ALLOW_PRIVATE_LANDSCAPE_PROBES === 'true' || process.env.NODE_ENV === 'test';
-    if (!allowPrivate) {
-      if (
-        hostname.startsWith('10.') ||
-        hostname.startsWith('192.168.') ||
-        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
-      ) {
-        return {
-          safe: false,
-          reason: 'Target URL is blocked: Private RFC 1918 subnets require configured Local Agent connector or ALLOW_PRIVATE_LANDSCAPE_PROBES=true.',
-        };
+    try {
+      await validateOutboundUrl(rawUrl, this.outboundPolicy());
+      return { safe: true };
+    } catch (err) {
+      if (err instanceof UnsafeOutboundUrlError) {
+        this.logger.warn(`Landscape URL rejected by SSRF policy: ${err.reason}`);
+        return { safe: false, reason: SSRF_BLOCKED_REASON };
       }
+      throw err;
     }
-
-    return { safe: true };
   }
 
   async create(organizationId: string, dto: CreateLandscapeDto) {
     if (dto.url) {
       try {
-        const parsed = new URL(dto.url);
-        const safety = this.validateUrlSafety(parsed);
-        if (!safety.safe) {
-          throw new BadRequestException(safety.reason);
-        }
-      } catch (err: any) {
-        if (err instanceof BadRequestException) throw err;
-        throw new BadRequestException(`Invalid landscape URL: ${dto.url}`);
+        new URL(dto.url);
+      } catch {
+        throw new BadRequestException('Invalid landscape URL');
+      }
+      const safety = await this.validateUrlSafety(dto.url);
+      if (!safety.safe) {
+        throw new BadRequestException(safety.reason);
       }
     }
 
@@ -118,50 +105,11 @@ export class LandscapesService {
   }
 
   async findAll(organizationId: string) {
-    let res = await this.db.query(
+    // Only systems the tenant registered; no placeholder landscapes are seeded.
+    const res = await this.db.query(
       `SELECT * FROM landscapes WHERE organization_id = $1 ORDER BY environment ASC, system_id ASC`,
       [organizationId]
     );
-
-    // Auto-seed default landscape if empty
-    if (!res.rows?.length) {
-      await this.create(organizationId, {
-        systemId: 'S4H_DEV_100',
-        product: 'SAP S/4HANA',
-        edition: 'Private Cloud',
-        release: '2023',
-        environment: 'DEV',
-        url: 'https://s4h-dev.internal:44300',
-        businessRole: 'Development & Custom Code Authoring',
-        criticality: 'MEDIUM',
-      });
-      await this.create(organizationId, {
-        systemId: 'S4H_QA_200',
-        product: 'SAP S/4HANA',
-        edition: 'Private Cloud',
-        release: '2023',
-        environment: 'QA',
-        url: 'https://s4h-qa.internal:44300',
-        businessRole: 'Preflight Regression & Integration Testing',
-        criticality: 'HIGH',
-      });
-      await this.create(organizationId, {
-        systemId: 'S4H_PRD_400',
-        product: 'SAP S/4HANA',
-        edition: 'Private Cloud',
-        release: '2023',
-        environment: 'PROD',
-        url: 'https://s4h-prd.corp.internal:44300',
-        businessRole: 'Live Production Core ERP',
-        criticality: 'CRITICAL',
-      });
-
-      res = await this.db.query(
-        `SELECT * FROM landscapes WHERE organization_id = $1 ORDER BY environment ASC, system_id ASC`,
-        [organizationId]
-      );
-    }
-
     return res.rows;
   }
 
@@ -219,7 +167,7 @@ export class LandscapesService {
         systemId: row.system_id,
         environment: row.environment,
         handshakeStatus: 'MALFORMED_URL',
-        error: `Invalid URL format: ${rawUrl}`,
+        error: 'Invalid URL format',
         status: 'OFFLINE',
         handshakeTimestamp: new Date().toISOString(),
       };
@@ -230,7 +178,7 @@ export class LandscapesService {
       return errResult;
     }
 
-    const safety = this.validateUrlSafety(parsedUrl);
+    const safety = await this.validateUrlSafety(rawUrl);
     if (!safety.safe) {
       const blockedResult = {
         landscapeId: row.id,
@@ -269,30 +217,31 @@ export class LandscapesService {
 
     // Real probe of the SAP system URL
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
+      const policy = this.outboundPolicy();
       const probeUrl = new URL('/sap/bc/ping', parsedUrl).toString();
-      const res = await fetch(probeUrl, {
+      // SSRF-checked, DNS-pinned request; redirects are never followed.
+      const res = await this.fetch(probeUrl, {
         method: 'GET',
         headers: {
           'User-Agent': 'ERPPreflight-ConnectorProbe/1.0',
           'Accept': 'text/plain,application/json,*/*',
         },
-        signal: controller.signal,
-      }).catch(async () => {
+        timeoutMs: 4000,
+        policy,
+      }).catch(async (err) => {
+        if (err instanceof UnsafeOutboundUrlError) throw err;
         // Fallback probe to root URL if /sap/bc/ping path fails
-        return await fetch(parsedUrl.toString(), {
+        return await this.fetch(parsedUrl.toString(), {
           method: 'GET',
           headers: { 'User-Agent': 'ERPPreflight-ConnectorProbe/1.0' },
-          signal: controller.signal,
+          timeoutMs: 4000,
+          policy,
         });
       });
 
-      clearTimeout(timeoutId);
-
       httpStatusCode = res.status;
-      sapServerHeader = res.headers.get('server');
+      const serverHeader = res.headers['server'];
+      sapServerHeader = Array.isArray(serverHeader) ? serverHeader[0] : serverHeader || null;
 
       // In enterprise SAP landscapes, 200 (OK), 401 (Unauthorized), 403 (Forbidden)
       // all prove that the Web Dispatcher / SAP NetWeaver AS is alive and answering on the port!
@@ -303,7 +252,15 @@ export class LandscapesService {
       }
     } catch (err: any) {
       reachable = false;
-      errorMessage = err.name === 'AbortError' ? 'Connection timed out after 4000ms' : err.message;
+      // Generic messages only: never echo internal network details back to the tenant.
+      if (err instanceof UnsafeOutboundUrlError) {
+        errorMessage = SSRF_BLOCKED_REASON;
+      } else if (err?.name === 'AbortError') {
+        errorMessage = 'Connection timed out after 4000ms';
+      } else {
+        this.logger.warn(`Landscape probe failed for ${row.id}: ${err?.message}`);
+        errorMessage = 'Host unreachable';
+      }
     }
 
     const latencyMs = Math.round(performance.now() - startTime);

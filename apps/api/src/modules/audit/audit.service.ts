@@ -82,8 +82,8 @@ export class AuditService {
       // 4. Insert into audit_events and return generated sequence_num
       const insertRes = await client.query<{ sequence_num: string | number }>(
         `INSERT INTO audit_events (
-          id, organization_id, actor_type, actor_id, action, resource_type,
-          resource_id, payload, client_ip, user_agent, prev_hash, current_hash, created_at
+          id, organization_id, actor_type, actor_id, action, target_type,
+          target_id, payload, client_ip, user_agent, prev_hash, current_hash, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING sequence_num`,
         [
@@ -278,7 +278,7 @@ export class AuditService {
 
   public async getEvents(organizationId: string, limit: number = 100) {
     const res = await this.db.query(
-      `SELECT id, sequence_num, organization_id, actor_type, actor_id, action, resource_type, resource_id, prev_hash, current_hash, created_at 
+      `SELECT id, sequence_num, organization_id, actor_type, actor_id, action, target_type AS resource_type, target_id AS resource_id, prev_hash, current_hash, created_at 
        FROM audit_events 
        WHERE organization_id = $1 
        ORDER BY sequence_num DESC NULLS LAST, created_at DESC 

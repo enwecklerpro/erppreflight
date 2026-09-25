@@ -10,6 +10,11 @@ import { WebhooksService } from '../src/modules/webhooks/webhooks.service';
 import { LandscapesService } from '../src/modules/landscapes/landscapes.service';
 import { JobsService } from '../src/modules/jobs/jobs.service';
 
+import {
+  __setDnsLookupForTests,
+  __setOutboundTransportForTests,
+} from '../src/common/security/outbound-request';
+
 describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global.fetch = vi.fn().mockRejectedValue(new Error('Network error')); }); 
   let mockDb: any;
   const orgId = '11111111-1111-1111-1111-111111111111';
@@ -549,7 +554,10 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
   });
 
   describe('WebhooksService (Enterprise Real-Time Events)', () => {
-    it('should create webhook with secret and send test ping with HMAC signature', async () => { global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    it('should create webhook with secret and send test ping with HMAC signature', async () => {
+      const restoreDns = __setDnsLookupForTests(async () => [{ address: '93.184.216.34', family: 4 }]);
+      const transport = vi.fn().mockResolvedValue({ status: 200, statusText: 'OK', headers: {} });
+      const restoreTransport = __setOutboundTransportForTests(transport);
       mockDb.query
         // create
         .mockResolvedValueOnce({
@@ -569,6 +577,9 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
       const ping = await service.sendTestPing(orgId, 'wh-1');
       expect(ping.signatureHeader).toContain('sha256=');
       expect(ping.success).toBe(true);
+      expect(transport).toHaveBeenCalledTimes(1);
+      restoreDns();
+      restoreTransport();
     });
   });
 
@@ -598,15 +609,22 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
               product: 'SAP S/4HANA',
               edition: 'Private Cloud',
               release: '2023',
-              // Use non-routable documentation IP with closed port to trigger real connection rejection
-              url: 'http://127.0.0.1:49999',
+              // Public hostname (DNS stubbed) whose connection is refused
+              url: 'http://sap-qa.example.com:49999',
             },
           ],
         })
         .mockResolvedValueOnce({ rows: [] }); // update landscapes status to UNREACHABLE
 
+      const restoreDns = __setDnsLookupForTests(async () => [{ address: '93.184.216.34', family: 4 }]);
+      const restoreTransport = __setOutboundTransportForTests(async () => {
+        throw Object.assign(new Error('connect ECONNREFUSED 93.184.216.34:49999'), { code: 'ECONNREFUSED' });
+      });
       const service = new LandscapesService(mockDb);
-      const res = await service.testConnection(orgId, 'land-fail-1');
+      const res = await service.testConnection(orgId, 'land-fail-1').finally(() => {
+        restoreDns();
+        restoreTransport();
+      });
 
       expect(res.handshakeStatus).toBe('FAILED_UNREACHABLE');
       expect(res.error).toBeDefined();
@@ -677,7 +695,7 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
           environment: 'DEV',
           url: 'http://metadata.google.internal/computeMetadata/v1/',
         })
-      ).rejects.toThrow('Cloud instance metadata endpoint detected');
+      ).rejects.toThrow('SSRF protection policy');
     });
   });
 

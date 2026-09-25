@@ -34,9 +34,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         cookieExtractor,
       ]),
       ignoreExpiration: false,
-      secretOrKey:
-        config.get<string>('JWT_SECRET') ||
-        'secret-key-must-be-at-least-32-chars-long-abcdef123456',
+      // Validated in config/env.validation.ts (required in production, no fallback here)
+      secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
     });
   }
 
@@ -46,6 +45,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
     return {
       id: payload.sub,
+      // Alias used by several controllers (req.user.userId)
+      userId: payload.sub,
       email: payload.email,
       organizationId: payload.organizationId,
       role: payload.role,

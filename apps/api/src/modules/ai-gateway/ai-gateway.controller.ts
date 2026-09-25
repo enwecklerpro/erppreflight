@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { AiGatewayService } from './ai-gateway.service';
 import {
@@ -19,7 +20,7 @@ import {
 
 @ApiTags('AI Governance & Gateway')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard)
 @Controller('ai')
 export class AiGatewayController {
   constructor(private readonly aiGatewayService: AiGatewayService) {}

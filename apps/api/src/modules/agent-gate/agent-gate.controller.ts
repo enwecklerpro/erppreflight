@@ -9,6 +9,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -17,7 +20,7 @@ import { RegisterAgentDto, SubmitProposalDto } from './dto/agent-gate.dto';
 
 @ApiTags('Agentic Change Gate')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, EntitlementGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard, EntitlementGuard)
 @Controller('agent-gate')
 export class AgentGateController {
   constructor(private readonly agentGateService: AgentGateService) {}
@@ -53,6 +56,7 @@ export class AgentGateController {
   }
 
   @Post('proposals/:id/approve')
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
   @ApiOperation({ summary: 'Human approval issuing a cryptographic short-lived Execution Token' })
   async approve(@Req() req: any, @Param('id') proposalId: string) {
     const orgId = req.user.organizationId;

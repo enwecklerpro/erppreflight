@@ -9,18 +9,61 @@ import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { TenancyContext } from '@erppreflight/tenancy';
 import { QueryOptions } from '@erppreflight/database';
 
+/** Default non-privileged runtime role created by migration 010_app_runtime_role.sql */
+export const DEFAULT_RUNTIME_ROLE = 'erppreflight_app';
+
+const ROLE_NAME_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
+const DISABLED_ROLE_VALUES = new Set(['', 'none', 'off', 'false', 'disabled']);
+
+/**
+ * Resolves the PostgreSQL role that tenant-scoped transactions switch to with
+ * `SET LOCAL ROLE`. Switching to a NOSUPERUSER / NOBYPASSRLS role that does not
+ * own the tables makes Row-Level Security apply even if the pool's login user
+ * is the table owner or a superuser.
+ *
+ * - DB_RUNTIME_ROLE unset: enabled with `erppreflight_app` in production, disabled otherwise.
+ * - DB_RUNTIME_ROLE=none|off|false|'' : disabled explicitly.
+ * - Any other value must be a plain lower-case PostgreSQL identifier.
+ */
+export function resolveRuntimeRole(
+  rawValue: string | undefined | null,
+  nodeEnv: string | undefined
+): string | null {
+  if (rawValue === undefined || rawValue === null) {
+    return nodeEnv === 'production' ? DEFAULT_RUNTIME_ROLE : null;
+  }
+  const value = String(rawValue).trim();
+  if (DISABLED_ROLE_VALUES.has(value.toLowerCase())) {
+    return null;
+  }
+  if (!ROLE_NAME_PATTERN.test(value)) {
+    throw new Error(
+      'DB_RUNTIME_ROLE must be a lower-case PostgreSQL identifier (letters, digits, underscore)'
+    );
+  }
+  return value;
+}
+
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private pool: Pool;
   private readonly logger = new Logger(DatabaseService.name);
-  private fallbackPool?: Pool;
+  /** Role applied via SET LOCAL ROLE inside tenant transactions (null = disabled). */
+  private runtimeRole: string | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit() {
+    const nodeEnv = this.config.get<string>('NODE_ENV') || process.env.NODE_ENV;
+    // Runtime queries may use a dedicated, less-privileged login (APP_DATABASE_URL);
+    // migrations always run with DATABASE_URL (schema owner).
     const connectionString =
-      this.config.get<string>('DATABASE_URL') ||
-      'postgres://erppreflight:erppreflight_secret@localhost:5432/erppreflight_dev';
+      this.config.get<string>('APP_DATABASE_URL') ||
+      this.config.get<string>('DATABASE_URL');
+
+    if (!connectionString) {
+      throw new Error('DATABASE_URL (or APP_DATABASE_URL) must be configured');
+    }
 
     this.pool = new Pool({
       connectionString,
@@ -29,37 +72,63 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       connectionTimeoutMillis: 5000,
     });
 
-    if (connectionString.includes(':erppreflight_secret_2026_skaf@')) {
-      const fallbackUrl = connectionString.replace(
-        ':erppreflight_secret_2026_skaf@',
-        ':erppreflight_secret@'
+    this.runtimeRole = resolveRuntimeRole(
+      this.config.get<string>('DB_RUNTIME_ROLE') ?? process.env.DB_RUNTIME_ROLE,
+      nodeEnv
+    );
+
+    if (this.runtimeRole) {
+      await this.verifyRuntimeRole(this.runtimeRole);
+    } else if (nodeEnv === 'production') {
+      this.logger.warn(
+        'DB_RUNTIME_ROLE is disabled in production: tenant queries run with the login role and ' +
+          'Row-Level Security is NOT enforced if that role is a superuser or table owner.'
       );
-      this.fallbackPool = new Pool({
-        connectionString: fallbackUrl,
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
-      });
-    } else if (connectionString.includes(':erppreflight_secret@')) {
-      const fallbackUrl = connectionString.replace(
-        ':erppreflight_secret@',
-        ':erppreflight_secret_2026_skaf@'
-      );
-      this.fallbackPool = new Pool({
-        connectionString: fallbackUrl,
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
-      });
     }
 
-    this.logger.log('Database connection pool established');
+    this.logger.log(
+      `Database connection pool established (tenant runtime role: ${this.runtimeRole ?? 'disabled'})`
+    );
+  }
+
+  /**
+   * Verifies that the configured runtime role exists, is usable by the login user,
+   * and cannot bypass RLS. Misconfiguration is fatal: silently continuing would
+   * either break every tenant query or disable tenant isolation.
+   */
+  private async verifyRuntimeRole(role: string): Promise<void> {
+    let row: any;
+    try {
+      const res = await this.pool.query(
+        `SELECT r.rolsuper, r.rolbypassrls, pg_has_role(current_user, r.oid, 'MEMBER') AS is_member
+         FROM pg_roles r WHERE r.rolname = $1`,
+        [role]
+      );
+      row = res.rows[0];
+    } catch (err: any) {
+      // Database unreachable at boot: tenant queries will fail closed on SET ROLE.
+      this.logger.warn(`Could not verify DB runtime role '${role}' at startup: ${err.message}`);
+      return;
+    }
+
+    if (!row) {
+      throw new Error(
+        `DB runtime role '${role}' does not exist. Apply migration 010_app_runtime_role.sql or set DB_RUNTIME_ROLE=none.`
+      );
+    }
+    if (row.rolsuper || row.rolbypassrls) {
+      throw new Error(`DB runtime role '${role}' must be NOSUPERUSER NOBYPASSRLS`);
+    }
+    if (!row.is_member) {
+      throw new Error(
+        `Database login user is not a member of runtime role '${role}' (GRANT ${role} TO <login user>)`
+      );
+    }
   }
 
   async onModuleDestroy() {
-    await this.pool.end();
-    if (this.fallbackPool) {
-      await this.fallbackPool.end();
+    if (this.pool) {
+      await this.pool.end();
     }
   }
 
@@ -67,23 +136,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return this.pool;
   }
 
+  /** The role tenant transactions run as, or null when disabled. */
+  getRuntimeRole(): string | null {
+    return this.runtimeRole;
+  }
+
   private async getClient(): Promise<PoolClient> {
-    try {
-      return await this.pool.connect();
-    } catch (err: any) {
-      if (
-        err.message &&
-        err.message.includes('password authentication failed') &&
-        this.fallbackPool
-      ) {
-        this.logger.warn('Primary pool auth failed, switching to fallback pool');
-        const temp = this.pool;
-        this.pool = this.fallbackPool;
-        this.fallbackPool = temp;
-        return await this.pool.connect();
-      }
-      throw err;
-    }
+    return await this.pool.connect();
   }
 
   async checkHealth(): Promise<{ healthy: boolean; error?: string }> {
@@ -104,7 +163,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   /**
    * Executes a query against the PostgreSQL pool.
    * If tenant context exists and bypassRls is false, executes inside
-   * an explicit transaction scoped with `app.current_tenant_id`.
+   * an explicit transaction scoped with `app.current_tenant_id` (and the
+   * non-privileged runtime role, when configured).
    */
   async query<T extends QueryResultRow = any>(
     text: string,
@@ -175,6 +235,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await client.query('BEGIN');
+      if (this.runtimeRole) {
+        // Transaction-scoped: reverts automatically at COMMIT/ROLLBACK, so pooled
+        // connections never leak the role. Identifier validated by resolveRuntimeRole().
+        await client.query(`SET LOCAL ROLE "${this.runtimeRole}"`);
+      }
       await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
         tenantId,
       ]);

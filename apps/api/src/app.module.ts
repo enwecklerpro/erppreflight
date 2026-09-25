@@ -106,6 +106,7 @@ export class AppModule implements NestModule {
         'health',
         'auth/login',
         'auth/register',
+        'auth/logout',
         'admin/(.*)',
         'admin',
         'knowledge/(.*)',

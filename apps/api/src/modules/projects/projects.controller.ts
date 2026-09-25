@@ -16,6 +16,8 @@ import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
@@ -55,6 +57,8 @@ export class ProjectsController {
   }
 
   @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
   async remove(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string

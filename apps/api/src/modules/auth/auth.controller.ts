@@ -13,6 +13,12 @@ import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  AuthRateLimit,
+  AuthRateLimitGuard,
+  LOGIN_RATE_LIMIT,
+  REGISTER_RATE_LIMIT,
+} from './guards/auth-rate-limit.guard';
 
 export const SESSION_COOKIE_NAME = 'erppreflight_session';
 export const SESSION_COOKIE_OPTIONS = {
@@ -28,6 +34,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(REGISTER_RATE_LIMIT)
   async register(
     @Body() dto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
@@ -41,6 +49,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(LOGIN_RATE_LIMIT)
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,

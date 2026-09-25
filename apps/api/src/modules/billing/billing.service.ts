@@ -1,9 +1,23 @@
-import { Injectable, Logger, BadRequestException, Optional, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  BadGatewayException,
+  Optional,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { PlanTier } from './billing.interface';
+import { PURCHASABLE_TIERS } from './dto/billing.dto';
 import * as crypto from 'node:crypto';
+
+const ALL_TIERS: PlanTier[] = ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE', 'PARTNER'];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEFAULT_WEB_ORIGINS = ['https://erppreflight.com', 'https://www.erppreflight.com'];
+const BILLING_PATH = '/settings/billing';
 
 @Injectable()
 export class BillingService {
@@ -20,16 +34,70 @@ export class BillingService {
     this.webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
   }
 
+  private isProduction(): boolean {
+    return (this.config.get<string>('NODE_ENV') || process.env.NODE_ENV) === 'production';
+  }
+
+  /** Web origins that Stripe may redirect back to (BILLING_RETURN_ORIGINS, else CORS_ORIGIN). */
+  private allowedReturnOrigins(): string[] {
+    const raw =
+      this.config.get<string>('BILLING_RETURN_ORIGINS') || this.config.get<string>('CORS_ORIGIN') || '';
+    const origins = raw
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean)
+      .map((o) => {
+        try {
+          return new URL(o).origin;
+        } catch {
+          return null;
+        }
+      })
+      .filter((o): o is string => !!o);
+    return origins.length > 0 ? origins : DEFAULT_WEB_ORIGINS;
+  }
+
   /**
-   * Generates a Stripe Checkout session or test portal link.
+   * Validates a caller-supplied return URL against the allowlisted web origins
+   * (prevents open redirects through Stripe). Returns the default billing page when absent.
+   */
+  resolveReturnUrl(returnUrl: string | undefined, status?: 'success' | 'cancelled'): string {
+    const allowed = this.allowedReturnOrigins();
+    let url: URL;
+    if (!returnUrl) {
+      url = new URL(BILLING_PATH, allowed[0]);
+    } else {
+      try {
+        url = new URL(returnUrl);
+      } catch {
+        throw new BadRequestException('returnUrl must be an absolute URL');
+      }
+      if (!allowed.includes(url.origin) || url.username || url.password) {
+        throw new BadRequestException('returnUrl origin is not allowed');
+      }
+      if (this.isProduction() && url.protocol !== 'https:') {
+        throw new BadRequestException('returnUrl must use https');
+      }
+    }
+    if (status) {
+      url.searchParams.set('status', status);
+    }
+    return url.toString();
+  }
+
+  /**
+   * Generates a Stripe Checkout session (or a local placeholder outside production).
    */
   async createCheckoutSession(
     organizationId: string,
     targetTier: PlanTier,
     returnUrl?: string
   ): Promise<{ url: string; sessionId: string }> {
-    const successUrl = returnUrl || 'https://app.erppreflight.com/settings/billing?status=success';
-    const cancelUrl = returnUrl || 'https://app.erppreflight.com/settings/billing?status=cancelled';
+    if (!PURCHASABLE_TIERS.includes(targetTier)) {
+      throw new BadRequestException('targetTier is not purchasable');
+    }
+    const successUrl = this.resolveReturnUrl(returnUrl, 'success');
+    const cancelUrl = this.resolveReturnUrl(returnUrl, 'cancelled');
 
     if (this.stripeApiKey) {
       try {
@@ -68,13 +136,18 @@ export class BillingService {
           return { url: session.url, sessionId: session.id };
         }
         const errText = await res.text();
-        this.logger.warn(`Stripe API returned error: ${errText}. Using secure fallback URL.`);
+        this.logger.warn(`Stripe API returned error: ${errText}`);
       } catch (err: any) {
         this.logger.error(`Stripe checkout call failed: ${err.message}`);
       }
+      throw new BadGatewayException('Payment provider is unavailable. Please try again later.');
     }
 
-    // Direct / Local / Offline Fallback portal
+    if (this.isProduction()) {
+      throw new ServiceUnavailableException('Billing is not configured (STRIPE_SECRET_KEY missing).');
+    }
+
+    // Local / offline development placeholder (never used in production)
     const fallbackId = `cs_test_${crypto.randomBytes(12).toString('hex')}`;
     return {
       url: `https://billing.erppreflight.local/checkout?session_id=${fallbackId}&org=${organizationId}&tier=${targetTier}`,
@@ -89,7 +162,10 @@ export class BillingService {
     organizationId: string,
     returnUrl?: string
   ): Promise<{ url: string }> {
-    const defaultUrl = returnUrl || 'https://app.erppreflight.com/settings/billing';
+    const defaultUrl = this.resolveReturnUrl(returnUrl);
+    if (this.isProduction()) {
+      throw new ServiceUnavailableException('Customer billing portal is not configured.');
+    }
     return {
       url: `https://billing.erppreflight.local/portal?org=${organizationId}&return=${encodeURIComponent(
         defaultUrl
@@ -154,17 +230,22 @@ export class BillingService {
       throw new BadRequestException('Webhook timestamp outside tolerance window');
     }
 
-    const expectedSig = sigPart.split('=')[1];
     const signedPayload = `${timestamp}.${rawBody}`;
     const computedSig = crypto
       .createHmac('sha256', this.webhookSecret)
       .update(signedPayload)
       .digest('hex');
 
-    if (
-      computedSig.length !== expectedSig.length ||
-      !crypto.timingSafeEqual(Buffer.from(computedSig), Buffer.from(expectedSig))
-    ) {
+    // Stripe may send several v1 signatures (secret rotation); any match is valid.
+    const candidates = parts
+      .filter((p) => p.startsWith('v1='))
+      .map((p) => p.slice(3));
+    const matches = candidates.some(
+      (expectedSig) =>
+        computedSig.length === expectedSig.length &&
+        crypto.timingSafeEqual(Buffer.from(computedSig), Buffer.from(expectedSig))
+    );
+    if (!matches) {
       throw new BadRequestException('Stripe webhook signature mismatch');
     }
 
@@ -178,7 +259,14 @@ export class BillingService {
     if (event.type === 'checkout.session.completed') {
       const session = event.data?.object;
       const orgId = session?.client_reference_id || session?.metadata?.organization_id;
-      const targetTier = (session?.metadata?.target_tier || 'PROFESSIONAL') as PlanTier;
+      const targetTier = session?.metadata?.target_tier as PlanTier;
+
+      if (!ALL_TIERS.includes(targetTier)) {
+        throw new BadRequestException('Webhook metadata target_tier is invalid');
+      }
+      if (orgId && !UUID_RE.test(String(orgId))) {
+        throw new BadRequestException('Webhook organization reference is invalid');
+      }
 
       if (orgId) {
         this.logger.log(`Processing plan upgrade via webhook for organization ${orgId} to ${targetTier}`);
