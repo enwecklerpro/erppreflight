@@ -101,7 +101,7 @@ export class McpService {
     switch (name) {
       case 'search_knowledge': {
         const query = (args.query || '').toUpperCase();
-        const matrix = this.knowledgeService.getMatrix();
+        const { matrix } = await this.knowledgeService.getMatrix();
         const matchedEngines = matrix.filter(
           (m) => m.engineName.toUpperCase().includes(query) || m.domain.toUpperCase().includes(query)
         );
@@ -114,28 +114,45 @@ export class McpService {
 
       case 'lookup_object': {
         const obj = (args.objectName || '').toUpperCase();
-        const isStandard = ['BKPF', 'BSEG', 'MARA', 'KNA1', 'VBAK', 'VBAP'].includes(obj);
+        const res = await this.db.query(
+          `SELECT * FROM sap_objects WHERE object_name = $1 AND organization_id = $2 LIMIT 1`,
+          [obj, organizationId]
+        );
+        
+        if (!res || !res.rows || !res.rows.length) {
+          return { found: false, source: 'NO_CATALOG_DATA', note: 'Object not found in project catalog. Upload artifacts to populate.' };
+        }
+        
+        const record = res.rows[0];
+        const isStandard = record.is_standard || ['BKPF', 'BSEG', 'MARA', 'KNA1', 'VBAK', 'VBAP'].includes(obj);
+        
         return {
           objectName: obj,
-          classification: isStandard ? 'STANDARD_SAP_TABLE' : 'CUSTOM_Z_OBJECT',
-          cleanCoreTier: isStandard ? 'TIER_3_CLASSIC' : 'TIER_1_OR_2',
-          releasedForCloud: !isStandard,
-          successorAdvice: isStandard
+          classification: record.classification || (isStandard ? 'STANDARD_SAP_TABLE' : 'CUSTOM_Z_OBJECT'),
+          cleanCoreTier: record.clean_core_tier || (isStandard ? 'TIER_3_CLASSIC' : 'TIER_1_OR_2'),
+          releasedForCloud: record.released_for_cloud || !isStandard,
+          successorAdvice: record.successor_advice || (isStandard
             ? `Standard table ${obj} is not released for direct write access in ABAP Cloud. Use released CDS views or RAP Business Objects.`
-            : `Custom object ${obj} must be refactored to utilize Cloud ABAP language version (ABAP for Cloud Development).`,
+            : `Custom object ${obj} must be refactored to utilize Cloud ABAP language version (ABAP for Cloud Development).`),
         };
       }
 
       case 'compare_releases': {
+        const source = args.sourceRelease || 'ECC_608';
+        const target = args.targetRelease || 'S4H_2023';
+        const { matrix } = await this.knowledgeService.getMatrix();
+        const supported = matrix.filter(m => m.targetRelease.includes(target.replace('_', ' ')));
+        
         return {
-          source: args.sourceRelease || 'ECC_608',
-          target: args.targetRelease || 'S4H_2023',
-          compatibilityStatus: 'SUPPORTED_VERIFIED',
+          source,
+          target,
+          compatibilityStatus: supported.length > 0 ? 'SUPPORTED_VERIFIED' : 'PARTIAL',
           majorChanges: [
             'Business Partner consolidation mandatory (CVI)',
             'Material Ledger active by default',
             'Output Determination migrated to BRFplus OPD',
             'Direct standard table mutations strictly deprecated',
+            `Analyzed against ${supported.length} compatible preflight engines.`
           ],
         };
       }

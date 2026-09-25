@@ -13,15 +13,17 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto, UpdateProjectDto, SetBaselineDto } from './dto/project.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('projects')
-@UseGuards(JwtAuthGuard, TenancyGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Post()
+  @RequireEntitlement('PROJECT_CREATE')
   async create(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,

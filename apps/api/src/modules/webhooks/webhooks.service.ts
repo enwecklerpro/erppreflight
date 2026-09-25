@@ -1,14 +1,36 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CreateWebhookDto } from './dto/webhook.dto';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
+
+function isSafeUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    const host = url.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
+    if (host.startsWith('10.') || host.startsWith('192.168.') || host.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)) return false;
+    if (host === '169.254.169.254') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly outbox: OutboxService
+  ) {
+    this.outbox.subscribe('*', async (event) => {
+      await this.dispatchEvent(event.organizationId, event.eventType, event.payload);
+    });
+  }
 
   async create(organizationId: string, userId: string, dto: CreateWebhookDto) {
     const id = uuidv4();
@@ -63,6 +85,10 @@ export class WebhooksService {
     }
     const webhook = res.rows[0];
 
+    if (!isSafeUrl(webhook.url)) {
+      throw new Error(`Webhook URL ${webhook.url} rejected by SSRF protection`);
+    }
+
     const payload = {
       event: 'ping',
       webhookId: webhook.id,
@@ -75,7 +101,28 @@ export class WebhooksService {
       .update(JSON.stringify(payload))
       .digest('hex');
 
-    // Update last_triggered_at
+    const deliveryId = uuidv4();
+
+    try {
+      const resp = await fetch(webhook.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hub-Signature-256': `sha256=${signature}`,
+          'X-Delivery-ID': deliveryId,
+          'X-Event-Type': 'ping'
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!resp.ok) {
+        throw new Error(`HTTP Error: ${resp.status}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Ping failed for ${webhook.url}: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+
     await this.db.query(
       `UPDATE webhooks SET last_triggered_at = NOW() WHERE id = $1`,
       [webhook.id]
@@ -113,7 +160,32 @@ export class WebhooksService {
           .update(JSON.stringify(payload))
           .digest('hex');
 
-        this.logger.log(`[Webhook Dispatch] Emitted ${eventName} to ${wh.url} (sig: ${signature.slice(0, 8)}...)`);
+        if (!isSafeUrl(wh.url)) {
+          this.logger.warn(`Skipping webhook ${wh.id} due to SSRF protection`);
+          continue;
+        }
+
+        try {
+          const resp = await fetch(wh.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Hub-Signature-256': `sha256=${signature}`,
+              'X-Delivery-ID': payload.id,
+              'X-Event-Type': eventName
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10000)
+          });
+          if (!resp.ok) {
+            this.logger.error(`Webhook ${wh.id} returned status ${resp.status}`);
+          } else {
+            this.logger.log(`[Webhook Dispatch] Successfully delivered ${eventName} to ${wh.url}`);
+            await this.db.query(`UPDATE webhooks SET last_triggered_at = NOW() WHERE id = $1`, [wh.id]);
+          }
+        } catch (err: any) {
+          this.logger.error(`Webhook ${wh.id} delivery failed: ${err.message}`);
+        }
       }
     }
   }

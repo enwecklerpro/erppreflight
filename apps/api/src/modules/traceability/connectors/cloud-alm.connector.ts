@@ -23,7 +23,7 @@ export interface CloudAlmTaskResult {
   success: boolean;
   taskId?: string;
   deepLink?: string;
-  status: 'SYNCHRONIZED' | 'CREDENTIALS_REQUIRED' | 'FAILED_AUTHENTICATION' | 'FAILED_API_ERROR';
+  status: 'SYNCHRONIZED' | 'CREDENTIALS_REQUIRED' | 'FAILED_AUTHENTICATION' | 'FAILED_API_ERROR' | 'API_ERROR';
   error?: string;
   httpStatus?: number;
 }
@@ -110,7 +110,16 @@ export class CloudAlmConnectorService {
       }
 
       const responseData = (await res.json().catch(() => ({}))) as any;
-      const calmTaskId = responseData.id || responseData.taskId || `CALM-${Date.now().toString().slice(-6)}`;
+      const calmTaskId = responseData.id || responseData.taskId;
+
+      if (!calmTaskId) {
+        return {
+          success: false,
+          error: 'Cloud ALM API did not return a valid task ID',
+          status: 'API_ERROR',
+        };
+      }
+
       const deepLink = `${config.apiBaseUrl.replace(/\/+$/, '')}/launchpad#Task-manage?sap-ui-app-id-hint=calm-tasks&/task/${calmTaskId}`;
 
       return {

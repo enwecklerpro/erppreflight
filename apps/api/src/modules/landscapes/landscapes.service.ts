@@ -296,7 +296,7 @@ export class LandscapesService {
 
       // In enterprise SAP landscapes, 200 (OK), 401 (Unauthorized), 403 (Forbidden)
       // all prove that the Web Dispatcher / SAP NetWeaver AS is alive and answering on the port!
-      if (res.status === 200 || res.status === 401 || res.status === 403) {
+      if (res.status === 200 || res.status === 401 || res.status === 403 || res.status === 404 || res.status >= 500) {
         reachable = true;
       } else {
         errorMessage = `HTTP ${res.status} ${res.statusText}`;
@@ -339,6 +339,15 @@ export class LandscapesService {
     }
 
     // System is confirmed reachable over the network
+    let finalStatus = 'VERIFIED_HEALTHY';
+    if (httpStatusCode === 401) {
+      finalStatus = 'AUTHENTICATION_REQUIRED';
+    } else if (httpStatusCode === 403) {
+      finalStatus = 'PERMISSION_INSUFFICIENT';
+    } else if (httpStatusCode === 404 || (httpStatusCode && httpStatusCode >= 500)) {
+      finalStatus = 'ENDPOINT_ERROR';
+    }
+
     const discoveredApis: any[] = [];
     if (httpStatusCode === 200) {
       discoveredApis.push(
@@ -360,8 +369,8 @@ export class LandscapesService {
       release: row.release,
       environment: row.environment,
       protocol,
-      status: 'VERIFIED_HEALTHY',
-      error: undefined as string | undefined,
+      status: finalStatus,
+      error: (finalStatus === 'VERIFIED_HEALTHY') ? undefined : `HTTP ${httpStatusCode}`,
       serverSignature: sapServerHeader || 'SAP NetWeaver Application Server / Web Dispatcher',
       httpStatus: httpStatusCode,
       supportedEngines: [
@@ -383,17 +392,19 @@ export class LandscapesService {
           ? 'Production write actions are permanently locked. Read-only preflight analysis active.'
           : 'Non-production environment. Dry-run verified read-only connection active.',
       },
-      handshakeStatus: 'VERIFIED_HEALTHY',
+      handshakeStatus: finalStatus,
       latencyMs,
       handshakeTimestamp: new Date().toISOString(),
     };
 
+    const dbStatus = finalStatus === 'VERIFIED_HEALTHY' ? 'CONNECTED' : finalStatus;
+
     await this.db.query(
       `UPDATE landscapes
-       SET status = 'CONNECTED',
+       SET status = $1,
            updated_at = NOW()
-       WHERE organization_id = $1 AND id = $2`,
-      [organizationId, id]
+       WHERE organization_id = $2 AND id = $3`,
+      [dbStatus, organizationId, id]
     );
 
     return capabilities;

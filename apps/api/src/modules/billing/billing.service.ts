@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { OutboxService } from '../outbox/outbox.service';
@@ -129,27 +129,43 @@ export class BillingService {
   async handleWebhook(signature: string | undefined, payload: Buffer | string): Promise<{ received: boolean }> {
     const rawBody = typeof payload === 'string' ? payload : payload.toString('utf-8');
 
-    // Verify webhook signature if secret configured
-    if (this.webhookSecret && signature) {
-      const parts = signature.split(',');
-      const timestampPart = parts.find((p) => p.startsWith('t='));
-      const sigPart = parts.find((p) => p.startsWith('v1='));
+    if (!this.webhookSecret) {
+      throw new ServiceUnavailableException('Billing webhook endpoint is not configured. Set STRIPE_WEBHOOK_SECRET.');
+    }
 
-      if (!timestampPart || !sigPart) {
-        throw new BadRequestException('Invalid Stripe webhook signature format');
-      }
+    if (!signature) {
+      throw new UnauthorizedException('Missing webhook signature');
+    }
 
-      const timestamp = timestampPart.split('=')[1];
-      const expectedSig = sigPart.split('=')[1];
-      const signedPayload = `${timestamp}.${rawBody}`;
-      const computedSig = crypto
-        .createHmac('sha256', this.webhookSecret)
-        .update(signedPayload)
-        .digest('hex');
+    const parts = signature.split(',');
+    const timestampPart = parts.find((p) => p.startsWith('t='));
+    const sigPart = parts.find((p) => p.startsWith('v1='));
 
-      if (computedSig !== expectedSig) {
-        throw new BadRequestException('Stripe webhook signature mismatch');
-      }
+    if (!timestampPart || !sigPart) {
+      throw new BadRequestException('Invalid Stripe webhook signature format');
+    }
+
+    const timestamp = timestampPart.split('=')[1];
+    
+    // Check timestamp tolerance (5 minutes)
+    const timestampSeconds = parseInt(timestamp, 10);
+    const currentSeconds = Math.floor(Date.now() / 1000);
+    if (Math.abs(currentSeconds - timestampSeconds) > 300) {
+      throw new BadRequestException('Webhook timestamp outside tolerance window');
+    }
+
+    const expectedSig = sigPart.split('=')[1];
+    const signedPayload = `${timestamp}.${rawBody}`;
+    const computedSig = crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(signedPayload)
+      .digest('hex');
+
+    if (
+      computedSig.length !== expectedSig.length ||
+      !crypto.timingSafeEqual(Buffer.from(computedSig), Buffer.from(expectedSig))
+    ) {
+      throw new BadRequestException('Stripe webhook signature mismatch');
     }
 
     let event: any;

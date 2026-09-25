@@ -66,52 +66,66 @@ export class OutboxService {
   /**
    * Dispatches pending events with at-least-once delivery guarantees and retry tracking.
    */
-  async dispatchPendingEvents(limit = 50): Promise<{ dispatched: number; failed: number }> {
-    const { rows } = await this.db.query(
-      `SELECT * FROM domain_events_outbox
-       WHERE status = 'PENDING' AND attempts < max_attempts
-       ORDER BY created_at ASC
-       LIMIT $1`,
-      [limit]
-    );
+  async dispatchPendingEvents(limit = 10): Promise<{ dispatched: number; failed: number }> {
+    const pool = this.db.getPool();
+    const client = await pool.connect();
 
     let dispatched = 0;
     let failed = 0;
 
-    for (const row of rows) {
-      const event = this.mapRowToDomainEvent(row);
-      try {
-        const handlers = this.subscribers.get(event.eventType) || [];
-        const wildcardHandlers = this.subscribers.get('*') || [];
-        const allHandlers = [...handlers, ...wildcardHandlers];
+    try {
+      await client.query('BEGIN');
 
-        for (const handler of allHandlers) {
-          await handler(event);
+      const { rows } = await client.query(
+        `SELECT * FROM domain_events_outbox
+         WHERE status = 'PENDING' AND attempts < max_attempts
+         ORDER BY created_at ASC
+         LIMIT $1 FOR UPDATE SKIP LOCKED`,
+        [limit]
+      );
+
+      for (const row of rows) {
+        const event = this.mapRowToDomainEvent(row);
+        try {
+          const handlers = this.subscribers.get(event.eventType) || [];
+          const wildcardHandlers = this.subscribers.get('*') || [];
+          const allHandlers = [...handlers, ...wildcardHandlers];
+
+          for (const handler of allHandlers) {
+            await handler(event);
+          }
+
+          await client.query(
+            `UPDATE domain_events_outbox
+             SET status = 'DISPATCHED', dispatched_at = NOW(), attempts = attempts + 1
+             WHERE id = $1`,
+            [event.id]
+          );
+          dispatched++;
+        } catch (err: any) {
+          failed++;
+          const nextAttempts = (row.attempts || 0) + 1;
+          const newStatus = nextAttempts >= (row.max_attempts || 5) ? 'FAILED' : 'PENDING';
+
+          await client.query(
+            `UPDATE domain_events_outbox
+             SET status = $1, attempts = $2, last_attempt_at = NOW(), error_message = $3
+             WHERE id = $4`,
+            [newStatus, nextAttempts, err.message || 'Unknown dispatch error', event.id]
+          );
+
+          this.logger.error(
+            `Failed to dispatch event ${event.id} [${event.eventType}]: ${err.message}`
+          );
         }
-
-        await this.db.query(
-          `UPDATE domain_events_outbox
-           SET status = 'DISPATCHED', dispatched_at = NOW(), attempts = attempts + 1
-           WHERE id = $1`,
-          [event.id]
-        );
-        dispatched++;
-      } catch (err: any) {
-        failed++;
-        const nextAttempts = (row.attempts || 0) + 1;
-        const newStatus = nextAttempts >= (row.max_attempts || 5) ? 'FAILED' : 'PENDING';
-
-        await this.db.query(
-          `UPDATE domain_events_outbox
-           SET status = $1, attempts = $2, last_attempt_at = NOW(), error_message = $3
-           WHERE id = $4`,
-          [newStatus, nextAttempts, err.message || 'Unknown dispatch error', event.id]
-        );
-
-        this.logger.error(
-          `Failed to dispatch event ${event.id} [${event.eventType}]: ${err.message}`
-        );
       }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      this.logger.error(`Error in dispatchPendingEvents transaction: ${(error as Error).message}`);
+    } finally {
+      client.release();
     }
 
     return { dispatched, failed };

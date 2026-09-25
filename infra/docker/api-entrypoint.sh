@@ -13,6 +13,7 @@ if [ "$RUN_MIGRATIONS" = "true" ]; then
 
   node -e "
     const path = require('path');
+    const fs = require('fs');
     
     // Resolve database package or local module
     let runMigrations;

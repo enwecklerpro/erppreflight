@@ -92,10 +92,7 @@ export class ChangeSetsService {
               createdBy: userId,
             },
             client
-          )
-          .catch((err) => {
-            this.logger.warn(`Failed to record outbox event for changeset create: ${err.message}`);
-          });
+          );
       }
 
       return row;
@@ -226,107 +223,42 @@ export class ChangeSetsService {
           });
         }
       }
-
-      // 4. Rule-based evaluation (augmenting with domain-specific rules if database objects were not present or for well-known types)
-      if (change.type === 'REMOVE_CUSTOM_FIELD') {
-        const fieldName = change.targetObject || 'YY1_CLASS';
-        if (dependentObjects.length === 0) {
-          // Standard SAP pattern fallback
-          blastRadiusObjects.push(
-            { name: `FORM_DOCTOR:MM_PURCHASE_ORDER_DEFAULT`, type: 'ADOBE_FORM', impact: 'BINDING_BROKEN' },
-            { name: `FORM_DOCTOR:SD_INVOICE_PRINT_DEFAULT`, type: 'ADOBE_FORM', impact: 'BINDING_BROKEN' },
-            { name: `CDS:YY1_PURCHASING_AGGREGATION`, type: 'CDS_VIEW', impact: 'SCHEMA_INVALID' },
-            { name: `API:API_PURCHASEORDER_PROCESS_SRV`, type: 'ODATA_PAYLOAD', impact: 'PAYLOAD_FIELD_DROPPED' }
-          );
-
-          newFindings.push({
-            ruleId: 'CUSTOM_FIELD_BINDING_BROKEN',
-            severity: 'CRITICAL',
-            category: 'Output & Extensibility',
-            title: `Field ${fieldName} removed while still referenced by 2 Adobe Forms and 1 CDS View`,
-            description: `Dropping custom field ${fieldName} will cause XML runtime binding errors in Adobe Document Services and compilation failure in CDS view YY1_PURCHASING_AGGREGATION.`,
-            remediation: `De-couple field bindings in MM_PURCHASE_ORDER_DEFAULT and SD_INVOICE_PRINT_DEFAULT before unpublishing custom field ${fieldName}.`,
-            confidence: 'VERIFIED',
-            score: 1.0,
-          });
-
-          requiredTests.push(
-            { title: `Regression: Print MM Purchase Order without ${fieldName}`, type: 'REGRESSION' },
-            { title: `Regression: Recompile CDS YY1_PURCHASING_AGGREGATION`, type: 'REGRESSION' }
-          );
-        }
-      } else if (change.type === 'MODIFY_OPD_RULE') {
-        const ruleTarget = change.targetObject || 'BILLING_DOCUMENT';
-        blastRadiusObjects.push(
-          { name: `OPD_TABLE:OUTPUT_DETERMINATION_${ruleTarget}`, type: 'BRFPLUS_DECISION_TABLE', impact: 'ROUTING_MODIFIED' },
-          { name: `CHANNEL:PRINT`, type: 'OUTPUT_CHANNEL', impact: 'DISPATCH_BLOCKED' }
-        );
-
-        newFindings.push({
-          ruleId: 'OPD_OUTPUT_CHANNEL_DISCONNECTED',
-          severity: 'MAJOR',
-          category: 'Output & Extensibility',
-          title: `Output determination modification drops default PRINT channel for ${ruleTarget}`,
-          description: `The simulated rule alteration leaves dispatch condition unhandled for sales org 1010 when billing type is F2.`,
-          remediation: `Add fallback rule step for channel PRINT or ensure condition coverage in decision table row 14.`,
-          confidence: 'VERIFIED',
-          score: 0.95,
-        });
-
-        requiredTests.push({
-          title: `Verification: OPD Output Dispatch for Billing Document Type F2`,
-          type: 'INTEGRATION',
-        });
-      } else if (change.type === 'MIGRATE_API_VERSION') {
-        const apiName = change.targetObject || 'API_BUSINESS_PARTNER';
-        blastRadiusObjects.push(
-          { name: `API_SPEC:${apiName}_V4`, type: 'ODATA_V4_EDMX', impact: 'CONTRACT_UPDATED' }
-        );
-
-        // Check if baseline had API_V2 deprecation warning and mark it resolved
-        const matchingBaseline = baselineFindings.find(
-          (f) => (f.rule_id && f.rule_id.includes('API')) || (f.title && f.title.includes(apiName))
-        );
-        if (matchingBaseline) {
-          resolvedFindings.push({
-            id: matchingBaseline.id,
-            ruleId: matchingBaseline.rule_id,
-            title: matchingBaseline.title,
-            reason: `Migrating to OData v4 resolves deprecated endpoint warning for ${apiName}.`,
-          });
-        }
-      } else if (blastRadiusObjects.length === 0) {
-        // Generic change
-        blastRadiusObjects.push({
-          name: change.targetObject || 'SAP_OBJECT',
-          type: 'CONFIG_CHANGE',
-          impact: 'VERIFIED_DELTA',
-        });
-      }
     }
 
-    const hasBlockers = newFindings.some((f) => f.severity === 'BLOCKER');
-    const hasCritical = newFindings.some((f) => f.severity === 'CRITICAL');
-    const riskDelta = (hasBlockers || hasCritical)
-      ? 'INCREASED'
-      : resolvedFindings.length > newFindings.length
-      ? 'DECREASED'
-      : 'NEUTRAL';
+    let simulationResult: any;
 
-    const simulationResult = {
-      simulatedAt: new Date().toISOString(),
-      baselineFindingsCount: baselineFindings.length,
-      blastRadiusObjects,
-      newFindings,
-      resolvedFindings,
-      requiredTests,
-      riskDelta,
-      verdict: hasBlockers
-        ? 'BLOCKED'
-        : hasCritical
-        ? 'CONDITIONAL_APPROVAL_REQUIRED'
-        : 'CLEAR',
-    };
+    if (blastRadiusObjects.length === 0) {
+      simulationResult = {
+        impactedObjects: [],
+        findings: [],
+        riskScore: 0,
+        confidence: 'LOW',
+        note: 'No dependency data available for this object. Upload artifacts to populate the SAP object catalog.'
+      };
+    } else {
+      const hasBlockers = newFindings.some((f) => f.severity === 'BLOCKER');
+      const hasCritical = newFindings.some((f) => f.severity === 'CRITICAL');
+      const riskDelta = (hasBlockers || hasCritical)
+        ? 'INCREASED'
+        : resolvedFindings.length > newFindings.length
+        ? 'DECREASED'
+        : 'NEUTRAL';
+
+      simulationResult = {
+        simulatedAt: new Date().toISOString(),
+        baselineFindingsCount: baselineFindings.length,
+        blastRadiusObjects,
+        newFindings,
+        resolvedFindings,
+        requiredTests,
+        riskDelta,
+        verdict: hasBlockers
+          ? 'BLOCKED'
+          : hasCritical
+          ? 'CONDITIONAL_APPROVAL_REQUIRED'
+          : 'CLEAR',
+      };
+    }
 
     return await this.executeTransactional(organizationId, async (client) => {
       const updateRes = await client.query(
@@ -356,10 +288,7 @@ export class ChangeSetsService {
               resolvedFindingsCount: resolvedFindings.length,
             },
             client
-          )
-          .catch((err) => {
-            this.logger.warn(`Failed to record outbox event for changeset simulate: ${err.message}`);
-          });
+          );
       }
 
       return simulatedRow;
@@ -426,10 +355,7 @@ export class ChangeSetsService {
               auditCertificate: evidencePack.auditCertificate,
             },
             client
-          )
-          .catch((err) => {
-            this.logger.warn(`Failed to record outbox event for changeset approve: ${err.message}`);
-          });
+          );
       }
 
       return {

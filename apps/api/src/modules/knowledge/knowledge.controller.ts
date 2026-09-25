@@ -9,14 +9,14 @@ export class KnowledgeController {
 
   @Get('matrix')
   @ApiOperation({ summary: 'Get canonical SAP Release Compatibility Matrix across all 19 engines' })
-  getMatrix() {
-    return this.knowledgeService.getMatrix();
+  async getMatrix() {
+    return await this.knowledgeService.getMatrix();
   }
 
   @Get('snapshots')
   @ApiOperation({ summary: 'Get immutable SAP knowledge snapshots with cryptographic checksums' })
-  getSnapshots() {
-    return this.knowledgeService.getSnapshots();
+  async getSnapshots() {
+    return await this.knowledgeService.getSnapshots();
   }
 
   @Get('stability')

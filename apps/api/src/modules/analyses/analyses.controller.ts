@@ -11,15 +11,17 @@ import { AnalysesService } from './analyses.service';
 import { TriggerAnalysisDto } from '../jobs/jobs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('analyses')
-@UseGuards(JwtAuthGuard, TenancyGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
 export class AnalysesController {
   constructor(private readonly analysesService: AnalysesService) {}
 
   @Post()
+  @RequireEntitlement('RUN_ANALYSIS')
   async trigger(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,

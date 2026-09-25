@@ -143,7 +143,7 @@ export class EntitlementsService {
     let landscapesCount = 0;
     try {
       const landRes = await this.db.query(
-        `SELECT count(*)::int as count FROM sap_landscapes WHERE organization_id = $1`,
+        `SELECT count(*)::int as count FROM landscapes WHERE organization_id = $1`,
         [organizationId],
         { bypassRls: true }
       );

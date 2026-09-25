@@ -172,7 +172,13 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
 
     it('processes checkout.session.completed webhook and upgrades plan_tier', async () => {
       const mockOutbox: any = { recordEvent: vi.fn().mockResolvedValue({}) };
-      const service = new BillingService(mockDb, mockConfig, mockOutbox);
+      const localMockConfig: any = {
+        get: vi.fn((key: string) => {
+          if (key === 'STRIPE_WEBHOOK_SECRET') return 'whsec_dummy';
+          return undefined;
+        }),
+      };
+      const service = new BillingService(mockDb, localMockConfig, mockOutbox);
 
       mockDb.query.mockResolvedValueOnce({ rows: [] });
 
@@ -186,7 +192,13 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
         },
       });
 
-      const res = await service.handleWebhook(undefined, webhookPayload);
+      const currentSeconds = Math.floor(Date.now() / 1000);
+      const crypto = require('node:crypto');
+      const signedPayload = `${currentSeconds}.${webhookPayload}`;
+      const computedSig = crypto.createHmac('sha256', 'whsec_dummy').update(signedPayload).digest('hex');
+      const signature = `t=${currentSeconds},v1=${computedSig}`;
+
+      const res = await service.handleWebhook(signature, webhookPayload);
       expect(res.received).toBe(true);
       expect(mockDb.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE organizations SET plan_tier = $1'),

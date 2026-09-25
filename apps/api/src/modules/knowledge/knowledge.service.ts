@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'node:crypto';
+import { canonicalJsonSerialize } from '@erppreflight/evidence';
 
 export interface ReleaseMatrixEntry {
   engineId: string;
@@ -230,30 +231,58 @@ export class KnowledgeService {
     },
   ];
 
-  getMatrix(): ReleaseMatrixEntry[] {
-    return this.matrix;
+  async getMatrix(): Promise<{ source: string; matrix: ReleaseMatrixEntry[] }> {
+    try {
+      const res = await fetch('http://localhost:8000/engines', {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) throw new Error('Bad response');
+      const data = await res.json();
+      return {
+        source: 'LIVE',
+        matrix: data,
+      };
+    } catch (err) {
+      this.logger.warn('Python service unreachable, falling back to static matrix', err);
+      return {
+        source: 'STATIC_FALLBACK',
+        matrix: this.matrix,
+      };
+    }
   }
 
-  getSnapshots() {
+  async getSnapshots() {
+    let engines: any[] = [];
+    try {
+      const res = await fetch('http://localhost:8000/engines', { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        engines = await res.json();
+      } else {
+        engines = this.matrix;
+      }
+    } catch (err) {
+      engines = this.matrix;
+    }
+
+    const metadata = engines.map((e: any) => ({
+      engineId: e.engineId,
+      version: e.version || '1.0.0',
+      rulesCount: e.activeRulesCount || e.verifiedFixtures || 0,
+    }));
+
+    const canonical = canonicalJsonSerialize(metadata);
+    const immutableChecksum = crypto.createHash('sha256').update(canonical).digest('hex');
+
     return [
       {
-        snapshotId: 'SNAP-2026-09-V3',
-        releasedAt: '2026-09-24T00:00:00Z',
+        snapshotId: 'SNAP-DYNAMIC-V1',
+        releasedAt: new Date().toISOString(),
         targetReleases: ['S/4HANA 2023', 'S/4HANA 2022', 'Cloud 2502', 'ECC 6.0 EHP8'],
-        activeRulesCount: 312,
-        goldenFixturesCount: 501,
-        immutableChecksum: crypto.createHash('sha256').update('SNAP-2026-09-V3:SAP_CANONICAL_KNOWLEDGE').digest('hex'),
+        activeRulesCount: engines.reduce((acc, e) => acc + (e.activeRulesCount || e.verifiedFixtures || 0), 0),
+        goldenFixturesCount: engines.reduce((acc, e) => acc + (e.verifiedFixtures || 0), 0),
+        immutableChecksum,
         status: 'CURRENT_PRODUCTION',
-      },
-      {
-        snapshotId: 'SNAP-2026-08-V2',
-        releasedAt: '2026-08-15T00:00:00Z',
-        targetReleases: ['S/4HANA 2023', 'S/4HANA 2022', 'Cloud 2408'],
-        activeRulesCount: 298,
-        goldenFixturesCount: 472,
-        immutableChecksum: crypto.createHash('sha256').update('SNAP-2026-08-V2:SAP_CANONICAL_KNOWLEDGE').digest('hex'),
-        status: 'ARCHIVED',
-      },
+      }
     ];
   }
 

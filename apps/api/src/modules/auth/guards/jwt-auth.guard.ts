@@ -26,17 +26,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         scopes: typeof validKey.scopes === 'string' ? JSON.parse(validKey.scopes) : validKey.scopes,
       };
 
-      const existingStore = TenancyContext.get();
-      if (!existingStore?.tenantId) {
-        TenancyContext.run(
-          {
-            tenantId: validKey.organization_id,
-            userId: validKey.created_by,
-            roles: ['API_CLIENT'],
-          },
-          () => {}
-        );
-      }
+      request.tenantId = validKey.organization_id;
+      request.userId = validKey.created_by;
+      request.roles = ['API_CLIENT'];
 
       return true;
     }

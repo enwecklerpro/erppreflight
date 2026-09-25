@@ -28,10 +28,16 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   public async bootstrapSuperAdmins(): Promise<void> {
+    const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+    if (!bootstrapPassword) {
+      this.logger.warn('ADMIN_BOOTSTRAP_PASSWORD not set, skipping admin bootstrap');
+      return;
+    }
+
     const adminAccounts = [
       {
         email: (process.env.SUPER_ADMIN_EMAIL || 'contact@erppreflight.com').toLowerCase(),
-        password: process.env.SUPER_ADMIN_PASSWORD || 'Technique/201193',
+        password: bootstrapPassword,
         fullName: 'ERP Preflight Super Admin',
         systemRole: 'SUPER_ADMIN',
         role: 'ORGANIZATION_OWNER',
@@ -40,7 +46,7 @@ export class AuthService implements OnApplicationBootstrap {
       },
       {
         email: 'noreplay@erppreflight.com',
-        password: 'Technique/201193',
+        password: bootstrapPassword,
         fullName: 'ERP Preflight System Admin',
         systemRole: 'SUPER_ADMIN',
         role: 'ORGANIZATION_OWNER',
@@ -49,7 +55,7 @@ export class AuthService implements OnApplicationBootstrap {
       },
       {
         email: 'admin@erppreflight.com',
-        password: 'Technique/201193',
+        password: bootstrapPassword,
         fullName: 'ERP Preflight Administrator',
         systemRole: 'SUPER_ADMIN',
         role: 'ORGANIZATION_OWNER',
@@ -58,7 +64,7 @@ export class AuthService implements OnApplicationBootstrap {
       },
       {
         email: 'demo.client@erppreflight.com',
-        password: 'Technique/201193',
+        password: bootstrapPassword,
         fullName: 'Dr. Alexander Weber (Lead Migration Architect)',
         systemRole: 'USER',
         role: 'ORGANIZATION_OWNER',
@@ -67,7 +73,7 @@ export class AuthService implements OnApplicationBootstrap {
       },
       {
         email: 'client@erppreflight.com',
-        password: 'Technique/201193',
+        password: bootstrapPassword,
         fullName: 'Enterprise Migration Consultant',
         systemRole: 'USER',
         role: 'ORGANIZATION_OWNER',
@@ -186,13 +192,6 @@ export class AuthService implements OnApplicationBootstrap {
         if (clean !== plain) {
           if (await verify(hashed, plain)) return true;
         }
-        // Graceful case-insensitive fallback for demo/bootstrap passwords
-        if (clean.toLowerCase() === 'technique/201193') {
-          return await verify(hashed, 'Technique/201193');
-        }
-        if (clean.toLowerCase() === 'clienttest2026!#demo') {
-          return await verify(hashed, 'ClientTest2026!#Demo');
-        }
       } catch {
         return false;
       }
@@ -300,7 +299,10 @@ export class AuthService implements OnApplicationBootstrap {
       );
     }
 
-    const organizationId = row.organization_id || uuidv4();
+    const organizationId = row.organization_id;
+    if (!organizationId) {
+      throw new UnauthorizedException('User has no organization assignment');
+    }
     const role = row.role || 'VIEWER';
 
     const token = this.jwt.sign({

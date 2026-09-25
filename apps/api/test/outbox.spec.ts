@@ -11,6 +11,12 @@ describe('Transactional Outbox Service Suite (Part 16.7)', () => {
   beforeEach(() => {
     storedEvents = [];
     mockDb = {
+      getPool: vi.fn(() => ({
+        connect: vi.fn().mockResolvedValue({
+          query: (...args: any[]) => mockDb.query(...args),
+          release: vi.fn(),
+        }),
+      })),
       query: vi.fn(async (sql: string, params?: any[]) => {
         if (sql.includes('INSERT INTO domain_events_outbox')) {
           const row = {
