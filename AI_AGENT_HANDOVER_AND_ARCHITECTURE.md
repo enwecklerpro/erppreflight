@@ -113,9 +113,6 @@ H:/erppreflight/
 │   └── cli/                        # Global automation CLI & stdio MCP server bridge
 │
 ├── infra/
-│   ├── coolify/                    # Hostinger VPS & Coolify deployment configurations
-│   │   ├── docker-compose.coolify.yml # OLDER variant (publishes DB ports) — NOT the live file
-│   │   └── .env.coolify.example       # Documented production environment configuration
 │   └── docker/                     # Hardened multi-stage non-root container definitions
 │       ├── Dockerfile.web          # Next.js standalone container
 │       ├── Dockerfile.api          # NestJS Fastify production build
@@ -166,28 +163,35 @@ Deploying ERP Preflight to a **Hostinger VPS** (e.g. KVM 2, KVM 4, or KVM 8 runn
 
 ### 4.1 Recommended Hostinger Topology: Coolify v4+
 
-> **⚠ There are THREE compose files. Only one is the live production file.**
+> **Production compose file:** `docker-compose.coolify.yml` in the **repo root** is the Coolify deployment file. It uses `expose:` only (no public DB/Redis/MinIO ports), joins the external `coolify` Traefik network, builds with `context: .`, and uses the container aliases `erppreflight-postgres`, `erppreflight-redis`, `erppreflight-minio`, `erppreflight-analysis`. Its env template is the root `.env.coolify.example`. The CI facade gate (`scripts/check-no-production-facades.mjs`) validates this exact file.
 >
-> | File | Purpose | Status |
-> |---|---|---|
-> | **`docker-compose.coolify.yml` (repo root)** | **Live Coolify deployment on the Hostinger VPS.** Uses `expose:` only (no public DB/Redis/MinIO ports), joins the external `coolify` Traefik network, build `context: .`, container aliases `erppreflight-postgres`, `erppreflight-redis`, `erppreflight-minio`, `erppreflight-analysis`, volume `erppreflight_postgres_data_v2`. | **USE THIS** |
-> | `infra/coolify/docker-compose.coolify.yml` | Older variant. Publishes `5432`, `6379`, `9000/9001`, `8000`, `3001`, `3000` on the host, has no `coolify` network (Traefik labels cannot route), build `context: ../..`. | Do **not** deploy on a public VPS — Docker port publishing bypasses `ufw` and exposes the database to the internet. |
-> | `docker-compose.yaml` (repo root) | Similar stack without ClamAV. | Legacy / local reference |
->
-> Env templates likewise exist twice: `.env.coolify.example` (root, matches the live file) and `infra/coolify/.env.coolify.example`.
-> Any change to production infrastructure must be made in the **root** `docker-compose.coolify.yml`.
+> The former `infra/coolify/` variant was removed: it published `5432`/`6379`/`9000` on the host (Docker bypasses `ufw`) and had no `coolify` network. `docker-compose.yaml` (root) is a legacy variant without ClamAV that still uses `POSTGRES_HOST_AUTH_METHOD: trust` — do not point Coolify at it.
 
 Internal ports of the live stack (host ports are **not** published; Traefik routes only `web` and `api`):
 
-| Container | Service Name | Host Port (infra/ variant only) | Internal Port | Technology | Role |
-|---|---|---|---|---|---|
-| 1 | `postgres` | `5432` | `5432` | PostgreSQL 16 + pgvector | Relational data, RLS, 1536-dim vector store |
-| 2 | `redis` | `6379` | `6379` | Redis 7.2 Alpine | BullMQ queues, caching, distributed locks |
-| 3 | `minio` | `9000` / `9001` | `9000` / `9001` | MinIO | S3 quarantine, clean storage, PDF reports |
-| 4 | `clamav` | - | `3310` | ClamAV Daemon | Ingestion virus scanner (fail-closed) |
-| 5 | `analysis-python` | `8000` | `8000` | Python 3.13 FastAPI | 19 SAP Preflight deterministic engines |
-| 6 | `api` | `3001` | `3001` | NestJS 11 Fastify | Multi-tenant SaaS API, Outbox, BullMQ |
-| 7 | `web` | `3000` | `3000` | Next.js 15 App Router | Responsive Web UI (Traefik SSL frontend) |
+| Container | Service Name | Internal Port | Technology | Role |
+|---|---|---|---|---|
+| 1 | `postgres` | `5432` | PostgreSQL 16 + pgvector | Relational data, RLS, 1536-dim vector store |
+| 2 | `redis` | `6379` | Redis 7.2 Alpine | BullMQ queues, caching, distributed locks |
+| 3 | `minio` | `9000` / `9001` | MinIO | S3 quarantine, clean storage, PDF reports |
+| 4 | `clamav` | `3310` | ClamAV Daemon | Ingestion virus scanner (fail-closed) |
+| 5 | `analysis-python` | `8000` | Python 3.13 FastAPI | 19 SAP Preflight deterministic engines |
+| 6 | `api` | `3001` | NestJS 11 Fastify | Multi-tenant SaaS API, Outbox, BullMQ |
+| 7 | `web` | `3000` | Next.js 15 App Router | Responsive Web UI (Traefik SSL frontend) |
+
+### 4.1.1 Coolify helper scripts (`scripts/*.py`)
+
+`check-coolify.py`, `deploy-coolify.py`, `monitor-deployment.py` and `server-exec.py` call the Coolify API.
+They read all credentials from environment variables — **never commit a token**:
+
+```bash
+export COOLIFY_BASE_URL=http://<VPS_IP>:8000
+export COOLIFY_API_TOKEN=<token from Coolify → Keys & Tokens>
+export COOLIFY_APP_UUID=<application uuid>
+export COOLIFY_SERVER_UUID=<server uuid>   # server-exec.py only
+python3 scripts/deploy-coolify.py
+python3 scripts/monitor-deployment.py <deployment_uuid>
+```
 
 ---
 
@@ -312,9 +316,8 @@ pnpm run typecheck
 pnpm run test
 
 # 3. Python Analysis Engines Pytest Suite (Must pass all 501 tests)
-pnpm run test:python        # NOTE: script calls `py` (Windows launcher only)
-# On Linux/macOS/CI use instead:
-python3 -m pytest services/analysis-python/tests -v
+pnpm run test:python        # scripts/run-pytest.mjs: uses $PYTHON, python3, python or py
+# Requires: pip install -r services/analysis-python/requirements.txt pytest pytest-asyncio hypothesis
 
 # 4. Production Truth Gate (Verifies zero fake IDs, real HTTP handshakes)
 pnpm run check:production-truth
@@ -337,4 +340,4 @@ pnpm run build
 | **Database changes / New tables** | `packages/database/` | 1. Add SQL in `migrations/010_*.sql`<br>2. Add Drizzle table in `src/schema/`<br>3. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
 | **Add or update On-Prem Agent features** | `apps/local-agent/src/` | Commands in `cli.ts`, daemon tasks in `daemon.ts`, network checks in `probe.ts`. |
-| **Deploy or modify Hostinger VPS containers** | `docker-compose.coolify.yml` (repo root) & `infra/docker/` | Edit the **root** compose file (live Coolify deployment) or the Dockerfiles. Do not edit only `infra/coolify/` — it is not what Coolify deploys. |
+| **Deploy or modify Hostinger VPS containers** | `docker-compose.coolify.yml` (repo root) & `infra/docker/` | Edit the **root** compose file (Coolify deployment) or the Dockerfiles. Keep `.env.coolify.example` in sync with every `${VAR}` the compose file reads. |

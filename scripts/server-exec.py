@@ -1,10 +1,11 @@
 import urllib.request
 import json
+import os
 import sys
 
-TOKEN = "13|wilwYkwrEj0dcUtiqh6GMq1FBNUIm9vk4UPxiXITd341595f"
-SERVER_UUID = "su2yhkdyfpc25wn39x1nat4s"
-BASE_URL = "http://187.124.174.130:8000"
+TOKEN = os.environ.get("COOLIFY_API_TOKEN") or sys.exit("COOLIFY_API_TOKEN is not set")
+SERVER_UUID = os.environ.get("COOLIFY_SERVER_UUID") or sys.exit("COOLIFY_SERVER_UUID is not set")
+BASE_URL = os.environ.get("COOLIFY_BASE_URL") or sys.exit("COOLIFY_BASE_URL is not set (e.g. http://<vps-ip>:8000)")
 
 def run(cmd):
     url = f"{BASE_URL}/api/v1/servers/{SERVER_UUID}/command"

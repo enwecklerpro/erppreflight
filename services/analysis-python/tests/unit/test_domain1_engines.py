@@ -259,9 +259,8 @@ class TestOPDGuardEngine:
     @pytest.mark.asyncio
     async def test_opd_guard_xml_golden_fixture(self):
         """Negative Test: XML golden defective fixture triggers OPD_DETERMINATION_STEP_MISSING."""
-        golden_path = Path(__file__).resolve().parent.parent.parent.parent / "tests" / "fixtures" / "known_bad_billing_opd.xml"
-        if not golden_path.exists():
-            golden_path = Path("tests/fixtures/known_bad_billing_opd.xml")
+        # Monorepo root: services/analysis-python/tests/unit/<file> -> parents[4]
+        golden_path = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "known_bad_billing_opd.xml"
         xml_content = golden_path.read_text(encoding="utf-8")
 
         req = AnalysisRequest(

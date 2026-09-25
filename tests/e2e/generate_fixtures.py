@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 
-FIXTURES_DIR = Path("H:/erppreflight/tests/e2e/fixtures")
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def generate_all_fixtures():

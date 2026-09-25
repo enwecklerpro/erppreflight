@@ -253,11 +253,8 @@ class TestKnownBadBillingOpdFixture:
 
     @pytest.fixture
     def fixture_path(self):
-        # Monorepo root is H:/erppreflight
-        path = Path("H:/erppreflight/tests/fixtures/known_bad_billing_opd.xml")
-        if not path.exists():
-            # Try relative path
-            path = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "known_bad_billing_opd.xml"
+        # Monorepo root: services/analysis-python/tests/adversarial/<file> -> parents[4]
+        path = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "known_bad_billing_opd.xml"
         assert path.exists(), f"Fixture file not found at: {path}"
         return path
 
