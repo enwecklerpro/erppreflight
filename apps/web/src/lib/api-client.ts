@@ -539,6 +539,11 @@ export async function removeLandscape(id: string): Promise<any> {
   return customInstance(`/landscapes/${id}`, { method: 'DELETE' });
 }
 
+export async function testLandscapeConnection(id: string): Promise<any> {
+  return customInstance<any>(`/landscapes/${id}/test`, { method: 'POST' });
+}
+
+
 // -----------------------------------------------------------------------------
 // Enterprise Analysis Templates (Part 14.3)
 // -----------------------------------------------------------------------------
@@ -881,6 +886,50 @@ export async function importFioriUsageArtifact(
     body: JSON.stringify(payload),
   });
 }
+
+// -----------------------------------------------------------------------------
+// Organization & Governance Settings (Part 17.21, 17.22, 20.14)
+// -----------------------------------------------------------------------------
+export interface OrganizationDetails {
+  id: string;
+  name: string;
+  slug: string;
+  plan_tier: string;
+  status: string;
+  data_policy: {
+    deterministicOnly?: boolean;
+    requireDualReviewForInferred?: boolean;
+    tokenBudgetMonthly?: number;
+    aiAuditLoggingEnabled?: boolean;
+    allowedModels?: string[];
+  } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchCurrentOrganization(): Promise<OrganizationDetails> {
+  return customInstance<OrganizationDetails>('/organizations/current');
+}
+
+export async function updateCurrentOrganization(payload: {
+  name?: string;
+  dataPolicy?: Record<string, any>;
+}): Promise<OrganizationDetails> {
+  return customInstance<OrganizationDetails>('/organizations/current', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Enterprise Support Diagnostic Bundle (Part 18.18)
+// -----------------------------------------------------------------------------
+export async function fetchDiagnosticBundle(projectId: string): Promise<any> {
+  return customInstance<any>(`/projects/${projectId}/diagnostic-bundle`);
+}
+
+
 
 
 

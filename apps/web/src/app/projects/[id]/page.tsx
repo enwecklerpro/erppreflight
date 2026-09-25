@@ -39,6 +39,7 @@ import {
   fetchProjectDrift,
   setProjectBaseline,
   getReproducibilityBundleUrl,
+  fetchDiagnosticBundle,
 } from '../../../lib/api-client';
 import { customInstance } from '../../../lib/api/custom-instance';
 import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
@@ -74,6 +75,29 @@ export default function ProjectWorkspacePage() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [exportingBundle, setExportingBundle] = useState(false);
+
+  const handleExportDiagnosticBundle = async () => {
+    setExportingBundle(true);
+    try {
+      const bundle = await fetchDiagnosticBundle(projectId);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `erppreflight-support-bundle-${project?.slug || projectId}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export diagnostic bundle:', err);
+    } finally {
+      setExportingBundle(false);
+    }
+  };
 
   // Real Project Details Query
   const {
@@ -301,6 +325,20 @@ export default function ProjectWorkspacePage() {
               <FlaskConical className="h-3.5 w-3.5 text-purple-500" />
               Scenario Test Lab
             </Link>
+            <button
+              type="button"
+              onClick={handleExportDiagnosticBundle}
+              disabled={exportingBundle}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+              title="Generate sanitized enterprise support bundle (Part 18.18)"
+            >
+              {exportingBundle ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
+              )}
+              Support Bundle
+            </button>
             <button
               onClick={() => setActiveTab('launcher')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"

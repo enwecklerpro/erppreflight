@@ -243,5 +243,81 @@ describe('ProjectsService', () => {
       expect(computeCleanCoreIndex(findings)).toBe(0);
     });
   });
+
+  describe('generateDiagnosticBundle', () => {
+    it('throws NotFoundException when project is not found', async () => {
+      mockDb.query = vi.fn().mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        service.generateDiagnosticBundle('org-1', 'nonexistent-proj')
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('assembles a sanitized enterprise diagnostic support bundle with cryptographic integrity signature', async () => {
+      const mockProject = {
+        id: 'proj-123',
+        name: 'S4HANA Global Rollout',
+        slug: 's4hana-global-rollout',
+        target_release: 'S4H_2023_FPS02',
+        baseline_analysis_id: 'ana-base',
+        created_at: '2026-01-01T00:00:00Z',
+      };
+
+      const mockLandscapes = [
+        {
+          id: 'land-1',
+          system_id: 'S4D_100',
+          product: 'SAP S/4HANA',
+          edition: 'Private Cloud',
+          release: '2023',
+          environment: 'DEV',
+          status: 'CONNECTED',
+        },
+      ];
+
+      const mockAnalyses = [
+        {
+          id: 'ana-1',
+          name: 'Nightly Preflight',
+          status: 'COMPLETED',
+          target_release: 'S4H_2023_FPS02',
+          created_at: '2026-01-02T00:00:00Z',
+          findings_count: '14',
+        },
+      ];
+
+      const mockArtifacts = [
+        {
+          id: 'art-1',
+          file_name: 'transport_e070.csv',
+          file_size: 4096,
+          mime_type: 'text/csv',
+          sha256_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          created_at: '2026-01-02T00:00:00Z',
+        },
+      ];
+
+      mockDb.query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [mockProject] }) // project lookup
+        .mockResolvedValueOnce({ rows: mockLandscapes }) // landscapes
+        .mockResolvedValueOnce({ rows: mockAnalyses }) // analyses
+        .mockResolvedValueOnce({ rows: mockArtifacts }); // artifacts
+
+      const bundle = await service.generateDiagnosticBundle('org-1', 'proj-123');
+
+      expect(bundle.formatVersion).toBe('1.0-ENTERPRISE-DIAGNOSTIC');
+      expect(bundle.project.id).toBe('proj-123');
+      expect(bundle.project.targetRelease).toBe('S4H_2023_FPS02');
+      expect(bundle.engineInventory.length).toBe(19);
+      expect(bundle.telemetry.totalLandscapesConfigured).toBe(1);
+      expect(bundle.telemetry.totalAnalysesRun).toBe(1);
+      expect(bundle.telemetry.totalArtifactsIngested).toBe(1);
+      expect(bundle.infrastructureHealth.postgresRelational).toBe('CONNECTED_HEALTHY');
+      expect(bundle.redactionNotice).toContain('Zero customer credentials');
+      expect(bundle.integritySignature).toMatch(/^[a-f0-9]{64}$/);
+    });
+  });
 });
+
 

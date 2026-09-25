@@ -9,11 +9,17 @@ import {
   ExternalLink,
   ShieldAlert,
   Layers,
+  ShieldCheck,
+  Activity,
+  Lock,
+  X,
+  Loader2,
 } from 'lucide-react';
 import {
   fetchLandscapes,
   createLandscape,
   removeLandscape,
+  testLandscapeConnection,
   LandscapeItem,
 } from '@/lib/api-client';
 
@@ -21,6 +27,8 @@ export default function LandscapesPage() {
   const [landscapes, setLandscapes] = useState<LandscapeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [handshakeResult, setHandshakeResult] = useState<any | null>(null);
 
   const [systemId, setSystemId] = useState('');
   const [product, setProduct] = useState('SAP S/4HANA');
@@ -64,6 +72,19 @@ export default function LandscapesPage() {
       await loadLandscapes();
     } catch (err) {
       console.error('Failed to add system:', err);
+    }
+  }
+
+  async function handleTest(id: string) {
+    setTestingId(id);
+    try {
+      const res = await testLandscapeConnection(id);
+      setHandshakeResult(res);
+      await loadLandscapes();
+    } catch (err) {
+      console.error('Handshake failed:', err);
+    } finally {
+      setTestingId(null);
     }
   }
 
@@ -145,8 +166,28 @@ export default function LandscapesPage() {
                               {sys.url}
                             </div>
                           )}
-                          <div className="mt-2 pt-2 border-t border-slate-900 flex justify-end">
+                          <div className="mt-2 pt-2 border-t border-slate-900 flex items-center justify-between">
                             <button
+                              type="button"
+                              onClick={() => handleTest(sys.id)}
+                              disabled={testingId === sys.id}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-400 text-[10px] font-semibold rounded border border-slate-800 transition-colors disabled:opacity-50"
+                            >
+                              {testingId === sys.id ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Probing...
+                                </>
+                              ) : (
+                                <>
+                                  <Activity className="w-3 h-3" />
+                                  Test Handshake
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
                               onClick={() => handleRemove(sys.id)}
                               className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold flex items-center gap-1"
                             >
@@ -234,6 +275,115 @@ export default function LandscapesPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Handshake Capability & Write-Safety Modal (Part 18.1 - 18.4) */}
+        {handshakeResult && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      Connector Handshake Verified
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                        {handshakeResult.handshakeStatus}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      System {handshakeResult.systemId} ({handshakeResult.environment}) • {handshakeResult.protocol} • Latency {handshakeResult.latencyMs} ms
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHandshakeResult(null)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Write Safety Verification Banner */}
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
+                  <Lock className="w-4 h-4 text-cyan-400" />
+                  Write Safety & Isolation Policy
+                </div>
+                <p className="text-xs text-slate-300">
+                  {handshakeResult.writeSafety?.policyStatement}
+                </p>
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
+                    <span className="text-slate-400 block text-[10px]">Read-Only Engine</span>
+                    <span className="text-emerald-400 font-semibold">Active & Enforced</span>
+                  </div>
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
+                    <span className="text-slate-400 block text-[10px]">Production Write Lock</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {handshakeResult.writeSafety?.productionWriteLocked ? 'Permanently Locked' : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
+                    <span className="text-slate-400 block text-[10px]">Dual Approval Gate</span>
+                    <span className={handshakeResult.writeSafety?.requiresDualApproval ? 'text-amber-400 font-semibold' : 'text-slate-400'}>
+                      {handshakeResult.writeSafety?.requiresDualApproval ? 'Mandatory' : 'Optional'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Discovered APIs */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                  Discovered APIs & Catalog Services
+                </h4>
+                <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden">
+                  {handshakeResult.discoveredApis?.map((api: any, idx: number) => (
+                    <div key={idx} className="p-2.5 bg-slate-950/60 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-white font-medium">{api.name}</span>
+                        <span className="text-slate-400 font-mono text-[10px] ml-2">v{api.version}</span>
+                        <div className="text-[10px] font-mono text-slate-400 truncate max-w-md">{api.path}</div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                        {api.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Supported Engines */}
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-semibold text-slate-300">
+                  Target Preflight Engines Enabled
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {handshakeResult.supportedEngines?.map((eng: string) => (
+                    <span key={eng} className="px-2 py-0.5 bg-slate-950 text-slate-300 border border-slate-800 rounded text-[10px] font-mono">
+                      {eng}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-3 border-t border-slate-800 text-[11px] text-slate-400">
+                <span>Handshake logged at {new Date(handshakeResult.handshakeTimestamp).toLocaleTimeString()}</span>
+                <button
+                  type="button"
+                  onClick={() => setHandshakeResult(null)}
+                  className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -40,4 +40,12 @@ export class LandscapesController {
     const orgId = req.user.organizationId;
     return await this.landscapesService.remove(orgId, id);
   }
+
+  @Post(':id/test')
+  @ApiOperation({ summary: 'Perform connector capability handshake and production write safety verification' })
+  async testConnection(@Req() req: any, @Param('id') id: string) {
+    const orgId = req.user.organizationId;
+    return await this.landscapesService.testConnection(orgId, id);
+  }
 }
+

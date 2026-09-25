@@ -83,4 +83,12 @@ export class ProjectsController {
   ) {
     return this.projectsService.getDrift(tenantId, projectId, targetAnalysisId);
   }
+
+  @Get(':id/diagnostic-bundle')
+  async getDiagnosticBundle(
+    @CurrentTenant() tenantId: string,
+    @Param('id') projectId: string
+  ) {
+    return this.projectsService.generateDiagnosticBundle(tenantId, projectId);
+  }
 }
