@@ -94,6 +94,36 @@ const CHECKS = [
     pattern: /\bINITIAL_SERVICES\b/,
     forbidden: true,
   },
+  {
+    name: 'Zero silent .catch(() => {}) error swallowing in OutboxService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'outbox', 'outbox.service.ts'),
+    pattern: /\.catch\s*\(\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero Math.random() in LandscapesService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'landscapes', 'landscapes.service.ts'),
+    pattern: /Math\.random\s*\(\s*\)/,
+    forbidden: true,
+  },
+  {
+    name: 'SSRF defense validateUrlSafety present in LandscapesService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'landscapes', 'landscapes.service.ts'),
+    pattern: /validateUrlSafety\s*\(/,
+    forbidden: false, // Required to be present!
+  },
+  {
+    name: 'Zero fake CALM-TSK Date.now() ID generation without remote REST call in TraceabilityService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'traceability', 'traceability.service.ts'),
+    pattern: /CALM-TSK-[\$a-zA-Z0-9_{}]+Date\.now/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero prompt injection vulnerability in safe XML parser',
+    file: path.join(ROOT_DIR, 'services', 'analysis-python', 'src', 'parsers', 'safe_xml.py'),
+    pattern: /defusedxml/,
+    forbidden: false, // Required to be present!
+  },
 ];
 
 let failed = false;
