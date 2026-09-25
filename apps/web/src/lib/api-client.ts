@@ -5,6 +5,8 @@ import {
 } from '@erppreflight/schemas';
 import { customInstance } from './api/custom-instance';
 
+export type ProjectListItem = Project;
+
 export interface EngineStatusItem {
   id: string;
   name: string;
@@ -195,6 +197,7 @@ export async function fetchAnalyses(projectId?: string) {
     organizationId: string;
     projectId: string;
     status: string;
+    isBaseline?: boolean;
     engineTypes: string[];
     targetRelease: string;
     findingsCount: number;
@@ -638,5 +641,190 @@ export async function fetchChangelogs(category?: string): Promise<ReleaseNoteIte
   const query = category ? `?category=${category}` : '';
   return customInstance<ReleaseNoteItem[]>(`/changelog${query}`);
 }
+
+// -----------------------------------------------------------------------------
+// Scenario & Regression Test Lab (Part 16.34)
+// -----------------------------------------------------------------------------
+export interface LabScenarioItem {
+  scenarioId: string;
+  domain: string;
+  scenarioName: string;
+  failureType: string;
+  payload: string;
+  expectedFindings: Array<{ ruleId: string; severity: string; description: string }>;
+  format: 'xml' | 'csv' | 'json';
+}
+
+export interface LabRunResult {
+  runId: string;
+  domain: string;
+  executedAt: string;
+  overallStatus: 'PASSED' | 'FAILED' | 'REGRESSION_DETECTED';
+  verdict: 'CLEAR' | 'DEFECTS_DETECTED';
+  assertionsCount: number;
+  passedAssertions: number;
+  failedAssertions: number;
+  findings: Array<{
+    ruleId: string;
+    severity: string;
+    title: string;
+    evidenceSha256: string;
+    confidenceClass: 'VERIFIED' | 'RULE_DERIVED';
+    passed: boolean;
+  }>;
+}
+
+export async function generateLabScenario(payload: {
+  domain: string;
+  failureType: string;
+  scenarioName?: string;
+}): Promise<LabScenarioItem> {
+  return customInstance<LabScenarioItem>('/lab/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function runLabScenario(payload: {
+  domain: string;
+  payload: string;
+  targetRelease?: string;
+}): Promise<LabRunResult> {
+  return customInstance<LabRunResult>('/lab/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Digital Project Baselines & Configuration Drift Engine (Part 14.10 / Part 16.5)
+// -----------------------------------------------------------------------------
+export interface ProjectDriftReport {
+  hasBaseline: boolean;
+  message?: string;
+  baseline: {
+    id: string;
+    name: string;
+    createdAt: string;
+    totalFindings: number;
+    cleanCoreIndex?: number;
+    targetRelease?: string;
+  } | null;
+  comparison: {
+    id: string;
+    name: string;
+    createdAt: string;
+    totalFindings: number;
+    cleanCoreIndex?: number;
+    targetRelease?: string;
+  } | null;
+  driftSummary: {
+    knownBaselineRisks: number;
+    newlyIntroducedRisks: number;
+    resolvedRisks: number;
+    scoreDelta: number;
+  };
+  findings: {
+    knownBaseline: Finding[];
+    newlyIntroduced: Finding[];
+    resolved: Finding[];
+  };
+}
+
+export async function setProjectBaseline(projectId: string, analysisId: string): Promise<any> {
+  return customInstance(`/projects/${projectId}/baseline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ analysisId }),
+  });
+}
+
+export async function fetchProjectDrift(
+  projectId: string,
+  targetAnalysisId?: string
+): Promise<ProjectDriftReport> {
+  const qs = targetAnalysisId ? `?targetAnalysisId=${targetAnalysisId}` : '';
+  return customInstance<ProjectDriftReport>(`/projects/${projectId}/drift${qs}`);
+}
+
+// -----------------------------------------------------------------------------
+// Reproducibility Bundle Downloader (Part 14.11)
+// -----------------------------------------------------------------------------
+export function getReproducibilityBundleUrl(analysisId: string): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.erppreflight.com/api/v1';
+  return `${base}/analyses/${analysisId}/reproducibility-bundle`;
+}
+
+// -----------------------------------------------------------------------------
+// SAP Object Catalog & Clean Core Inventory (Part 14.35)
+// -----------------------------------------------------------------------------
+export interface FetchProjectObjectsApiParams {
+  projectId: string;
+  search?: string;
+  objectType?: string;
+  cleanCoreTier?: string;
+  package?: string;
+  page?: number;
+  pageSize?: number;
+  sortField?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface ProjectObjectsApiResponse {
+  items: any[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  facets: {
+    typeCounts: Record<string, number>;
+    tierCounts: Record<string, number>;
+    packageCounts: Record<string, number>;
+    findingsStatusCounts: {
+      withFindings: number;
+      clean: number;
+    };
+  };
+}
+
+export async function fetchProjectObjectsApi(
+  params: FetchProjectObjectsApiParams
+): Promise<ProjectObjectsApiResponse> {
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.objectType) query.set('objectType', params.objectType);
+  if (params.cleanCoreTier) query.set('cleanCoreTier', params.cleanCoreTier);
+  if (params.package) query.set('package', params.package);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.sortField) query.set('sortField', params.sortField);
+  if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return customInstance<ProjectObjectsApiResponse>(
+    `/projects/${params.projectId}/objects${qs}`
+  );
+}
+
+export async function fetchSapObjectById(
+  projectId: string,
+  objectId: string
+): Promise<any> {
+  return customInstance<any>(`/projects/${projectId}/objects/${objectId}`);
+}
+
+export async function createSapObject(
+  projectId: string,
+  payload: any
+): Promise<any> {
+  return customInstance<any>(`/projects/${projectId}/objects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 
 

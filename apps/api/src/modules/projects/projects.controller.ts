@@ -6,10 +6,11 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
-import { CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateProjectDto, SetBaselineDto } from './dto/project.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -57,5 +58,29 @@ export class ProjectsController {
     @Param('id') id: string
   ) {
     return this.projectsService.remove(tenantId, id);
+  }
+
+  @Post(':id/baseline')
+  async setBaseline(
+    @CurrentTenant() tenantId: string,
+    @Param('id') projectId: string,
+    @Body() dto: SetBaselineDto | { analysisId?: string } | string
+  ) {
+    const analysisId =
+      typeof dto === 'string'
+        ? dto
+        : typeof dto === 'object' && dto !== null
+        ? (dto as any).analysisId
+        : '';
+    return this.projectsService.setBaseline(tenantId, projectId, analysisId as string);
+  }
+
+  @Get(':id/drift')
+  async getDrift(
+    @CurrentTenant() tenantId: string,
+    @Param('id') projectId: string,
+    @Query('targetAnalysisId') targetAnalysisId?: string
+  ) {
+    return this.projectsService.getDrift(tenantId, projectId, targetAnalysisId);
   }
 }

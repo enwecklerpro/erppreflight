@@ -26,6 +26,9 @@ import {
   Upload,
   ShieldCheck,
   GitCompare,
+  FlaskConical,
+  Download,
+  BookmarkCheck,
 } from 'lucide-react';
 import {
   ALL_18_ENGINES,
@@ -33,6 +36,9 @@ import {
   fetchFindingsStats,
   fetchAnalyses,
   triggerAnalysis,
+  fetchProjectDrift,
+  setProjectBaseline,
+  getReproducibilityBundleUrl,
 } from '../../../lib/api-client';
 import { customInstance } from '../../../lib/api/custom-instance';
 
@@ -100,6 +106,23 @@ export default function ProjectWorkspacePage() {
     queryFn: () => fetchAnalyses(projectId),
     enabled: Boolean(projectId),
     staleTime: 1000 * 30,
+  });
+
+  // Digital Baseline & Configuration Drift Query
+  const { data: drift } = useQuery({
+    queryKey: ['projectDrift', projectId],
+    queryFn: () => fetchProjectDrift(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 30,
+  });
+
+  const baselineMutation = useMutation({
+    mutationFn: (analysisId: string) => setProjectBaseline(projectId, analysisId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['projectDrift', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
+    },
   });
 
   // Real Analysis Execution Mutation
@@ -270,6 +293,13 @@ export default function ProjectWorkspacePage() {
               <Layers className="h-3.5 w-3.5 text-emerald-500" />
               Traceability Matrix
             </Link>
+            <Link
+              href={`/projects/${project.id}/lab`}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
+            >
+              <FlaskConical className="h-3.5 w-3.5 text-purple-500" />
+              Scenario Test Lab
+            </Link>
             <button
               onClick={() => setActiveTab('launcher')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
@@ -399,6 +429,104 @@ export default function ProjectWorkspacePage() {
                 XML, JSON, CSV, and ABAP artifacts evaluated by deterministic engines.
               </p>
             </div>
+          </div>
+
+          {/* Digital Project Baseline & Configuration Drift (Part 14.10 / Part 16.5) */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
+              <div className="flex items-center gap-2.5">
+                <BookmarkCheck className="h-5 w-5 text-primary" />
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">
+                    Digital Project Baseline & Configuration Drift
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Categorizes findings against the official signed baseline into accepted risks, new regressions, and resolved findings.
+                  </p>
+                </div>
+              </div>
+
+              {drift?.hasBaseline ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                    <CheckCircle2 className="size-3.5" />
+                    <span>Active Baseline: <span className="font-mono">{drift.baseline?.id?.slice(0, 8)}...</span></span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground border border-border shrink-0">
+                    <Clock className="size-3.5" />
+                    <span>Baseline Date: {drift.baseline?.createdAt ? new Date(drift.baseline.createdAt).toLocaleDateString() : 'N/A'}</span>
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
+                    <AlertCircle className="size-3.5" />
+                    No Baseline Set
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('history')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    Select in Run History &rarr;
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {drift?.hasBaseline && (
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-1 text-xs">
+                <div className="p-3.5 rounded-lg border border-border bg-muted/20">
+                  <span className="text-muted-foreground font-semibold block text-[11px] uppercase tracking-wider">
+                    Known Baseline Risks
+                  </span>
+                  <span className="text-xl font-bold font-mono text-foreground mt-1 block">
+                    {drift.driftSummary.knownBaselineRisks}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                    Pre-existing accepted issues
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-lg border border-rose-200 dark:border-rose-900 bg-rose-50/40 dark:bg-rose-950/20">
+                  <span className="text-rose-700 dark:text-rose-300 font-bold block text-[11px] uppercase tracking-wider">
+                    Newly Introduced Risks
+                  </span>
+                  <span className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400 mt-1 block">
+                    +{drift.driftSummary.newlyIntroducedRisks}
+                  </span>
+                  <span className="text-[11px] text-rose-700/80 dark:text-rose-300/80 mt-0.5 block">
+                    Regression drift since baseline
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20">
+                  <span className="text-emerald-700 dark:text-emerald-300 font-bold block text-[11px] uppercase tracking-wider">
+                    Resolved Findings
+                  </span>
+                  <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 block">
+                    {drift.driftSummary.resolvedRisks}
+                  </span>
+                  <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 block">
+                    Successfully mitigated issues
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-lg border border-border bg-muted/20">
+                  <span className="text-muted-foreground font-semibold block text-[11px] uppercase tracking-wider">
+                    Score Delta
+                  </span>
+                  <span className={`text-xl font-bold font-mono mt-1 block ${
+                    drift.driftSummary.scoreDelta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                  }`}>
+                    {drift.driftSummary.scoreDelta >= 0 ? `+${drift.driftSummary.scoreDelta}%` : `${drift.driftSummary.scoreDelta}%`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground mt-0.5 block">
+                    Clean Core index progression
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -779,27 +907,63 @@ export default function ProjectWorkspacePage() {
           ) : (
             <div className="divide-y divide-border text-xs">
               {analyses.map((run) => (
-                <div key={run.id} className="py-3 flex items-center justify-between">
+                <div key={run.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold font-mono text-foreground">{run.id.slice(0, 8)}...</span>
                       <span className="text-muted-foreground">
                         • {new Date(run.createdAt).toLocaleString()}
                       </span>
+                      {(drift?.baseline?.id === run.id || (run as any).isBaseline) && (
+                        <span
+                          className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 inline-flex items-center gap-1"
+                          aria-label="Active Project Baseline"
+                        >
+                          <ShieldCheck className="size-3 text-emerald-600 dark:text-emerald-400" />
+                          ACTIVE BASELINE
+                        </span>
+                      )}
                     </div>
                     <p className="text-muted-foreground mt-0.5">
                       Evaluated {run.engineTypes?.length || 0} engine(s) • {run.findingsCount} finding(s) detected • Release: {run.targetRelease}
                     </p>
                   </div>
-                  <span
-                    className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
-                      run.status === 'COMPLETED'
-                        ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                        : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                    }`}
-                  >
-                    {run.status}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
+                        run.status === 'COMPLETED'
+                          ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                          : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                      }`}
+                    >
+                      {run.status}
+                    </span>
+                    {run.status === 'COMPLETED' && (
+                      <>
+                        <a
+                          href={getReproducibilityBundleUrl(run.id)}
+                          download
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Download Cryptographic Reproducibility Bundle (.zip)"
+                        >
+                          <Download className="size-3 text-primary" />
+                          <span>Bundle (.zip)</span>
+                        </a>
+                        {drift?.baseline?.id !== run.id && !(run as any).isBaseline && (
+                          <button
+                            type="button"
+                            onClick={() => baselineMutation.mutate(run.id)}
+                            disabled={baselineMutation.isPending}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded border border-border bg-card hover:bg-muted text-foreground transition-colors disabled:opacity-50"
+                            title="Set as digital project baseline"
+                          >
+                            <BookmarkCheck className="size-3 text-primary" />
+                            <span>Set as Baseline</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

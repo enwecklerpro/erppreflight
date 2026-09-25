@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { ExportService } from './export.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -54,5 +55,20 @@ export class ExportController {
     @Param('reportId') reportId: string
   ) {
     return this.exportService.getReportDownload(tenantId, reportId);
+  }
+
+  @Get('analyses/:analysisId/reproducibility-bundle')
+  async getReproducibilityBundle(
+    @CurrentTenant() tenantId: string,
+    @Param('analysisId') analysisId: string
+  ): Promise<StreamableFile> {
+    const { buffer, fileName } = await this.exportService.generateReproducibilityZip(
+      tenantId,
+      analysisId
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${fileName}"`,
+    });
   }
 }

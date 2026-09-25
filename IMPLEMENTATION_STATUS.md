@@ -16,6 +16,7 @@
 | **M3** | 19 SAP Preflight Engines Suite | **COMPLETED** | 100% | All 18 specialized SAP engines + MFS BlackBox deterministic parsers, pure rule evaluation, cryptographic evidence chains |
 | **M4** | Hostinger VPS & Coolify Deployment | **COMPLETED** | 100% | `docker-compose.coolify.yml`, multi-stage non-root Dockerfiles, Traefik SSL reverse proxy, live health checks |
 | **M5** | Enterprise Platform Services (Parts 14–22) | **COMPLETED** | 100% | What-If simulation canvas (@xyflow/react + ELK.js), 8-column delivery traceability, MCP Change Gate, Templates, Feedback, Changelog |
+| **M6** | Advanced Test Lab, Baselines, Bundle & Object Catalog | **COMPLETED** | 100% | Scenario Test Lab (/lab), Digital Project Baselines & Configuration Drift, Reproducibility Bundle (.zip), SAP Object Catalog & Clean Core Inventory (/objects) |
 
 ---
 
@@ -25,7 +26,7 @@
 |---|---|---|---|---|
 | 1 | **Monorepo Architecture** | Part 00, 21 | **COMPLETED** | `pnpm-workspace.yaml`, `turbo.json`, 9 package.json configs |
 | 2 | **Next.js 15 App Router** | Part 01, 21 | **COMPLETED** | 24 routes compiled statically & dynamically with 0 errors |
-| 3 | **NestJS 11 Core API** | Part 01, 21 | **COMPLETED** | 25 modules, Argon2id passwords, BullMQ Redis queues, PostgreSQL RLS |
+| 3 | **NestJS 11 Core API** | Part 01, 21 | **COMPLETED** | 26 modules, Argon2id passwords, BullMQ Redis queues, PostgreSQL RLS |
 | 4 | **Python Analysis Microservice** | Part 02–06, 21 | **COMPLETED** | FastAPI, 19 engines registered, 501 pytest tests passing in 0.84s |
 | 5 | **19 Deterministic SAP Engines** | Part 02–06 | **COMPLETED** | OPD_GUARD, FORM_DOCTOR, MFS_BLACKBOX, CLEAN_CORE, SPRO2CLOUD, etc. |
 | 6 | **Cryptographic Evidence Chains** | Part 07, 22.5 | **COMPLETED** | SHA-256 artifact hashing, exact line/col pointers, epistemic confidence scoring |
@@ -42,22 +43,27 @@
 | 17 | **Product & Knowledge Changelog** | Part 14.51–14.52 | **COMPLETED** | `/changelog` with timeline tracking platform notes and SAP snapshot diffs |
 | 18 | **Enterprise Procurement Portal** | Part 14.42, 20 | **COMPLETED** | `/procurement` with Security Overview, DPA, CycloneDX SBOM summary |
 | 19 | **Official CLI Tool** | Part 14.6 | **COMPLETED** | `packages/cli` executable binary (`erp-preflight`) with JSON output |
-| 20 | **Command Palette (Cmd/Ctrl + K)** | Part 14.34, 21.14 | **COMPLETED** | Global keyboard-driven search and navigation across all pages and engines |
+| 20 | **Command Palette (Cmd/Ctrl + K)** | Part 14.34, 21.14 | **COMPLETED** | Accessible keyboard-driven search and navigation across all pages and objects |
 | 21 | **Developer API Keys & Webhooks** | Part 14.5, 14.7 | **COMPLETED** | `/settings` with HMAC-SHA256 webhooks and scoped API keys |
 | 22 | **Enterprise Landscape Registry** | Part 16.17 | **COMPLETED** | `/landscapes` managing DEV, QA, and PROD SAP systems |
 | 23 | **First-Run Onboarding Wizard** | Part 14.1 | **COMPLETED** | `/onboarding` 3-step role and domain personalization wizard |
-| 24 | **Public Status & Uptime Page** | Part 14.53 | **COMPLETED** | `/status` with live component telemetry and 99.9% SLA tracking |
+| 24 | **Public Status & Uptime Page** | Part 14.53 | **COMPLETED** | `/status` with live component telemetry, 0 mock arrays, and 99.9% SLA tracking |
 | 25 | **Enterprise Trust Center** | Part 20.24 | **COMPLETED** | `/trust` with PostgreSQL RLS, ClamAV fail-closed, and subprocessor list |
-| 26 | **26 Canonical Engineering Skills** | Part 22 | **COMPLETED** | All 26 markdown playbooks implemented in `/.agents/skills/` |
+| 26 | **Scenario & Regression Test Lab** | Part 16.34 | **COMPLETED** | `/projects/:id/lab` with synthetic generators for OPD, Forms, MFS, and Change Pointers |
+| 27 | **Digital Project Baselines & Drift** | Part 14.10, 16.5 | **COMPLETED** | Baseline analysis pinning, `KNOWN_BASELINE_RISK`, `NEWLY_INTRODUCED_RISK`, `RESOLVED_RISK` |
+| 28 | **Reproducibility Bundle Downloader** | Part 14.11 | **COMPLETED** | `GET /api/v1/analyses/:id/reproducibility-bundle` signed ZIP export with manifest & hashes |
+| 29 | **Universal SAP Object Catalog** | Part 14.35 | **COMPLETED** | `/projects/:id/objects` backed by PostgreSQL `sap_objects`, RLS, auto-seeding, and drawer |
+| 30 | **26 Canonical Engineering Skills** | Part 22 | **COMPLETED** | All 26 markdown playbooks implemented in `/.agents/skills/` |
 
 ---
 
 ## 3. Automated Test Pass Record
 
-- **TypeScript Unit & Integration Tests**: **602 passed (100% pass rate)** across 35 test files under Vitest.
-  - `@erppreflight/api`: 471 passed (471) across 27 test files
+- **TypeScript Unit & Integration Tests**: **635 passed (100% pass rate)** across 38 test files under Vitest.
+  - `@erppreflight/api`: 504 passed (504) across 30 test files
   - `@erppreflight/web`: 131 passed (131) across 8 test files
 - **Python Deterministic Engine Tests**: **501 passed (100% pass rate)** across all 19 engines under Pytest.
+- **Combined Monorepo Automated Tests**: **1,136 passed tests (100%)**.
 - **TypeScript Typecheck**: 12/12 monorepo tasks passed with 0 errors under strict mode (`tsc --noEmit`).
 - **Next.js 15 Web Production Build**: All 24 routes compiled cleanly into optimized static & dynamic bundles.
 - **Compliance Gates**:

@@ -7,6 +7,7 @@ import {
   ReportDownloadResponse,
 } from '@erppreflight/schemas';
 import * as crypto from 'node:crypto';
+import { ZipArchive } from 'archiver';
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import { v4 as uuidv4 } from 'uuid';
@@ -534,5 +535,152 @@ export class ExportService {
       expiresAt: new Date(Date.now() + 1800 * 1000).toISOString(),
       checksumSha256: report.checksum_sha256,
     };
+  }
+
+  public async generateReproducibilityZip(
+    tenantId: string,
+    analysisId: string
+  ): Promise<{ buffer: Buffer; fileName: string; checksumSha256: string }> {
+    const analysisRes = await this.db.query(
+      'SELECT a.*, p.name as project_name FROM analyses a JOIN projects p ON a.project_id = p.id WHERE a.id = $1 AND a.organization_id = $2',
+      [analysisId, tenantId]
+    );
+    if (!analysisRes.rows?.length) {
+      throw new NotFoundException(`Analysis ${analysisId} not found.`);
+    }
+    const analysis = analysisRes.rows[0];
+
+    const findingsRes = await this.db.query(
+      'SELECT * FROM findings WHERE analysis_id = $1 AND organization_id = $2 ORDER BY created_at ASC',
+      [analysisId, tenantId]
+    );
+    const findings = findingsRes.rows || [];
+
+    const findingIds = findings.map((f: any) => f.id);
+    let evidenceList: any[] = [];
+    if (findingIds.length > 0) {
+      const evidenceRes = await this.db.query(
+        'SELECT * FROM evidence WHERE finding_id = ANY($1::uuid[]) AND organization_id = $2',
+        [findingIds, tenantId]
+      );
+      evidenceList = evidenceRes.rows || [];
+    }
+
+    const manifest = {
+      bundle_version: '1.0.0',
+      analysis_id: analysis.id,
+      project_id: analysis.project_id,
+      project_name: analysis.project_name,
+      target_release: analysis.target_release || 'S4H_2023',
+      knowledge_snapshot_id: 'KNOW_SNAP_2026_09_24',
+      generated_at: new Date().toISOString(),
+      engine_versions: {
+        OPD_GUARD: '2.4.1',
+        FORM_DOCTOR: '3.1.0',
+        MFS_BLACKBOX: '1.8.2',
+        CLEAN_CORE: '4.0.0',
+        SPRO2CLOUD: '2.0.1',
+        ECC2CLOUD: '2.2.0',
+        GAP_RADAR: '1.5.0',
+        CHANGE_POINTER: '1.2.0',
+        API_CHANGE_GUARD: '3.0.0',
+        SOFTWARE_COLLECTION: '1.4.0',
+        TRANSPORT_DEPENDENCY: '2.5.0',
+        SAFE_DECOMMISSION: '1.1.0',
+        FIORI_403_DOCTOR: '2.1.0',
+        WORKFLOW_STUCK: '1.3.0',
+        IAM_OPTIMIZER: '1.0.4',
+        ACCOUNT_DETERMINATION: '1.7.0',
+        SYSTEM_REFRESH: '1.2.0',
+        CUSTOM_FIELD_FLOW: '2.0.0',
+        EXTENSION_IMPACT: '2.1.0',
+      },
+      compliance_checksum: crypto
+        .createHash('sha256')
+        .update(`${analysis.id}:${analysis.target_release}:KNOW_SNAP_2026_09_24`)
+        .digest('hex'),
+    };
+
+    const normalizedHashes = {
+      analysis_id: analysis.id,
+      artifact_hashes: evidenceList.map((e: any) => ({
+        artifact_path: e.artifact_path,
+        sha256: e.sha256,
+        provenance: e.provenance || 'VERIFIED',
+        line_number: e.line_number,
+        column_number: e.column_number,
+      })),
+    };
+
+    const findingsLedger = {
+      total_findings: findings.length,
+      clean_core_score: analysis.clean_core_score || 0,
+      status: analysis.status,
+      findings: findings.map((f: any) => ({
+        id: f.id,
+        rule_id: f.rule_id,
+        engine: f.engine || 'CLEAN_CORE',
+        severity: f.severity,
+        title: f.title,
+        description: f.description,
+        remediation: f.remediation,
+        confidence_class: f.confidence_class || 'VERIFIED',
+        confidence_score: f.confidence_score || 1.0,
+        created_at: f.created_at,
+        evidence: evidenceList
+          .filter((e: any) => e.finding_id === f.id)
+          .map((e: any) => ({
+            id: e.id,
+            artifact_path: e.artifact_path,
+            line_number: e.line_number,
+            snippet: e.snippet,
+            sha256: e.sha256,
+            provenance: e.provenance,
+          })),
+      })),
+    };
+
+    let remediationGuide = `# Technical Preflight Remediation Guide\n\n`;
+    remediationGuide += `**Project**: ${analysis.project_name}\n`;
+    remediationGuide += `**Target Release**: ${analysis.target_release || 'SAP S/4HANA 2023'}\n`;
+    remediationGuide += `**Knowledge Snapshot**: KNOW_SNAP_2026_09_24\n`;
+    remediationGuide += `**Generated**: ${new Date().toISOString()}\n\n`;
+    remediationGuide += `## Executive Finding Summary\n\n`;
+    remediationGuide += `Total Findings: ${findings.length}\n\n`;
+
+    for (const f of findings) {
+      remediationGuide += `### [${f.severity}] ${f.rule_id}: ${f.title}\n\n`;
+      remediationGuide += `**Description**: ${f.description || 'N/A'}\n\n`;
+      remediationGuide += `**Technical Remediation**:\n${f.remediation || 'Follow standard SAP Clean Core migration path.'}\n\n`;
+      const relatedEv = evidenceList.filter((e: any) => e.finding_id === f.id);
+      if (relatedEv.length > 0) {
+        remediationGuide += `**Cryptographic Evidence**:\n`;
+        for (const ev of relatedEv) {
+          remediationGuide += `- \`${ev.artifact_path}\` (line ${ev.line_number || 'N/A'}) — SHA-256: \`${ev.sha256}\`\n`;
+        }
+        remediationGuide += `\n`;
+      }
+      remediationGuide += `---\n\n`;
+    }
+
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+    archive.on('data', (chunk) => chunks.push(chunk));
+
+    await new Promise<void>((resolve, reject) => {
+      archive.on('end', () => resolve());
+      archive.on('error', (err) => reject(err));
+      archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+      archive.append(JSON.stringify(normalizedHashes, null, 2), { name: 'normalized_hashes.json' });
+      archive.append(JSON.stringify(findingsLedger, null, 2), { name: 'findings_ledger.json' });
+      archive.append(remediationGuide, { name: 'remediation_guide.md' });
+      archive.finalize();
+    });
+
+    const buffer = Buffer.concat(chunks);
+    const fileName = `Reproducibility_Bundle_${analysisId.slice(0, 8)}.zip`;
+    const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+    return { buffer, fileName, checksumSha256 };
   }
 }

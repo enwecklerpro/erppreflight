@@ -82,6 +82,18 @@ const CHECKS = [
     pattern: /\bUNKNOWN\b/,
     forbidden: false, // Required to be present!
   },
+  {
+    name: 'Zero generateMockSapObjects or cachedMockObjects in Web source',
+    dir: path.join(ROOT_DIR, 'apps', 'web', 'src'),
+    pattern: /\b(generateMockSapObjects|cachedMockObjects)\b/,
+    forbidden: true,
+  },
+  {
+    name: 'Zero hardcoded INITIAL_SERVICES in StatusPage',
+    file: path.join(ROOT_DIR, 'apps', 'web', 'src', 'app', 'status', 'page.tsx'),
+    pattern: /\bINITIAL_SERVICES\b/,
+    forbidden: true,
+  },
 ];
 
 let failed = false;

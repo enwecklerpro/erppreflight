@@ -1,16 +1,97 @@
 import * as React from 'react';
 import { ColumnDef } from '@tanstack/react-table';
-import { Finding, CleanCoreTier } from '@erppreflight/schemas';
+import { Finding, CleanCoreTier, DriftClassification } from '@erppreflight/schemas';
 import { SeverityBadge } from './severity-badge';
 import { ConfidenceBadge } from './confidence-badge';
 import { CleanCoreBadge } from './clean-core-badge';
 import { ALL_18_ENGINES } from '../../lib/api-client';
 import { FilterDef } from '../data-table/types';
-import { ChevronRight, ChevronDown, Copy, Check } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronDown,
+  Copy,
+  Check,
+  AlertTriangle,
+  ShieldAlert,
+  CheckCircle2,
+} from 'lucide-react';
 
 const engineMap = new Map(ALL_18_ENGINES.map((e) => [e.id, e.name]));
 
+export interface DriftBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  classification?: DriftClassification | string | null;
+  size?: 'sm' | 'default';
+  showIcon?: boolean;
+}
+
+const driftConfig: Record<
+  DriftClassification,
+  {
+    icon: React.ComponentType<{ className?: string }>;
+    className: string;
+    label: string;
+  }
+> = {
+  NEWLY_INTRODUCED_RISK: {
+    icon: AlertTriangle,
+    className:
+      'bg-rose-50 text-rose-800 border-rose-300 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-800',
+    label: 'Newly Introduced (Regression)',
+  },
+  KNOWN_BASELINE_RISK: {
+    icon: ShieldAlert,
+    className:
+      'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
+    label: 'Known Baseline (Accepted)',
+  },
+  RESOLVED_RISK: {
+    icon: CheckCircle2,
+    className:
+      'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-800',
+    label: 'Resolved Risk',
+  },
+};
+
+export function DriftBadge({
+  classification,
+  size = 'default',
+  showIcon = true,
+  className = '',
+  ...props
+}: DriftBadgeProps) {
+  if (!classification || !(classification in driftConfig)) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+
+  const conf = driftConfig[classification as DriftClassification];
+  const Icon = conf.icon;
+  const isSm = size === 'sm';
+
+  return (
+    <span
+      role="status"
+      aria-label={`Drift Status: ${conf.label}`}
+      className={`inline-flex items-center gap-1.5 font-semibold border rounded-full select-none ${
+        isSm ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-0.5 text-xs'
+      } ${conf.className} ${className}`}
+      {...props}
+    >
+      {showIcon && <Icon className={`${isSm ? 'size-3' : 'size-3.5'} shrink-0`} aria-hidden="true" />}
+      <span>{conf.label}</span>
+    </span>
+  );
+}
+
 export const findingFacetedFilters: FilterDef[] = [
+  {
+    id: 'driftClassification',
+    title: 'Drift Status',
+    options: [
+      { label: 'Newly Introduced (Regression)', value: 'NEWLY_INTRODUCED_RISK' },
+      { label: 'Known Baseline (Accepted)', value: 'KNOWN_BASELINE_RISK' },
+      { label: 'Resolved Risk', value: 'RESOLVED_RISK' },
+    ],
+  },
   {
     id: 'severity',
     title: 'Severity',
@@ -145,7 +226,24 @@ export const findingColumns: ColumnDef<Finding>[] = [
     size: 130,
   },
 
-  // 5. Epistemic Confidence & Trust Score
+  // 5. Drift Status (Non-Color Triad)
+  {
+    id: 'driftClassification',
+    header: 'Drift Status',
+    accessorFn: (row) => (row as any).driftClassification ?? null,
+    cell: ({ row }) => {
+      const drift = (row.original as any).driftClassification as DriftClassification | undefined;
+      return <DriftBadge classification={drift} size="sm" />;
+    },
+    filterFn: (row, id, value: string[]) => {
+      if (!value || value.length === 0) return true;
+      const cellVal = String(row.getValue(id) || '');
+      return value.includes(cellVal);
+    },
+    size: 190,
+  },
+
+  // 6. Epistemic Confidence & Trust Score
   {
     accessorKey: 'confidence',
     id: 'confidence',

@@ -86,8 +86,11 @@ All 19 preflight engines (18 specialized SAP engines + MFS BlackBox) are impleme
 
 ## 5. Automated Test Pass Record
 
-- **TypeScript Unit & Integration Tests**: **407 passed (407)** across 22 test files under Vitest (100% pass rate).
-- **Python Deterministic Engine Tests**: **488 passed (488)** across all 19 engines under Pytest (100% pass rate).
-- **Next.js 15 Web Production Build**: All 8 application routes compiled cleanly with zero TypeScript errors.
-- **NestJS 11 API Production Build**: 0 errors under TypeScript strict mode.
+- **TypeScript Unit & Integration Tests**: **635 passed (635)** across 38 test files under Vitest (100% pass rate).
+  - `@erppreflight/api`: 504 passed (504) across 30 test files
+  - `@erppreflight/web`: 131 passed (131) across 8 test files
+- **Python Deterministic Engine Tests**: **501 passed (501)** across all 19 engines under Pytest (100% pass rate in 1.30s).
+- **Combined Automated Monorepo Tests**: **1,136 passed tests (100% pass rate)**.
+- **Next.js 15 Web Production Build**: All 24 application routes compiled cleanly with zero TypeScript errors.
+- **NestJS 11 API Production Build**: 0 errors under TypeScript strict mode across 26 modules.
 - **Compliance Gates**: `check:deps` and `check:no-production-facades` pass with 0 errors.

@@ -27,3 +27,10 @@ export class UpdateProjectDto {
   @IsOptional()
   targetRelease?: string;
 }
+
+export class SetBaselineDto {
+  @IsString()
+  @IsNotEmpty()
+  analysisId: string;
+}
+

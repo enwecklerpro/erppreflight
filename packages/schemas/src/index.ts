@@ -9,3 +9,4 @@ export * from './audit';
 export * from './router';
 export * from './export';
 export * from './sap-object';
+export * from './lab';

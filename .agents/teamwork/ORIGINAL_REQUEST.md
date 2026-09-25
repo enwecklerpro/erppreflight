@@ -98,3 +98,77 @@ Integrity mode: development
 ### Verification & E2E
 - [ ] Playwright E2E test runs against live/staging services, verifying artifact upload, BullMQ analysis, and finding persistence with exact SHA-256 evidence match.
 - [ ] `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`, and all unit tests pass with 100% success rate.
+
+## 2026-09-25T03:10:02Z
+
+Execute and verify the next 4 critical enterprise capabilities in ERP Preflight (`H:/erppreflight`) based on Parts 05, 14, 15, and 16 of the Master Specification, providing interactive test generation, baseline comparison, audit bundles, and deep object inspection.
+
+Working directory: `H:/erppreflight`
+Integrity mode: development
+
+---
+
+## Requirements
+
+### R1. Scenario & Regression Test Lab (`/projects/:id/lab`)
+- Build an interactive Scenario & Regression Test Lab in `apps/web/src/app/projects/[id]/lab/page.tsx` and NestJS `LabModule` (`POST /api/v1/projects/:id/lab/generate`).
+- Support synthetic fixture generation across 4 core domains:
+  - OPD Output decision table scenarios (Email/Print/EDI channel test payloads)
+  - Adobe Document Services (ADS) Form XML schema binding variations
+  - MFS PLC telegram sequences with simulated conveyor topology events
+  - Material Master (MATMAS) change pointer delta triggers
+- Allow consultants to execute live test runs against preflight engines directly in the browser with pass/fail regression assertion ledgers.
+
+### R2. Digital Project Baselines & Configuration Drift Engine
+- Implement Project Baseline management in `apps/api/src/modules/projects/` and Web UI:
+  - User can mark any completed analysis run as the official `PROJECT_BASELINE`.
+  - Future analysis runs compare against the baseline to categorize findings into:
+    - `KNOWN_BASELINE_RISK` (pre-existing accepted issues)
+    - `NEWLY_INTRODUCED_RISK` (regression drift introduced since baseline)
+    - `RESOLVED_RISK` (successfully mitigated issues)
+- Visualize before/after drift metrics in project overview and findings ledger.
+
+### R3. Cryptographic Reproducibility Bundle Downloader (`.zip`)
+- Implement backend endpoint `GET /api/v1/analyses/:id/reproducibility-bundle` generating a signed ZIP export:
+  - `manifest.json`: Engine versions, rule bundle versions, knowledge snapshot ID (`KNOW_SNAP_2026_09_24`), target SAP release.
+  - `normalized_hashes.json`: SHA-256 hashes of original and sanitized input artifacts.
+  - `findings_ledger.json`: Complete deterministic findings with cryptographic evidence pointers.
+  - `remediation_guide.md`: Technical remediation steps tailored to the target release.
+- Add "Download Reproducibility Bundle" action in Universal Inspector and Findings views.
+
+### R4. Universal SAP Object Inspector (`/objects` & Modal)
+- Implement universal object inspection in `apps/web/src/app/projects/[id]/objects/page.tsx` and interactive modal:
+  - Displays object metadata (type: CDS, Table, BAdI, Class, Form, OPD Table, Telegram).
+  - Target release compatibility and Clean Core Tier classification (Tier 1 Cloud, Tier 2 Released, Tier 3 Legacy).
+  - Upstream and downstream dependencies with clickable graph links.
+  - Associated active findings and audit history.
+
+---
+
+## Acceptance Criteria
+
+### Test Lab & Synthetic Generation
+- [ ] Users can generate synthetic test fixtures for OPD, Forms, MFS, and Change Pointers.
+- [ ] Live execution runs test payloads against Python engines and returns deterministic regression results.
+- [ ] Synthetic fixtures are clearly labeled with non-color indicators.
+
+### Baselines & Drift
+- [ ] Project workspace allows setting an analysis as active baseline.
+- [ ] Subsequent preflights compute exact finding diffs (New, Resolved, Persistent).
+- [ ] Executive summary highlights newly introduced risk vs existing accepted baseline risk.
+
+### Reproducibility Bundle
+- [ ] `GET /api/v1/analyses/:id/reproducibility-bundle` downloads a valid ZIP archive.
+- [ ] Archive contains manifest, hashes, deterministic findings, and remediation markdown.
+- [ ] Zero unredacted customer secrets or passwords contained in the bundle.
+
+### Universal Object Inspector
+- [ ] Clicking any known SAP object opens the detailed inspector drawer/modal.
+- [ ] Object details show Clean Core tiering, release status, dependent transports, and linked findings.
+
+### Quality & Performance Gates
+- [ ] `pnpm run check:deps` passes with zero forbidden duplicate libraries.
+- [ ] `pnpm run check:no-production-facades` passes with zero mock facades.
+- [ ] `pnpm run typecheck` and `pnpm run build` complete with 0 TypeScript/compilation errors.
+- [ ] 100% test pass rate across TypeScript (`pnpm run test`) and Python (`pnpm run test:python`).
+

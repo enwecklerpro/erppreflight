@@ -33,6 +33,8 @@ import { LandscapesModule } from './modules/landscapes/landscapes.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { ChangelogModule } from './modules/changelog/changelog.module';
+import { LabModule } from './modules/lab/lab.module';
+import { ObjectsModule } from './modules/objects/objects.module';
 
 @Module({
   imports: [
@@ -81,6 +83,8 @@ import { ChangelogModule } from './modules/changelog/changelog.module';
     TemplatesModule,
     FeedbackModule,
     ChangelogModule,
+    LabModule,
+    ObjectsModule,
   ],
 })
 export class AppModule implements NestModule {

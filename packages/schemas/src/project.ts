@@ -4,6 +4,13 @@ import { TargetReleaseEnum } from './common';
 export const EnvironmentTierEnum = z.enum(['DEV', 'TEST', 'QA', 'PROD']);
 export type EnvironmentTier = z.infer<typeof EnvironmentTierEnum>;
 
+export const DriftClassificationEnum = z.enum([
+  'KNOWN_BASELINE_RISK',
+  'NEWLY_INTRODUCED_RISK',
+  'RESOLVED_RISK',
+]);
+export type DriftClassification = z.infer<typeof DriftClassificationEnum>;
+
 export const ProjectSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
@@ -12,11 +19,25 @@ export const ProjectSchema = z.object({
   description: z.string().optional().nullable(),
   targetRelease: TargetReleaseEnum.default('S4H_2023'),
   environments: z.array(EnvironmentTierEnum).default(['DEV']),
+  baselineAnalysisId: z.string().uuid().optional().nullable(),
   createdBy: z.string().uuid().optional().nullable(),
   createdAt: z.string().datetime().optional(),
   updatedAt: z.string().datetime().optional(),
 });
 export type Project = z.infer<typeof ProjectSchema>;
+
+export const DriftSummarySchema = z.object({
+  knownBaselineRisks: z.number().int().nonnegative(),
+  newlyIntroducedRisks: z.number().int().nonnegative(),
+  resolvedRisks: z.number().int().nonnegative(),
+  scoreDelta: z.number(),
+});
+export type DriftSummary = z.infer<typeof DriftSummarySchema>;
+
+export const SetBaselineRequestSchema = z.object({
+  analysisId: z.string().uuid(),
+});
+export type SetBaselineRequest = z.infer<typeof SetBaselineRequestSchema>;
 
 export const QuarantineStatusEnum = z.enum([
   'PENDING_SCAN',
