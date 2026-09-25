@@ -61,8 +61,11 @@ export class HealthService {
       const res = await fetch(`${analysisUrl}/health`, { signal: AbortSignal.timeout(2000) });
       if (res.ok) {
         analysisStatus = 'up';
-        const data: any = await res.json().catch(() => ({}));
-        engines = data.engines || 0;
+        const enginesRes = await fetch(`${analysisUrl}/api/v1/engines`, { signal: AbortSignal.timeout(2000) });
+        if (enginesRes.ok) {
+          const list: unknown = await enginesRes.json().catch(() => []);
+          engines = Array.isArray(list) ? list.length : 0;
+        }
       }
     } catch (e) {
       analysisStatus = 'down';
@@ -70,7 +73,8 @@ export class HealthService {
 
     // ClamAV
     let clamavStatus: 'up' | 'down' | 'mock_mode' = 'mock_mode';
-    const useMock = this.config.get<string>('CLAMAV_MOCK_MODE') !== 'false'; // Default to true/mock if not explicitly false
+    // Validated env turns CLAMAV_MOCK_MODE into a boolean; accept both shapes (same rule as ClamAvScanner).
+    const useMock = String(this.config.get('CLAMAV_MOCK_MODE', 'true')).toLowerCase() === 'true';
     if (!useMock) {
       const clamavHost = this.config.get<string>('CLAMAV_HOST') || 'localhost';
       const clamavPort = parseInt(this.config.get<string>('CLAMAV_PORT') || '3310', 10);
