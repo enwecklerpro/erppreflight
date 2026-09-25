@@ -20,6 +20,7 @@ import { FindingsModule } from './modules/findings/findings.module';
 import { AnalysesModule } from './modules/analyses/analyses.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -55,13 +56,14 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     AnalysesModule,
     DashboardModule,
     OrganizationsModule,
+    AdminModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenancyMiddleware)
-      .exclude('health/(.*)', 'health', 'auth/login', 'auth/register')
+      .exclude('health/(.*)', 'health', 'auth/login', 'auth/register', 'admin/(.*)', 'admin')
       .forRoutes('*');
   }
 }

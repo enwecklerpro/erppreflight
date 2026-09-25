@@ -230,3 +230,103 @@ export async function fetchEngineStatus(): Promise<{
     engines: EngineStatusItem[];
   }>('/engines/status');
 }
+
+// -----------------------------------------------------------------------------
+// Super Admin & Global Trust Center Operations
+// -----------------------------------------------------------------------------
+
+export interface AdminOverviewData {
+  totalTenants: number;
+  totalUsers: number;
+  totalProjects: number;
+  totalAnalyses: number;
+  totalFindings: number;
+  blockersAndCritical: number;
+  cleanCoreIndex: number;
+  systemHealth: {
+    database: string;
+    redisQueue: string;
+    pythonEngines: string;
+    status: string;
+  };
+}
+
+export interface AdminTenantItem {
+  id: string;
+  name: string;
+  slug: string;
+  planTier: string;
+  status: string;
+  createdAt: string;
+  userCount: number;
+  projectCount: number;
+  analysisCount: number;
+}
+
+export interface AdminUserItem {
+  id: string;
+  email: string;
+  fullName: string | null;
+  systemRole: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
+  status: string;
+  createdAt: string;
+  organizations: Array<{
+    organizationId: string;
+    organizationName: string;
+    role: string;
+  }>;
+}
+
+export interface AdminQueueData {
+  queueName: string;
+  status: string;
+  counts: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+    paused: number;
+  };
+}
+
+export async function fetchCurrentUser() {
+  return customInstance<{
+    user: {
+      id: string;
+      email: string;
+      fullName: string;
+      organizationId: string;
+      role: string;
+      systemRole: string;
+    };
+  }>('/auth/me');
+}
+
+export async function fetchAdminOverview(): Promise<AdminOverviewData> {
+  return customInstance<AdminOverviewData>('/admin/overview');
+}
+
+export async function fetchAdminTenants(): Promise<AdminTenantItem[]> {
+  return customInstance<AdminTenantItem[]>('/admin/tenants');
+}
+
+export async function fetchAdminUsers(): Promise<AdminUserItem[]> {
+  return customInstance<AdminUserItem[]>('/admin/users');
+}
+
+export async function updateAdminUserRole(
+  userId: string,
+  systemRole: 'USER' | 'ADMIN' | 'SUPER_ADMIN'
+): Promise<any> {
+  return customInstance(`/admin/users/${userId}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ systemRole }),
+  });
+}
+
+export async function fetchAdminQueues(): Promise<AdminQueueData> {
+  return customInstance<AdminQueueData>('/admin/queues');
+}
+

@@ -1,17 +1,37 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Layers,
   LayoutDashboard,
   FolderGit2,
   SearchCode,
   ShieldCheck,
+  ShieldAlert,
+  LogOut,
+  LogIn,
+  User,
 } from 'lucide-react';
+import { fetchCurrentUser } from '../lib/api-client';
+import { customInstance } from '../lib/api/custom-instance';
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const { data: authData } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: fetchCurrentUser,
+    retry: false,
+    staleTime: 1000 * 60,
+  });
+
+  const currentUser = authData?.user;
+  const isSuperAdmin = currentUser?.systemRole === 'SUPER_ADMIN';
 
   const navItems = [
     { label: 'Executive Dashboard', href: '/', icon: LayoutDashboard },
@@ -19,24 +39,44 @@ export function Navbar() {
     { label: 'Analysis Inspector', href: '/inspector', icon: SearchCode },
   ];
 
+  if (isSuperAdmin) {
+    navItems.push({
+      label: 'Admin Trust Center',
+      href: '/admin',
+      icon: ShieldAlert,
+    });
+  }
+
+  const handleLogout = async () => {
+    try {
+      await customInstance('/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore
+    }
+    queryClient.clear();
+    router.push('/login');
+  };
+
   return (
     <header className="border-b border-border bg-card sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
-            <Layers className="h-6 w-6" />
-          </div>
-          <div>
-            <span className="text-xl font-bold tracking-tight text-foreground">
-              ERP Preflight
-            </span>
-            <span className="hidden sm:inline-block ml-2 text-xs uppercase px-2 py-0.5 font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 rounded">
-              Astra Ultra SaaS
-            </span>
-          </div>
+          <Link href="/" className="flex items-center space-x-3">
+            <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
+              <Layers className="h-6 w-6" />
+            </div>
+            <div>
+              <span className="text-xl font-bold tracking-tight text-foreground">
+                ERP Preflight
+              </span>
+              <span className="hidden sm:inline-block ml-2 text-xs uppercase px-2 py-0.5 font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 rounded">
+                Astra Ultra SaaS
+              </span>
+            </div>
+          </Link>
         </div>
 
-        <nav className="flex space-x-1 sm:space-x-4">
+        <nav className="flex space-x-1 sm:space-x-3">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active =
@@ -47,9 +87,9 @@ export function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400'
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 font-semibold'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
@@ -60,11 +100,47 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="flex items-center space-x-3 text-xs text-muted-foreground">
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300 rounded-full border border-green-200 dark:border-green-800">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span className="font-medium">18 Engines Operational</span>
-          </div>
+        <div className="flex items-center space-x-3 text-xs">
+          {currentUser ? (
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex flex-col items-end">
+                <span className="font-semibold text-foreground">{currentUser.email}</span>
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                    isSuperAdmin
+                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {currentUser.systemRole}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-muted font-medium transition-colors"
+              >
+                <LogIn className="h-3.5 w-3.5" />
+                <span>Login</span>
+              </Link>
+              <Link
+                href="/signup"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-sm"
+              >
+                <span>Sign Up</span>
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </header>
