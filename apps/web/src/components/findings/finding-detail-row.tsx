@@ -1,15 +1,44 @@
 import * as React from 'react';
 import { Finding } from '@erppreflight/schemas';
-import { FileCode, Hash, Wrench, Shield, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, Send, Loader2, GitBranch, Binary, Cpu, BookOpen } from 'lucide-react';
+import { FileCode, Hash, Wrench, Shield, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, Send, Loader2, GitBranch, Binary, Cpu, BookOpen, UserCheck, ShieldAlert } from 'lucide-react';
 import { CleanCoreBadge } from './clean-core-badge';
 import { ConfidenceBadge } from './confidence-badge';
-import { createWorkItemForFinding } from '@/lib/api-client';
+import { createWorkItemForFinding, reviewFinding } from '@/lib/api-client';
 
 export function FindingDetailRow({ finding }: { finding: Finding }) {
   const [copiedHash, setCopiedHash] = React.useState<string | null>(null);
   const [creatingTask, setCreatingTask] = React.useState(false);
   const [targetSystem, setTargetSystem] = React.useState('SAP_CLOUD_ALM');
   const [createdTask, setCreatedTask] = React.useState<{ workItemId: string; externalSystem: string } | null>(null);
+
+  // Expert Review & Risk Waiver state (Part 14.12, 14.13, 15.13)
+  const [reviewStatus, setReviewStatus] = React.useState<string>(
+    (finding.technicalDetails as any)?.review?.status || 'OPEN'
+  );
+  const [reviewJustification, setReviewJustification] = React.useState<string>(
+    (finding.technicalDetails as any)?.review?.justification || ''
+  );
+  const [reviewScope, setReviewScope] = React.useState<'FINDING_ONLY' | 'OBJECT_RULE' | 'TENANT_OVERRIDE'>('FINDING_ONLY');
+  const [reviewing, setReviewing] = React.useState(false);
+  const [showReviewInput, setShowReviewInput] = React.useState(false);
+  const [pendingStatus, setPendingStatus] = React.useState<'VERIFIED' | 'ACCEPTED_RISK' | 'SUPPRESSED_FALSE_POSITIVE' | 'OPEN'>('VERIFIED');
+
+  const handleSubmitReview = async () => {
+    setReviewing(true);
+    try {
+      await reviewFinding(finding.id, {
+        status: pendingStatus,
+        justification: reviewJustification.trim() || `Status updated to ${pendingStatus} by architect`,
+        suppressScope: reviewScope,
+      });
+      setReviewStatus(pendingStatus);
+      setShowReviewInput(false);
+    } catch (err) {
+      console.error('Failed to submit review:', err);
+    } finally {
+      setReviewing(false);
+    }
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
@@ -117,6 +146,127 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               <p className="text-[11px] text-muted-foreground">
                 Remediation task created with technical context, line references, and reproducibility hash.
               </p>
+            )}
+          </div>
+
+          {/* Expert Review & Risk Acceptance / Waiver (Part 14.12, 14.13 & 15.13) */}
+          <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h5 className="font-semibold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <UserCheck className="size-3 text-cyan-500" />
+                Expert Review & Risk Waiver
+              </h5>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                  reviewStatus === 'VERIFIED'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : reviewStatus === 'ACCEPTED_RISK'
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : reviewStatus === 'SUPPRESSED_FALSE_POSITIVE'
+                    ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                    : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                }`}
+              >
+                {reviewStatus === 'VERIFIED' && <CheckCircle2 className="size-3" />}
+                {reviewStatus === 'ACCEPTED_RISK' && <Shield className="size-3" />}
+                {reviewStatus === 'SUPPRESSED_FALSE_POSITIVE' && <ShieldAlert className="size-3" />}
+                {reviewStatus === 'OPEN' && <AlertCircle className="size-3" />}
+                {reviewStatus}
+              </span>
+            </div>
+
+            {reviewJustification && (
+              <div className="p-2 rounded bg-background border border-border/80 text-[11px] text-muted-foreground">
+                <span className="font-semibold text-foreground">Architect Rationale: </span>
+                {reviewJustification}
+              </div>
+            )}
+
+            {!showReviewInput ? (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingStatus('VERIFIED');
+                    setShowReviewInput(true);
+                  }}
+                  className="px-2.5 py-1 rounded bg-background hover:bg-muted text-foreground border border-border text-[11px] font-medium transition-colors"
+                >
+                  Verify Finding
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingStatus('ACCEPTED_RISK');
+                    setShowReviewInput(true);
+                  }}
+                  className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition-colors"
+                >
+                  Grant Risk Waiver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingStatus('SUPPRESSED_FALSE_POSITIVE');
+                    setShowReviewInput(true);
+                  }}
+                  className="px-2.5 py-1 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-medium transition-colors"
+                >
+                  Suppress False Positive
+                </button>
+                {reviewStatus !== 'OPEN' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingStatus('OPEN');
+                      setShowReviewInput(true);
+                    }}
+                    className="px-2.5 py-1 rounded bg-background hover:bg-muted text-muted-foreground border border-border text-[11px] font-medium transition-colors"
+                  >
+                    Re-Open
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2 pt-1 bg-background/80 p-3 rounded-lg border border-border">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-foreground">
+                  <span>Target Status: {pendingStatus}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowReviewInput(false)}
+                    className="text-muted-foreground hover:text-foreground text-[10px]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={reviewJustification}
+                  onChange={(e) => setReviewJustification(e.target.value)}
+                  placeholder="Enter architectural rationale or reference OSS note/ticket..."
+                  className="w-full px-2.5 py-1.5 rounded bg-background border border-border text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <select
+                    value={reviewScope}
+                    onChange={(e) => setReviewScope(e.target.value as any)}
+                    className="rounded border border-border bg-background px-2 py-1 text-[10px] text-foreground focus:outline-none"
+                  >
+                    <option value="FINDING_ONLY">Scope: This Finding Only</option>
+                    <option value="OBJECT_RULE">Scope: This Rule on Object ({finding.affectedObjects?.[0]?.name || 'Object'})</option>
+                    <option value="TENANT_OVERRIDE">Scope: Organization-Wide Override</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleSubmitReview}
+                    disabled={reviewing}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {reviewing ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+                    Confirm Status
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

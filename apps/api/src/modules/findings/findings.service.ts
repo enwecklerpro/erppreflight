@@ -280,5 +280,77 @@ export class FindingsService {
       taskBody: workItemPayload,
     };
   }
+
+  /**
+   * Part 14.12, 14.13 & 15.13: Expert Review Mode, Risk Waiver & False-Positive Suppression
+   */
+  async reviewFinding(
+    tenantId: string,
+    findingId: string,
+    userId: string,
+    dto: {
+      status: 'OPEN' | 'VERIFIED' | 'ACCEPTED_RISK' | 'SUPPRESSED_FALSE_POSITIVE';
+      justification: string;
+      suppressScope?: 'FINDING_ONLY' | 'OBJECT_RULE' | 'TENANT_OVERRIDE';
+    }
+  ) {
+    const finding = await this.findById(tenantId, findingId);
+
+    const reviewRecord = {
+      status: dto.status,
+      justification: dto.justification || 'Reviewed by SAP Solution Architect',
+      reviewedBy: userId,
+      reviewedAt: new Date().toISOString(),
+      suppressScope: dto.suppressScope || 'FINDING_ONLY',
+    };
+
+    const updatedTechnicalDetails = {
+      ...(finding.technicalDetails || {}),
+      review: reviewRecord,
+    };
+
+    // Update target finding
+    await this.db.query(
+      `UPDATE findings
+       SET technical_details = $1
+       WHERE organization_id = $2 AND id = $3`,
+      [JSON.stringify(updatedTechnicalDetails), tenantId, findingId]
+    );
+
+    // If scope is OBJECT_RULE or TENANT_OVERRIDE, cascade review to matching findings
+    if (
+      (dto.suppressScope === 'OBJECT_RULE' || dto.suppressScope === 'TENANT_OVERRIDE') &&
+      finding.ruleId
+    ) {
+      const objName =
+        (Array.isArray(finding.affectedObjects) && (finding.affectedObjects[0] as any)?.name) ||
+        null;
+
+      if (dto.suppressScope === 'OBJECT_RULE' && objName) {
+        await this.db.query(
+          `UPDATE findings
+           SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
+           WHERE organization_id = $2
+             AND rule_id = $3
+             AND affected_objects @> $4::jsonb`,
+          [
+            JSON.stringify(reviewRecord),
+            tenantId,
+            finding.ruleId,
+            JSON.stringify([{ name: objName }]),
+          ]
+        );
+      } else if (dto.suppressScope === 'TENANT_OVERRIDE') {
+        await this.db.query(
+          `UPDATE findings
+           SET technical_details = jsonb_set(COALESCE(technical_details, '{}'::jsonb), '{review}', $1::jsonb)
+           WHERE organization_id = $2 AND rule_id = $3`,
+          [JSON.stringify(reviewRecord), tenantId, finding.ruleId]
+        );
+      }
+    }
+
+    return await this.findById(tenantId, findingId);
+  }
 }
 

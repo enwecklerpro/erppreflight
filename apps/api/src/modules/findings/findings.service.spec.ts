@@ -80,4 +80,48 @@ describe('FindingsService', () => {
     // penalty = 1 * 15 + 1 * 8 = 23 -> cleanCoreIndex = 100 - 23 = 77
     expect(stats.cleanCoreIndex).toBe(77);
   });
+
+  describe('reviewFinding', () => {
+    it('updates finding review status, justification, and reviewer timestamp', async () => {
+      const mockFinding = {
+        id: 'f-1',
+        organization_id: 'org-1',
+        project_id: 'p-1',
+        rule_id: 'CLEAN_CORE_TIER3_DIRECT_DB_MUTATION',
+        severity: 'CRITICAL',
+        technical_details: {},
+        affected_objects: [{ name: 'Z_LEGACY_POST' }],
+      };
+
+      const updatedFinding = {
+        ...mockFinding,
+        technical_details: {
+          review: {
+            status: 'ACCEPTED_RISK',
+            justification: 'Approved migration waiver for legacy report until Q3',
+            reviewedBy: 'user-arch',
+            reviewedAt: '2026-09-25T00:00:00Z',
+            suppressScope: 'FINDING_ONLY',
+          },
+        },
+      };
+
+      mockDb.query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [mockFinding] }) // findById initial
+        .mockResolvedValueOnce({ rows: [] }) // update target
+        .mockResolvedValueOnce({ rows: [updatedFinding] }); // findById returned
+
+      const result = await service.reviewFinding('org-1', 'f-1', 'user-arch', {
+        status: 'ACCEPTED_RISK',
+        justification: 'Approved migration waiver for legacy report until Q3',
+        suppressScope: 'FINDING_ONLY',
+      });
+
+      expect(result.id).toBe('f-1');
+      expect(result.technicalDetails.review.status).toBe('ACCEPTED_RISK');
+      expect(result.technicalDetails.review.justification).toContain('Approved migration waiver');
+    });
+  });
 });
+

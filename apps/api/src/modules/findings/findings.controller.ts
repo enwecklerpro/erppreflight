@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -65,6 +66,21 @@ export class FindingsController {
     @Body() body: { system?: string; title?: string; process?: string }
   ) {
     return this.findingsService.createWorkItem(tenantId, id, userId, body || {});
+  }
+
+  @Patch(':id/review')
+  async reviewFinding(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      status: 'OPEN' | 'VERIFIED' | 'ACCEPTED_RISK' | 'SUPPRESSED_FALSE_POSITIVE';
+      justification: string;
+      suppressScope?: 'FINDING_ONLY' | 'OBJECT_RULE' | 'TENANT_OVERRIDE';
+    }
+  ) {
+    return this.findingsService.reviewFinding(tenantId, id, userId, body);
   }
 }
 

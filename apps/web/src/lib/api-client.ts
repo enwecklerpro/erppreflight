@@ -929,6 +929,27 @@ export async function fetchDiagnosticBundle(projectId: string): Promise<any> {
   return customInstance<any>(`/projects/${projectId}/diagnostic-bundle`);
 }
 
+// -----------------------------------------------------------------------------
+// Finding Review & Waiver Workflow (Part 14.12, 14.13, 15.13)
+// -----------------------------------------------------------------------------
+export interface ReviewFindingPayload {
+  status: 'OPEN' | 'VERIFIED' | 'ACCEPTED_RISK' | 'SUPPRESSED_FALSE_POSITIVE';
+  justification: string;
+  suppressScope?: 'FINDING_ONLY' | 'OBJECT_RULE' | 'TENANT_OVERRIDE';
+}
+
+export async function reviewFinding(
+  findingId: string,
+  payload: ReviewFindingPayload
+): Promise<any> {
+  return customInstance<any>(`/findings/${findingId}/review`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+
 
 
 
