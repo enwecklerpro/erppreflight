@@ -2,7 +2,7 @@
 > **Document Purpose**: Authoritative handoff and onboarding specification for autonomous AI coding agents and enterprise engineers.  
 > **Target Repository**: `https://github.com/enwecklerpro/erppreflight`  
 > **Production Target**: Hostinger VPS (Ubuntu 22.04 / 24.04 LTS) with Coolify v4+ or Docker Compose  
-> **Current Baseline**: Git branch `main`, verified zero-facade production truth  
+> **Current Baseline**: see `RELEASE_READINESS_REPORT.md` for the verified state, what was tested live, and the open gaps against the original specification  
 
 ---
 
@@ -96,14 +96,14 @@ H:/erppreflight/
 │       │   ├── mfs_blackbox.py     # Handling Unit conveyor state machine engine
 │       │   └── ...                 # 15 additional domain-specific engines
 │       ├── src/platform/           # Evidence engine, confidence classifier, AI problem router
-│       └── tests/                  # 501 automated pytest unit & golden fixture tests
+│       └── tests/                  # 548 automated pytest unit, adversarial & golden fixture tests
 │
 ├── packages/
 │   ├── database/                   # Drizzle ORM schema & client (Part 21.42 compliance)
 │   │   ├── src/schema/             # 6 modular schema definitions (core, platform, templates, etc.)
 │   │   ├── src/schema.ts           # Master export for all 25 tables + $inferSelect/$inferInsert
 │   │   ├── src/client.ts           # pg.Pool with withTenantTransaction & getDrizzle() helper
-│   │   ├── migrations/             # 9 canonical SQL migrations (001 to 009) — NOT under src/
+│   │   ├── migrations/             # 10 SQL migrations (001 to 010; 010 = RLS runtime role) — NOT under src/
 │   │   └── src/rls.ts              # PostgreSQL app.current_tenant_id RLS integration
 │   │
 │   ├── schemas/                    # Shared Zod contracts (@erppreflight/schemas)
@@ -252,30 +252,27 @@ docker compose -f docker-compose.coolify.yml ps
 
 ### 4.4 Mandatory Production Environment Variables
 
-Never deploy with default or empty secrets. Ensure these variables are populated in your `.env`:
+The API **refuses to start** in `NODE_ENV=production` when a required secret is missing or still a known default
+(`apps/api/src/config/env.validation.ts`). Template: root `.env.coolify.example`.
 
-```env
-# Database
-POSTGRES_DB=erppreflight
-POSTGRES_USER=erppreflight
-POSTGRES_PASSWORD=[SECURE_RANDOM_PASSWORD]
+| Variable | Required | Notes |
+|---|---|---|
+| `POSTGRES_PASSWORD` | yes | Schema-owner password (used for migrations). |
+| `JWT_SECRET` | yes | ≥ 32 chars, `openssl rand -base64 48`. |
+| `MASTER_ENCRYPTION_KEY` | yes | `openssl rand -hex 32`. Also keys secret-redaction masks. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | yes | MinIO root credentials. |
+| `NEXT_PUBLIC_API_URL` | yes | **Build-time** for the web image (build arg). Changing it needs a web rebuild. |
+| `CORS_ORIGIN` | yes | https origins only, comma-separated. |
+| `DB_RUNTIME_ROLE` | default `erppreflight_app` | NOBYPASSRLS role created by migration 010; tenant transactions `SET LOCAL ROLE` to it so RLS applies. `none` disables (not recommended). |
+| `APP_DATABASE_URL` | optional | Separate non-superuser runtime login. |
+| `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | optional | Creates one SUPER_ADMIN **only if the email does not exist yet**; never resets existing accounts. Password ≥ 12 chars. |
+| `METRICS_TOKEN` | optional | Enables `GET /api/v1/metrics` for Prometheus (otherwise 404 in production). |
+| `ENABLE_SWAGGER` | default `false` | Swagger UI is off in production unless `true`. |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | for billing | Without them checkout returns 503 (no fake URLs). |
+| `CLAMAV_MOCK_MODE` | must be `false` | Uploads fail closed if clamd is unreachable. |
+| `AUTH_RATE_LIMIT_SCALE`, `TRUST_PROXY`, `BILLING_RETURN_ORIGINS`, `ALLOW_PRIVATE_LANDSCAPE_PROBES` | optional | See `.env.coolify.example`. |
 
-# Authentication & Encryption
-JWT_SECRET=[GENERATE_64_CHAR_RANDOM_STRING]
-ADMIN_BOOTSTRAP_PASSWORD=[STRONG_SUPERADMIN_PASSWORD]
-MASTER_ENCRYPTION_KEY=[GENERATE_32_BYTE_HEX_KEY]
-
-# Object Storage (MinIO)
-S3_ACCESS_KEY=[MINIO_ADMIN_USERNAME]
-S3_SECRET_KEY=[MINIO_ADMIN_STRONG_PASSWORD]
-
-# Domains & Routing
-NEXT_PUBLIC_API_URL=https://api.erppreflight.com
-CORS_ORIGIN=https://erppreflight.com,https://api.erppreflight.com
-
-# Antivirus Invariant
-CLAMAV_MOCK_MODE=false
-```
+Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from the environment (§4.1.1).
 
 ---
 
@@ -288,8 +285,15 @@ CLAMAV_MOCK_MODE=false
 pnpm install
 
 # Database migrations: there is NO root `db:migrate` script.
-# Migrations run automatically when the api container starts (api-entrypoint.sh).
-# Locally, start postgres (docker compose) and the api; SQL lives in packages/database/migrations/.
+# Migrations (packages/database/migrations/001..010) run automatically when the API starts
+# (AUTO_MIGRATE=true). Migration 010 creates the RLS runtime role erppreflight_app.
+
+# Local infrastructure only (Postgres/pgvector, Redis, MinIO, ClamAV) from the production compose,
+# with an override file that publishes the ports to localhost (never do this on the VPS):
+#   services: { postgres: {ports: ["5432:5432"]}, redis: {ports: ["6379:6379"]},
+#               minio: {ports: ["9000:9000","9001:9001"]}, clamav: {ports: ["3310:3310"]} }
+docker network create coolify 2>/dev/null || true
+docker compose --env-file .env -f docker-compose.coolify.yml -f compose.local.yml up -d postgres redis minio clamav
 
 # Start all applications in watch/dev mode
 pnpm dev
@@ -306,28 +310,32 @@ cd services/analysis-python && uvicorn src.main:app --reload --port 8000   # ent
 
 ### 5.2 Mandatory Pre-Commit Quality Gates
 
-Before committing any code or pushing changes to `main`, run this exact sequence:
+```bash
+pnpm run typecheck                         # 0 errors (13 packages)
+pnpm run lint
+pnpm run test                              # API 678, Web 155, local-agent 5 — all must pass
+pnpm run test:python                       # 548 Python tests (scripts/run-pytest.mjs picks python3/python/py)
+pnpm run check:deps && pnpm run check:no-production-facades && pnpm run check:production-truth
+pnpm run build
+pnpm --filter @erppreflight/api run test:boot   # compiles the full Nest DI graph from dist/ (catches startup crashes)
+```
+
+### 5.3 Live End-to-End Verification (against a running stack)
+
+Unit tests mock the database, S3, ClamAV and the Python service. Every serious defect fixed on
+2026-09-25 was invisible to them and only showed up in a live run. After any change to ingestion,
+analysis, tenancy, redaction or export, run both smoke tests against a running stack:
 
 ```bash
-# 1. TypeScript Strict Typecheck (Must report 0 errors across 13 packages)
-pnpm run typecheck
-
-# 2. TypeScript Unit & Integration Tests (Must pass 100%)
-pnpm run test
-
-# 3. Python Analysis Engines Pytest Suite (Must pass all 501 tests)
-pnpm run test:python        # scripts/run-pytest.mjs: uses $PYTHON, python3, python or py
-# Requires: pip install -r services/analysis-python/requirements.txt pytest pytest-asyncio hypothesis
-
-# 4. Production Truth Gate (Verifies zero fake IDs, real HTTP handshakes)
-pnpm run check:production-truth
-
-# 5. Anti-Facade Linter (Blocks mock timeouts, swallowed errors, hardcoded data)
-pnpm run check:no-production-facades
-
-# 6. Full Monorepo Build (Next.js 15 SSR and NestJS compilation)
-pnpm run build
+API_BASE_URL=http://localhost:3001 pnpm smoke:live   # 21 API checks: register, upload+ClamAV, analysis,
+                                                      # findings+evidence, 5 export formats, tenant isolation,
+                                                      # secret redaction at rest
+WEB_URL=http://localhost:3000 pnpm smoke:ui          # Chromium: signup -> project -> upload -> launch -> finding
 ```
+
+Local API run with production semantics: `pnpm --filter @erppreflight/api build`, then start
+`node apps/api/dist/src/main.js` with `NODE_ENV=production` and the variables from §4.4. The web must be built with
+`NEXT_PUBLIC_API_URL=http://localhost:3001` and served with `next start`.
 
 ---
 
