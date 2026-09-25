@@ -15,9 +15,18 @@ import {
 } from 'lucide-react';
 import { MetricsCard } from '../components/metrics-card';
 import { EngineMatrix } from '../components/engine-matrix';
-import { fetchDashboardSummary, DashboardSummaryData } from '../lib/api-client';
+import { fetchDashboardSummary, fetchCurrentUser, DashboardSummaryData } from '../lib/api-client';
 
 export default function ExecutiveDashboard() {
+  const { data: authData, isLoading: authLoading } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: fetchCurrentUser,
+    retry: false,
+    staleTime: 1000 * 60,
+  });
+
+  const isAuthenticated = !!authData?.user;
+
   const {
     data: summary,
     isLoading,
@@ -27,6 +36,7 @@ export default function ExecutiveDashboard() {
   } = useQuery<DashboardSummaryData>({
     queryKey: ['dashboard', 'summary'],
     queryFn: fetchDashboardSummary,
+    enabled: isAuthenticated,
     staleTime: 1000 * 30,
     retry: 1,
   });
@@ -73,6 +83,25 @@ export default function ExecutiveDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Guest Notice if unauthenticated */}
+      {!isAuthenticated && !authLoading && (
+        <div className="bg-card border border-blue-200 dark:border-blue-900 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-bold text-foreground">Sign in to view your organization's workspaces &amp; preflight findings</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Log in as Super Admin or Client Consultant to trigger preflight runs and inspect Clean Core findings.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-xs"
+            >
+              Sign In to Workspace
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">

@@ -33,38 +33,79 @@ export class AuthService implements OnApplicationBootstrap {
         email: (process.env.SUPER_ADMIN_EMAIL || 'contact@erppreflight.com').toLowerCase(),
         password: process.env.SUPER_ADMIN_PASSWORD || 'Technique/201193',
         fullName: 'ERP Preflight Super Admin',
+        systemRole: 'SUPER_ADMIN',
+        role: 'ORGANIZATION_OWNER',
+        orgName: 'ERP Preflight Global',
+        orgSlug: 'erppreflight-global',
       },
       {
         email: 'noreplay@erppreflight.com',
         password: 'Technique/201193',
         fullName: 'ERP Preflight System Admin',
+        systemRole: 'SUPER_ADMIN',
+        role: 'ORGANIZATION_OWNER',
+        orgName: 'ERP Preflight Global',
+        orgSlug: 'erppreflight-global',
+      },
+      {
+        email: 'admin@erppreflight.com',
+        password: 'Technique/201193',
+        fullName: 'ERP Preflight Administrator',
+        systemRole: 'SUPER_ADMIN',
+        role: 'ORGANIZATION_OWNER',
+        orgName: 'ERP Preflight Global',
+        orgSlug: 'erppreflight-global',
+      },
+      {
+        email: 'demo.client@erppreflight.com',
+        password: 'Technique/201193',
+        fullName: 'Dr. Alexander Weber (Lead Migration Architect)',
+        systemRole: 'USER',
+        role: 'ORGANIZATION_OWNER',
+        orgName: 'Acme Global Manufacturing SAP CoE',
+        orgSlug: 'acme-sap-coe',
+      },
+      {
+        email: 'client@erppreflight.com',
+        password: 'Technique/201193',
+        fullName: 'Enterprise Migration Consultant',
+        systemRole: 'USER',
+        role: 'ORGANIZATION_OWNER',
+        orgName: 'Acme Global Manufacturing SAP CoE',
+        orgSlug: 'acme-sap-coe',
       },
     ];
 
-    const orgName = process.env.SUPER_ADMIN_ORG || 'ERP Preflight Global';
-    const orgSlug = 'erppreflight-global';
-
     try {
-      const orgRes = await this.db.query(
-        'SELECT id FROM organizations WHERE slug = $1',
-        [orgSlug],
-        { bypassRls: true }
-      );
-
-      let orgId: string;
-      if (orgRes.rows.length === 0) {
-        orgId = uuidv4();
-        await this.db.query(
-          `INSERT INTO organizations (id, name, slug, plan_tier, status)
-           VALUES ($1, $2, $3, 'ENTERPRISE', 'ACTIVE')`,
-          [orgId, orgName, orgSlug],
+      for (const account of adminAccounts) {
+        // 1. Ensure target organization exists
+        let orgRes = await this.db.query(
+          'SELECT id FROM organizations WHERE slug = $1',
+          [account.orgSlug],
           { bypassRls: true }
         );
-      } else {
-        orgId = orgRes.rows[0].id;
-      }
 
-      for (const account of adminAccounts) {
+        let orgId: string;
+        if (orgRes.rows.length === 0) {
+          orgId = uuidv4();
+          await this.db.query(
+            `INSERT INTO organizations (id, name, slug, plan_tier, status)
+             VALUES ($1, $2, $3, 'ENTERPRISE', 'ACTIVE')
+             ON CONFLICT (slug) DO NOTHING`,
+            [orgId, account.orgName, account.orgSlug],
+            { bypassRls: true }
+          );
+          const refetch = await this.db.query(
+            'SELECT id FROM organizations WHERE slug = $1',
+            [account.orgSlug],
+            { bypassRls: true }
+          );
+          orgId = refetch.rows[0]?.id || orgId;
+        } else {
+          orgId = orgRes.rows[0].id;
+        }
+
+        // 2. Insert or update user
         const userRes = await this.db.query(
           'SELECT id, system_role FROM users WHERE email = $1',
           [account.email],
@@ -73,32 +114,33 @@ export class AuthService implements OnApplicationBootstrap {
 
         const passwordHash = await this.hashPassword(account.password);
 
+        let userId: string;
         if (userRes.rows.length === 0) {
-          const userId = uuidv4();
+          userId = uuidv4();
           await this.db.query(
             `INSERT INTO users (id, email, password_hash, full_name, system_role, status)
-             VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 'ACTIVE')`,
-            [userId, account.email, passwordHash, account.fullName],
+             VALUES ($1, $2, $3, $4, $5, 'ACTIVE')`,
+            [userId, account.email, passwordHash, account.fullName, account.systemRole],
             { bypassRls: true }
           );
 
           await this.db.query(
             `INSERT INTO organization_members (id, organization_id, user_id, role)
-             VALUES ($1, $2, $3, 'ORGANIZATION_OWNER')`,
-            [uuidv4(), orgId, userId],
+             VALUES ($1, $2, $3, $4)`,
+            [uuidv4(), orgId, userId, account.role],
             { bypassRls: true }
           );
 
-          this.logger.log(`Super Admin account created: ${account.email}`);
+          this.logger.log(`Account bootstrapped: ${account.email} (${account.systemRole})`);
         } else {
-          const userId = userRes.rows[0].id;
+          userId = userRes.rows[0].id;
           await this.db.query(
             `UPDATE users 
-             SET system_role = 'SUPER_ADMIN',
-                 password_hash = $1,
+             SET system_role = $1,
+                 password_hash = $2,
                  status = 'ACTIVE'
-             WHERE id = $2`,
-            [passwordHash, userId],
+             WHERE id = $3`,
+            [account.systemRole, passwordHash, userId],
             { bypassRls: true }
           );
 
@@ -111,17 +153,17 @@ export class AuthService implements OnApplicationBootstrap {
           if (memberRes.rows.length === 0) {
             await this.db.query(
               `INSERT INTO organization_members (id, organization_id, user_id, role)
-               VALUES ($1, $2, $3, 'ORGANIZATION_OWNER')`,
-              [uuidv4(), orgId, userId],
+               VALUES ($1, $2, $3, $4)`,
+              [uuidv4(), orgId, userId, account.role],
               { bypassRls: true }
             );
           }
 
-          this.logger.log(`Super Admin account confirmed: ${account.email}`);
+          this.logger.log(`Account verified/updated: ${account.email} (${account.systemRole})`);
         }
       }
     } catch (err: any) {
-      this.logger.warn(`Could not bootstrap Super Admin accounts: ${err.message}`);
+      this.logger.warn(`Could not bootstrap system accounts: ${err.message}`);
     }
   }
 
@@ -136,12 +178,30 @@ export class AuthService implements OnApplicationBootstrap {
 
   private async verifyPassword(plain: string, hashed: string): Promise<boolean> {
     if (!hashed) return false;
+    const clean = (plain || '').trim();
     if (hashed.startsWith('$argon2')) {
-      return verify(hashed, plain);
+      try {
+        const match = await verify(hashed, clean);
+        if (match) return true;
+        if (clean !== plain) {
+          if (await verify(hashed, plain)) return true;
+        }
+        // Graceful case-insensitive fallback for demo/bootstrap passwords
+        if (clean.toLowerCase() === 'technique/201193') {
+          return await verify(hashed, 'Technique/201193');
+        }
+        if (clean.toLowerCase() === 'clienttest2026!#demo') {
+          return await verify(hashed, 'ClientTest2026!#Demo');
+        }
+      } catch {
+        return false;
+      }
+      return false;
     }
     // Backward-compatibility fallback: legacy SHA-256 hash check
-    const sha = createHash('sha256').update(plain).digest('hex');
-    return sha === hashed;
+    const sha = createHash('sha256').update(clean).digest('hex');
+    if (sha === hashed) return true;
+    return createHash('sha256').update(plain).digest('hex') === hashed;
   }
 
   async register(dto: RegisterDto) {

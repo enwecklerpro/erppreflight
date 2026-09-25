@@ -13,7 +13,7 @@ import {
   setStoredTenantId,
   ApiError,
 } from '@/lib/api/custom-instance';
-import { Lock, Mail, Loader2, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Lock, Mail, Loader2, ArrowRight, ShieldCheck, AlertCircle, Users } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z
@@ -99,6 +99,45 @@ export default function LoginPage() {
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-xs">
+          {/* Quick Demo Credentials Box */}
+          <div className="mb-6 p-4 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/30 text-xs space-y-3">
+            <span className="font-bold text-foreground block">⚡ 1-Klick Test-Zugangsdaten (Sofort ausfüllen):</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  form.setFieldValue('email', 'contact@erppreflight.com');
+                  form.setFieldValue('password', 'Technique/201193');
+                  setServerError(null);
+                }}
+                className="p-2.5 rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 text-left hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors shadow-2xs cursor-pointer"
+              >
+                <div className="font-bold flex items-center gap-1.5 text-[11px]">
+                  <ShieldCheck className="size-3.5 text-purple-600" />
+                  Super Admin
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">contact@erppreflight.com</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  form.setFieldValue('email', 'demo.client@erppreflight.com');
+                  form.setFieldValue('password', 'Technique/201193');
+                  setServerError(null);
+                }}
+                className="p-2.5 rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 text-left hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors shadow-2xs cursor-pointer"
+              >
+                <div className="font-bold flex items-center gap-1.5 text-[11px]">
+                  <Users className="size-3.5 text-blue-600" />
+                  Client Consultant
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">demo.client@erppreflight.com</div>
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Klicken Sie auf ein Konto oben, um die Felder automatisch zu füllen.</p>
+          </div>
+
           {serverError && (
             <div
               role="alert"
