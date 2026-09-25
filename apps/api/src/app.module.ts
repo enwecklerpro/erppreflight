@@ -36,6 +36,7 @@ import { ChangelogModule } from './modules/changelog/changelog.module';
 import { LabModule } from './modules/lab/lab.module';
 import { ObjectsModule } from './modules/objects/objects.module';
 import { SapImportModule } from './modules/sap-import/sap-import.module';
+import { OutboxModule } from './modules/outbox/outbox.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { SapImportModule } from './modules/sap-import/sap-import.module';
     LabModule,
     ObjectsModule,
     SapImportModule,
+    OutboxModule,
   ],
 })
 export class AppModule implements NestModule {

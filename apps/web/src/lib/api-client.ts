@@ -428,6 +428,85 @@ export async function createTraceabilityTask(projectId: string, findingId: strin
   });
 }
 
+// Agentic Change Gate (Part 19)
+export interface AgentIdentityItem {
+  id: string;
+  name: string;
+  runtime: string;
+  max_risk_class: string;
+  approval_mode: string;
+  allowed_tools: string[];
+  scopes: string[];
+  status: string;
+  created_at: string;
+}
+
+export interface AgentProposalItem {
+  id: string;
+  agent_id: string;
+  agent_name?: string;
+  project_id: string;
+  change_type: string;
+  target_environment: string;
+  proposed_diff: Record<string, any>;
+  proposal_hash: string;
+  verdict: 'CLEAR' | 'CLEAR_WITH_WARNINGS' | 'BLOCKED' | 'HUMAN_REVIEW_REQUIRED' | 'INSUFFICIENT_EVIDENCE';
+  verdict_details: {
+    evaluatedAt: string;
+    verdict: string;
+    reasons: string[];
+    allowedEnvironments: string[];
+  };
+  approval_status: 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED';
+  execution_token?: string;
+  token_expires_at?: string;
+  created_at: string;
+}
+
+export async function fetchAgents(): Promise<AgentIdentityItem[]> {
+  return customInstance<AgentIdentityItem[]>('/agent-gate/agents');
+}
+
+export async function registerAgent(payload: {
+  name: string;
+  runtime?: string;
+  maxRiskClass?: string;
+  approvalMode?: string;
+}): Promise<AgentIdentityItem> {
+  return customInstance<AgentIdentityItem>('/agent-gate/agents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAgentProposals(projectId?: string): Promise<AgentProposalItem[]> {
+  const qs = projectId ? `?projectId=${projectId}` : '';
+  return customInstance<AgentProposalItem[]>(`/agent-gate/proposals${qs}`);
+}
+
+export async function submitAgentProposal(payload: {
+  projectId: string;
+  agentId: string;
+  changeType: string;
+  proposedDiff: Record<string, any>;
+  targetEnvironment?: string;
+}): Promise<AgentProposalItem> {
+  return customInstance<AgentProposalItem>('/agent-gate/proposals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function approveAgentProposal(
+  proposalId: string
+): Promise<{ proposal: AgentProposalItem; executionToken: string; expiresAt: string }> {
+  return customInstance(`/agent-gate/proposals/${proposalId}/approve`, {
+    method: 'POST',
+  });
+}
+
 // Demo Project Sandbox
 export async function exploreDemoProject(): Promise<{ isNew: boolean; project: { id: string; name: string; slug: string } }> {
   return customInstance('/demo/explore', { method: 'POST' });
@@ -760,6 +839,11 @@ export async function fetchProjectDrift(
 export function getReproducibilityBundleUrl(analysisId: string): string {
   const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.erppreflight.com/api/v1';
   return `${base}/analyses/${analysisId}/reproducibility-bundle`;
+}
+
+export function getOfflineHtmlReportUrl(projectId: string, analysisId: string): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.erppreflight.com/api/v1';
+  return `${base}/projects/${projectId}/analyses/${analysisId}/offline-html`;
 }
 
 // -----------------------------------------------------------------------------

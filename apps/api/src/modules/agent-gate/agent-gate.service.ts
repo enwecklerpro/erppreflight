@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { RegisterAgentDto, SubmitProposalDto } from './dto/agent-gate.dto';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,7 +9,10 @@ import { v4 as uuidv4 } from 'uuid';
 export class AgentGateService {
   private readonly logger = new Logger(AgentGateService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly outbox?: OutboxService
+  ) {}
 
   async registerAgent(organizationId: string, userId: string, dto: RegisterAgentDto) {
     const id = uuidv4();
@@ -103,7 +107,21 @@ export class AgentGateService {
       ]
     );
 
-    return res.rows[0];
+    const row = res.rows[0];
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'agent.proposal_verdict', 'AGENT_PROPOSAL', row.id, {
+          proposalId: row.id,
+          agentId: dto.agentId,
+          projectId: dto.projectId,
+          verdict,
+          proposalHash,
+          targetEnvironment: row.target_environment,
+        })
+        .catch(() => {});
+    }
+
+    return row;
   }
 
   async getProposals(organizationId: string, projectId: string) {
@@ -163,8 +181,23 @@ export class AgentGateService {
       [executionToken, expiresAt.toISOString(), userId, proposalId, organizationId]
     );
 
+    const approvedProposal = updateRes.rows[0];
+
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'agent.proposal_approved', 'AGENT_PROPOSAL', approvedProposal.id, {
+          proposalId: approvedProposal.id,
+          agentId: prop.agent_id,
+          projectId: prop.project_id,
+          proposalHash: prop.proposal_hash,
+          approvedBy: userId,
+          expiresAt: expiresAt.toISOString(),
+        })
+        .catch(() => {});
+    }
+
     return {
-      proposal: updateRes.rows[0],
+      proposal: approvedProposal,
       executionToken,
       expiresAt: expiresAt.toISOString(),
     };

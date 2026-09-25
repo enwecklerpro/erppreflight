@@ -17,6 +17,7 @@ import {
   Sparkles,
   Server,
   Sliders,
+  Bot,
 } from 'lucide-react';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
@@ -44,6 +45,7 @@ export function Navbar() {
     { label: 'Artifacts', href: '/artifacts', icon: SearchCode },
     { label: 'Release Matrix', href: '/matrix', icon: ShieldCheck },
     { label: 'Landscapes', href: '/landscapes', icon: Server },
+    { label: 'Agent Gate', href: '/agent-gate', icon: Bot },
     { label: 'Settings', href: '/settings', icon: Sliders },
   ];
 

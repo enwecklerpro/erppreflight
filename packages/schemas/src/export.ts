@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SeverityEnum } from './common';
 
-export const ExportFormatEnum = z.enum(['PDF', 'JSON_BUNDLE', 'XLSX', 'CSV', 'ZIP_ALL']);
+export const ExportFormatEnum = z.enum(['PDF', 'JSON_BUNDLE', 'XLSX', 'CSV', 'ZIP_ALL', 'HTML_OFFLINE']);
 export type ExportFormat = z.infer<typeof ExportFormatEnum>;
 
 export const TriggerExportSchema = z.object({

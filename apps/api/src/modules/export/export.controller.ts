@@ -71,4 +71,21 @@ export class ExportController {
       disposition: `attachment; filename="${fileName}"`,
     });
   }
+
+  @Get('projects/:projectId/analyses/:analysisId/offline-html')
+  async getOfflineHtmlReport(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('analysisId') analysisId: string
+  ): Promise<StreamableFile> {
+    const { html, fileName } = await this.exportService.generateDirectOfflineHtml(
+      tenantId,
+      projectId,
+      analysisId
+    );
+    return new StreamableFile(Buffer.from(html, 'utf-8'), {
+      type: 'text/html; charset=utf-8',
+      disposition: `attachment; filename="${fileName}"`,
+    });
+  }
 }

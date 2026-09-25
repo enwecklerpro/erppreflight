@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { OutboxService } from '../outbox/outbox.service';
 import { CreateChangeSetDto, ApproveChangeSetDto } from './dto/changeset.dto';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,7 +9,10 @@ import { v4 as uuidv4 } from 'uuid';
 export class ChangeSetsService {
   private readonly logger = new Logger(ChangeSetsService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly outbox?: OutboxService
+  ) {}
 
   async create(organizationId: string, projectId: string, userId: string, dto: CreateChangeSetDto) {
     const id = uuidv4();
@@ -41,7 +45,21 @@ export class ChangeSetsService {
       ]
     );
 
-    return res.rows[0];
+    const row = res.rows[0];
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'change_set.created', 'CHANGE_SET', row.id, {
+          changeSetId: row.id,
+          projectId,
+          name: dto.name,
+          targetEnvironment: row.target_environment,
+          proposalHash,
+          createdBy: userId,
+        })
+        .catch(() => {});
+    }
+
+    return row;
   }
 
   async findAll(organizationId: string, projectId: string) {
@@ -195,7 +213,21 @@ export class ChangeSetsService {
       [JSON.stringify(simulationResult), organizationId, projectId, id]
     );
 
-    return updateRes.rows[0];
+    const simulatedRow = updateRes.rows[0];
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'change_set.simulated', 'CHANGE_SET', id, {
+          changeSetId: id,
+          projectId,
+          verdict: simulationResult.verdict,
+          riskDelta: simulationResult.riskDelta,
+          newFindingsCount: newFindings.length,
+          resolvedFindingsCount: resolvedFindings.length,
+        })
+        .catch(() => {});
+    }
+
+    return simulatedRow;
   }
 
   async approve(organizationId: string, projectId: string, id: string, userId: string, dto: ApproveChangeSetDto) {
@@ -241,6 +273,18 @@ export class ChangeSetsService {
         .update(`${approvedRecord.id}:${approvedRecord.proposal_hash}:${userId}:${dto.reason}`)
         .digest('hex'),
     };
+
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'change_set.approved', 'CHANGE_SET', approvedRecord.id, {
+          changeSetId: approvedRecord.id,
+          projectId,
+          approvedBy: userId,
+          reason: dto.reason,
+          auditCertificate: evidencePack.auditCertificate,
+        })
+        .catch(() => {});
+    }
 
     return {
       changeset: approvedRecord,

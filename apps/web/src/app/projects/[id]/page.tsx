@@ -29,6 +29,7 @@ import {
   FlaskConical,
   Download,
   BookmarkCheck,
+  GitBranch,
 } from 'lucide-react';
 import {
   ALL_18_ENGINES,
@@ -39,10 +40,12 @@ import {
   fetchProjectDrift,
   setProjectBaseline,
   getReproducibilityBundleUrl,
+  getOfflineHtmlReportUrl,
   fetchDiagnosticBundle,
 } from '../../../lib/api-client';
 import { customInstance } from '../../../lib/api/custom-instance';
 import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
+import { WhatIfSimulationPanel } from '@/components/changesets/what-if-simulation-panel';
 
 export interface UploadedArtifact {
   id: string;
@@ -61,7 +64,7 @@ export default function ProjectWorkspacePage() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'findings' | 'objects' | 'sap-native' | 'artifacts' | 'history' | 'launcher'
+    'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher'
   >('overview');
   const [selectedEngines, setSelectedEngines] = useState<string[]>([
     'OPD_GUARD',
@@ -356,6 +359,7 @@ export default function ProjectWorkspacePage() {
             { id: 'findings', label: 'Findings', icon: ShieldAlert },
             { id: 'objects', label: 'Objects', icon: Boxes },
             { id: 'sap-native', label: 'SAP Artifact Center', icon: FileCheck2 },
+            { id: 'simulation', label: 'What-If Simulation', icon: GitBranch },
             { id: 'artifacts', label: 'Artifact Dropzone', icon: UploadCloud },
             { id: 'history', label: 'Run History', icon: History },
             { id: 'launcher', label: 'Analysis Launcher', icon: Play },
@@ -656,6 +660,11 @@ export default function ProjectWorkspacePage() {
       {/* Tab: SAP-Native Artifact Center (Part 15.20) */}
       {activeTab === 'sap-native' && (
         <SapNativeArtifactCenter projectId={projectId} />
+      )}
+
+      {/* Tab: What-If Simulation Workspace (Part 16.2) */}
+      {activeTab === 'simulation' && (
+        <WhatIfSimulationPanel projectId={projectId} />
       )}
 
       {/* Tab: Artifact Dropzone */}
@@ -993,6 +1002,15 @@ export default function ProjectWorkspacePage() {
                         >
                           <Download className="size-3 text-primary" />
                           <span>Bundle (.zip)</span>
+                        </a>
+                        <a
+                          href={getOfflineHtmlReportUrl(projectId, run.id)}
+                          download
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Download Air-Gapped Offline HTML Report"
+                        >
+                          <FileText className="size-3 text-primary" />
+                          <span>HTML Report</span>
                         </a>
                         {drift?.baseline?.id !== run.id && !(run as any).isBaseline && (
                           <button

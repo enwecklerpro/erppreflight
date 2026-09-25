@@ -89,6 +89,12 @@ export class ExportService {
         fileBuffer = await this.generateXlsxWorkbook(analysis, findings, evidenceList);
         break;
 
+      case 'HTML_OFFLINE':
+        fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`;
+        mimeType = 'text/html;charset=utf-8';
+        fileBuffer = Buffer.from(this.generateOfflineHtmlReport(analysis, findings, evidenceList, dto), 'utf-8');
+        break;
+
       case 'CSV':
       default:
         fileName = `Traceability_Matrix_${analysisId.slice(0, 8)}.csv`;
@@ -537,6 +543,46 @@ export class ExportService {
     };
   }
 
+  public async generateDirectOfflineHtml(
+    tenantId: string,
+    projectId: string,
+    analysisId: string
+  ): Promise<{ html: string; fileName: string }> {
+    const analysisRes = await this.db.query(
+      'SELECT a.*, p.name as project_name FROM analyses a JOIN projects p ON a.project_id = p.id WHERE a.id = $1 AND a.organization_id = $2 AND a.project_id = $3',
+      [analysisId, tenantId, projectId]
+    );
+    if (!analysisRes.rows?.length) {
+      throw new NotFoundException(`Analysis ${analysisId} not found.`);
+    }
+    const analysis = analysisRes.rows[0];
+
+    const findingsRes = await this.db.query(
+      'SELECT * FROM findings WHERE analysis_id = $1 AND organization_id = $2 ORDER BY created_at ASC',
+      [analysisId, tenantId]
+    );
+    const findings = findingsRes.rows || [];
+
+    const findingIds = findings.map((f: any) => f.id);
+    let evidenceList: any[] = [];
+    if (findingIds.length > 0) {
+      const evidenceRes = await this.db.query(
+        'SELECT * FROM evidence WHERE finding_id = ANY($1::uuid[]) AND organization_id = $2',
+        [findingIds, tenantId]
+      );
+      evidenceList = evidenceRes.rows || [];
+    }
+
+    const fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`;
+    const html = this.generateOfflineHtmlReport(analysis, findings, evidenceList, {
+      format: 'HTML_OFFLINE',
+      includeEvidenceSnippets: true,
+      filterMinSeverity: 'INFO',
+    });
+
+    return { html, fileName };
+  }
+
   public async generateReproducibilityZip(
     tenantId: string,
     analysisId: string
@@ -682,5 +728,324 @@ export class ExportService {
     const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
     return { buffer, fileName, checksumSha256 };
+  }
+
+  /**
+   * Part 14.1 & Part 15.15: Offline Portable HTML Single-File Report
+   * Generates a self-contained, interactive preflight assessment HTML report with zero external CDN dependencies.
+   */
+  public generateOfflineHtmlReport(
+    analysis: any,
+    findings: any[],
+    evidenceList: any[],
+    dto: TriggerExportDto
+  ): string {
+    const escapeHtml = (str: unknown): string => {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+
+    let blockers = 0;
+    let criticals = 0;
+    let majors = 0;
+    let mediums = 0;
+    let minors = 0;
+
+    for (const f of findings) {
+      const s = (f.severity || '').toUpperCase();
+      if (s === 'BLOCKER') blockers++;
+      else if (s === 'CRITICAL') criticals++;
+      else if (s === 'MAJOR') majors++;
+      else if (s === 'MEDIUM') mediums++;
+      else if (s === 'MINOR') minors++;
+    }
+
+    const penalty = Math.min(100, blockers * 15 + criticals * 8 + majors * 3);
+    const cleanCoreIndex = findings.length === 0 ? 100 : Math.max(0, Math.round((100 - penalty) * 10) / 10);
+    const projectName = escapeHtml(dto.whiteLabel?.companyName || analysis.project_name || 'SAP Landscape Assessment');
+    const analysisId = escapeHtml(analysis.id);
+    const targetRelease = escapeHtml(analysis.target_release || 'S/4HANA 2023');
+    const timestamp = escapeHtml(new Date(analysis.created_at || Date.now()).toUTCString());
+
+    const findingsJson = JSON.stringify(
+      findings.map((f: any) => ({
+        id: f.id,
+        ruleId: f.rule_id,
+        severity: f.severity,
+        category: f.category,
+        title: f.title,
+        description: f.description,
+        remediation: f.remediation,
+        confidence: f.confidence_class,
+        confidenceScore: Number(f.confidence_score),
+        affectedObjects: f.affected_objects || [],
+        evidence: evidenceList.filter((e: any) => e.finding_id === f.id),
+      }))
+    ).replace(/</g, '\\u003c');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Preflight Assessment — ${projectName}</title>
+  <style>
+    :root {
+      --bg: #030712;
+      --card: #0f172a;
+      --card-border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 32px 20px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--card-border); }
+    .badge-offline {
+      display: inline-block;
+      padding: 4px 10px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      color: var(--emerald);
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+    .meta-text { font-size: 12px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .kpi-card { background: var(--card); border: 1px solid var(--card-border); padding: 18px; border-radius: 12px; }
+    .kpi-title { font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { font-size: 28px; font-weight: 900; color: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      padding: 14px 18px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .search-input {
+      background: #030712;
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      min-width: 280px;
+    }
+    .search-input:focus { outline: none; border-color: var(--primary); }
+    .pill-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill-btn {
+      background: #030712;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pill-btn:hover, .pill-btn.active { background: #1e293b; color: #fff; border-color: var(--primary); }
+    .finding-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: border-color 0.15s ease;
+    }
+    .finding-card:hover { border-color: #334155; }
+    .finding-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .finding-title-group { display: flex; align-items: center; gap: 12px; flex: 1; }
+    .badge-sev {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.05em;
+    }
+    .sev-BLOCKER { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .sev-CRITICAL { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .sev-MAJOR { background: rgba(245, 158, 11, 0.15); color: #fde68a; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .sev-MEDIUM { background: rgba(56, 189, 248, 0.15); color: #bae6fd; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .sev-MINOR { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+    .finding-rule { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; color: var(--primary); }
+    .finding-desc { font-size: 13px; color: #fff; font-weight: 500; }
+    .finding-body {
+      padding: 0 20px 20px 20px;
+      border-top: 1px solid var(--card-border);
+      display: none;
+      font-size: 12px;
+      background: #090d16;
+    }
+    .finding-body.expanded { display: block; padding-top: 16px; }
+    .section-title { font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.05em; }
+    .remediation-box { background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); padding: 12px; border-radius: 8px; margin-bottom: 14px; color: #e0f2fe; }
+    .code-box { background: #030712; border: 1px solid #1e293b; padding: 12px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; overflow-x: auto; color: #cbd5e1; margin-top: 6px; }
+    .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--card-border); text-align: center; font-size: 11px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge-offline">Standalone Portable Assessment</div>
+      <h1>${projectName}</h1>
+      <div class="meta-text">Analysis ID: ${analysisId} • Target Release: ${targetRelease} • Generated: ${timestamp}</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-title">Clean Core Index</div>
+        <div class="kpi-value" style="color: ${cleanCoreIndex >= 80 ? 'var(--emerald)' : cleanCoreIndex >= 60 ? 'var(--amber)' : 'var(--rose)'}">${cleanCoreIndex.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Total Findings</div>
+        <div class="kpi-value">${findings.length}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Blockers & Criticals</div>
+        <div class="kpi-value" style="color: ${blockers + criticals > 0 ? 'var(--rose)' : 'var(--emerald)'}">${blockers + criticals}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">Majors & Mediums</div>
+        <div class="kpi-value" style="color: var(--amber)">${majors + mediums}</div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search rules, titles, affected objects..." />
+      <div class="pill-group">
+        <button class="pill-btn active" data-sev="ALL">All (${findings.length})</button>
+        <button class="pill-btn" data-sev="BLOCKER">Blocker (${blockers})</button>
+        <button class="pill-btn" data-sev="CRITICAL">Critical (${criticals})</button>
+        <button class="pill-btn" data-sev="MAJOR">Major (${majors})</button>
+        <button class="pill-btn" data-sev="MEDIUM">Medium (${mediums})</button>
+        <button class="pill-btn" data-sev="MINOR">Minor (${minors})</button>
+      </div>
+    </div>
+
+    <div id="findingsContainer"></div>
+
+    <div class="footer">
+      <p>ERP Preflight Enterprise Analysis Engine • Deterministic AST & Cryptographic Evidence Engine</p>
+      <p style="margin-top: 4px;">Zero external network requests required. Epistemic Confidence Ceiling: INFERRED &le; 0.60.</p>
+    </div>
+  </div>
+
+  <script>
+    const FINDINGS = ${findingsJson};
+    let currentSev = 'ALL';
+    let currentQuery = '';
+
+    const container = document.getElementById('findingsContainer');
+    const searchInput = document.getElementById('searchInput');
+    const pillBtns = document.querySelectorAll('.pill-btn');
+
+    function render() {
+      const q = currentQuery.toLowerCase();
+      const filtered = FINDINGS.filter(f => {
+        const matchesSev = currentSev === 'ALL' || f.severity === currentSev;
+        const matchesQuery = !q ||
+          (f.ruleId && f.ruleId.toLowerCase().includes(q)) ||
+          (f.title && f.title.toLowerCase().includes(q)) ||
+          (f.description && f.description.toLowerCase().includes(q)) ||
+          (f.affectedObjects && f.affectedObjects.some(o => (o.name || '').toLowerCase().includes(q)));
+        return matchesSev && matchesQuery;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 48px; color: var(--text-muted); font-size: 13px;">No findings match the selected filter criteria.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(f => {
+        const objectsHtml = (f.affectedObjects || []).map(o =>
+          '<span style="display: inline-block; padding: 2px 6px; background: #1e293b; border-radius: 4px; font-family: monospace; font-size: 10px; margin-right: 4px;">' +
+          (o.name || 'Object') + (o.tier ? ' [' + o.tier + ']' : '') + '</span>'
+        ).join('') || '<span style="color: var(--text-muted);">Global Landscape</span>';
+
+        const evidenceHtml = (f.evidence || []).map(ev =>
+          '<div style="margin-top: 8px;">' +
+            '<div style="font-family: monospace; font-size: 10px; color: var(--text-muted);">' +
+              (ev.artifact_path || 'Artifact') + (ev.line_number ? ' : line ' + ev.line_number : '') +
+              ' &bull; SHA-256: ' + (ev.sha256 || 'N/A') +
+            '</div>' +
+            (ev.snippet ? '<pre class="code-box">' + ev.snippet.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>' : '') +
+          '</div>'
+        ).join('') || '<div style="color: var(--text-muted); font-style: italic;">No code snippet attached.</div>';
+
+        return '<div class="finding-card">' +
+          '<div class="finding-header" onclick="this.nextElementSibling.classList.toggle(\\'expanded\\')">' +
+            '<div class="finding-title-group">' +
+              '<span class="badge-sev sev-' + f.severity + '">' + f.severity + '</span>' +
+              '<span class="finding-rule">' + f.ruleId + '</span>' +
+              '<span class="finding-desc">' + f.title + '</span>' +
+            '</div>' +
+            '<span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">' + f.confidence + ' (' + (f.confidenceScore || 1.0).toFixed(2) + ') &darr;</span>' +
+          '</div>' +
+          '<div class="finding-body">' +
+            '<div style="margin-bottom: 12px; color: #cbd5e1;">' + (f.description || '') + '</div>' +
+            '<div class="section-title">Actionable Technical Remediation</div>' +
+            '<div class="remediation-box">' + (f.remediation || 'Maintain standard Clean Core configuration.') + '</div>' +
+            '<div class="section-title">Impacted Repository Objects</div>' +
+            '<div style="margin-bottom: 14px;">' + objectsHtml + '</div>' +
+            '<div class="section-title">Cryptographic Evidence Chain</div>' +
+            evidenceHtml +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    searchInput.addEventListener('input', (e) => {
+      currentQuery = e.target.value;
+      render();
+    });
+
+    pillBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        pillBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSev = btn.dataset.sev;
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>`;
   }
 }

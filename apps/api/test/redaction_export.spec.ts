@@ -134,5 +134,57 @@ describe('M2 Secret Redaction & Report Export Suite', () => {
       expect(bundle.graph.edges.length).toBeGreaterThanOrEqual(1);
       expect(bundle.evidence_hashes[0].sha256).toBe('a'.repeat(64));
     });
+
+    it('generates a 100% offline portable single-file HTML report with zero external CDN dependencies', () => {
+      const analysis = {
+        id: 'ana-html-1',
+        project_name: 'Chemicals S4 Migration',
+        project_id: 'proj-1',
+        organization_id: 'org-1',
+        target_release: 'S4H_2023_FPS02',
+        created_at: '2026-09-25T00:00:00Z',
+      };
+      const findings = [
+        {
+          id: 'f-1',
+          rule_id: 'CLEAN_CORE_TIER3_DIRECT_DB_MUTATION',
+          severity: 'BLOCKER',
+          category: 'EXTENSIBILITY',
+          title: 'Direct Database Access to VBAK',
+          description: 'Custom report mutates sales header table directly bypassing RAP business object',
+          remediation: 'Migrate to released CDS view I_SalesOrderTP and use RAP behavior definitions',
+          confidence_class: 'VERIFIED',
+          confidence_score: 1.0,
+          affected_objects: [{ name: 'Z_SALES_UPDATE', tier: 'TIER_3_CLASSIC' }],
+        },
+      ];
+      const evidence = [
+        {
+          id: 'ev-1',
+          finding_id: 'f-1',
+          artifact_path: 'src/z_sales_update.prog.abap',
+          line_number: 42,
+          snippet: 'UPDATE vbak SET bstnk = @lv_po WHERE vbeln = @lv_so.',
+          sha256: 'b'.repeat(64),
+        },
+      ];
+
+      const html = exportService.generateOfflineHtmlReport(analysis, findings, evidence, {
+        format: 'HTML_OFFLINE',
+        includeEvidenceSnippets: true,
+        filterMinSeverity: 'INFO',
+      });
+
+      expect(html).toContain('<!DOCTYPE html>');
+      expect(html).toContain('Chemicals S4 Migration');
+      expect(html).toContain('ana-html-1');
+      expect(html).toContain('CLEAN_CORE_TIER3_DIRECT_DB_MUTATION');
+      expect(html).toContain('Clean Core Index');
+      expect(html).toContain('UPDATE vbak SET bstnk');
+      // Assert zero external scripts or stylesheets for air-gapped security
+      expect(html).not.toMatch(/<script\s+src=["']https?:\/\//i);
+      expect(html).not.toMatch(/<link\s+[^>]*href=["']https?:\/\//i);
+    });
   });
 });
+

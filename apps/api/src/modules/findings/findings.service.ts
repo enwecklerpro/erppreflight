@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { OutboxService } from '../outbox/outbox.service';
 import * as crypto from 'node:crypto';
 
 export interface FindFindingsRequest {
@@ -14,7 +15,10 @@ export interface FindFindingsRequest {
 
 @Injectable()
 export class FindingsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly outbox?: OutboxService
+  ) {}
 
   async findAll(tenantId: string, query: FindFindingsRequest) {
     const page = Math.max(1, query.page || 1);
@@ -348,6 +352,19 @@ export class FindingsService {
           [JSON.stringify(reviewRecord), tenantId, finding.ruleId]
         );
       }
+    }
+
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(tenantId, 'finding.reviewed', 'FINDING', findingId, {
+          findingId,
+          projectId: finding.projectId,
+          reviewStatus: dto.status,
+          suppressScope: dto.suppressScope,
+          justification: dto.justification,
+          reviewedBy: userId,
+        })
+        .catch(() => {});
     }
 
     return await this.findById(tenantId, findingId);
