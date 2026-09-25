@@ -203,6 +203,8 @@ describe('R6: Dynamic Engine Matrix Resilience & Failure Representation', () => 
     );
 
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByText(/19 \/ 19 Active \(310 Rules\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/19 \/ 19 Active/i)).toBeInTheDocument();
+    // Rule counts are not derived from a real rule registry, so they are never displayed.
+    expect(screen.queryByText(/Rules/)).toBeNull();
   });
 });

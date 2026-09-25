@@ -2,8 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Layers,
   LayoutDashboard,
@@ -21,11 +21,11 @@ import {
 } from 'lucide-react';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
+import { useLogout } from '../lib/query/query-provider';
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const queryClient = useQueryClient();
+  const logout = useLogout();
 
   const { data: authData } = useQuery({
     queryKey: ['auth', 'me'],
@@ -59,12 +59,14 @@ export function Navbar() {
 
   const handleLogout = async () => {
     try {
+      // Best-effort server-side session invalidation; local eviction runs regardless.
       await customInstance('/auth/logout', { method: 'POST' });
     } catch {
-      // ignore
+      // ignore — the local token is cleared below either way
     }
-    queryClient.clear();
-    router.push('/login');
+    // Cancels in-flight queries, clears the cache, removes the stored token and
+    // tenant ID, broadcasts the logout event and redirects to /login.
+    await logout('/login');
   };
 
   const triggerCommandPalette = () => {

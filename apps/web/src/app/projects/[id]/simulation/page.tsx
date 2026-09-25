@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import { z } from 'zod';
 import {
   ReactFlow,
   Background,
@@ -36,21 +37,29 @@ import {
   createChangeSet,
   simulateChangeSet,
   approveChangeSet,
+  fetchProject,
   ChangeSetItem,
 } from '@/lib/api-client';
 
-const INITIAL_PROPOSED_CHANGES = [
-  {
-    type: 'REMOVE_CUSTOM_FIELD' as const,
-    targetObject: 'YY1_CLASS',
-    details: { entity: 'I_PurchaseOrderAPI01' },
-  },
-];
+const CHANGE_TYPES = [
+  { value: 'REMOVE_CUSTOM_FIELD', label: 'Remove custom field' },
+  { value: 'MODIFY_OPD_RULE', label: 'Modify output determination rule' },
+  { value: 'MIGRATE_API_VERSION', label: 'Migrate API version' },
+  { value: 'SPLIT_TRANSPORT', label: 'Split transport' },
+  { value: 'CUSTOM_CODE_REFACTOR', label: 'Refactor custom code' },
+] as const;
+
+const CreateChangeSetFormSchema = z.object({
+  name: z.string().trim().min(3, 'Name must be at least 3 characters'),
+  description: z.string().trim().max(1000).optional(),
+  changeType: z.enum(CHANGE_TYPES.map((c) => c.value) as [string, ...string[]]),
+  targetObject: z.string().trim().min(1, 'Target object is required'),
+  targetEnvironment: z.enum(['DEV', 'QA', 'PROD']),
+});
 
 export default function ChangeSimulationPage() {
   const queryClient = useQueryClient();
   const params = useParams();
-  const router = useRouter();
   const projectId = params.id as string;
 
   const [selectedChangeSet, setSelectedChangeSet] = useState<ChangeSetItem | null>(null);
@@ -62,23 +71,65 @@ export default function ChangeSimulationPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  const { data: changesets = [], isLoading: loading } = useQuery({
+  // Read-only list query: a GET must never create data as a side effect.
+  const {
+    data: changesets = [],
+    isLoading: loading,
+    isError: isChangesetsError,
+    error: changesetsError,
+    refetch: refetchChangesets,
+  } = useQuery({
     queryKey: ['projects', projectId, 'changesets'],
-    queryFn: async () => {
-      let list = await fetchChangeSets(projectId);
-      if (list.length === 0) {
-        const initial = await createChangeSet(projectId, {
-          name: 'What-If: Deprecate Custom Field YY1_CLASS',
-          description: 'Simulate blast radius of removing custom purchasing classification field',
-          targetEnvironment: 'QA',
-          targetRelease: 'S4H_2023',
-          proposedChanges: INITIAL_PROPOSED_CHANGES,
-        });
-        list = [initial];
-      }
-      return list;
-    }
+    queryFn: () => fetchChangeSets(projectId),
+    enabled: Boolean(projectId),
   });
+
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => fetchProject(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    description: '',
+    changeType: 'REMOVE_CUSTOM_FIELD',
+    targetObject: '',
+    targetEnvironment: 'QA' as 'DEV' | 'QA' | 'PROD',
+  });
+  const [createErrors, setCreateErrors] = useState<string[]>([]);
+
+  const createMutation = useMutation({
+    mutationFn: (values: z.infer<typeof CreateChangeSetFormSchema>) =>
+      createChangeSet(projectId, {
+        name: values.name,
+        description: values.description || undefined,
+        targetEnvironment: values.targetEnvironment,
+        targetRelease: project?.targetRelease ?? undefined,
+        proposedChanges: [
+          { type: values.changeType, targetObject: values.targetObject, details: {} },
+        ],
+      }),
+    onSuccess: (created) => {
+      setShowCreateForm(false);
+      setCreateErrors([]);
+      setSelectedChangeSet(created);
+      queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'changesets'] });
+    },
+    onError: (err: Error) => setCreateErrors([err?.message || 'Failed to create change set']),
+  });
+
+  function handleCreateSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = CreateChangeSetFormSchema.safeParse(createForm);
+    if (!parsed.success) {
+      setCreateErrors(parsed.error.issues.map((i) => i.message));
+      return;
+    }
+    setCreateErrors([]);
+    createMutation.mutate(parsed.data);
+  }
 
   useEffect(() => {
     if (changesets.length > 0 && !selectedChangeSet) {
@@ -223,9 +274,18 @@ export default function ChangeSimulationPage() {
             </button>
           </div>
 
+          {changesets.length > 0 && !showCreateForm && (
+            <button
+              type="button"
+              onClick={() => setShowCreateForm(true)}
+              className="px-3 py-2 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold"
+            >
+              New change set
+            </button>
+          )}
           <button
             onClick={handleSimulate}
-            disabled={simulating}
+            disabled={simulating || !selectedChangeSet}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
           >
             {simulating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
@@ -233,6 +293,124 @@ export default function ChangeSimulationPage() {
           </button>
         </div>
       </div>
+
+      {(isChangesetsError || (!loading && changesets.length === 0) || showCreateForm) && (
+        <div className="px-6 py-8 border-b border-slate-800">
+          {isChangesetsError ? (
+            <div role="alert" className="max-w-xl mx-auto text-center text-sm space-y-2">
+              <AlertTriangle className="w-6 h-6 mx-auto text-rose-400" aria-hidden="true" />
+              <p className="font-semibold text-white">Could not load change sets</p>
+              <p className="text-slate-400 text-xs">{(changesetsError as Error)?.message}</p>
+              <button type="button" onClick={() => refetchChangesets()} className="text-xs font-semibold underline">
+                Retry
+              </button>
+            </div>
+          ) : showCreateForm ? (
+            <form onSubmit={handleCreateSubmit} className="max-w-xl mx-auto space-y-3 text-xs" noValidate>
+              <h2 className="text-base font-bold text-white">Create change set</h2>
+              {createErrors.length > 0 && (
+                <ul role="alert" className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-200 list-disc list-inside">
+                  {createErrors.map((m) => (
+                    <li key={m}>{m}</li>
+                  ))}
+                </ul>
+              )}
+              <label className="block">
+                <span className="block font-semibold text-slate-300 mb-1">Name *</span>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="block font-semibold text-slate-300 mb-1">Description</span>
+                <textarea
+                  rows={2}
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white resize-none"
+                />
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="block">
+                  <span className="block font-semibold text-slate-300 mb-1">Change type *</span>
+                  <select
+                    value={createForm.changeType}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, changeType: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                  >
+                    {CHANGE_TYPES.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block font-semibold text-slate-300 mb-1">Target object *</span>
+                  <input
+                    value={createForm.targetObject}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, targetObject: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block font-semibold text-slate-300 mb-1">Environment *</span>
+                  <select
+                    value={createForm.targetEnvironment}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({
+                        ...f,
+                        targetEnvironment: e.target.value as 'DEV' | 'QA' | 'PROD',
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                  >
+                    <option value="DEV">DEV</option>
+                    <option value="QA">QA</option>
+                    <option value="PROD">PROD</option>
+                  </select>
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setCreateErrors([]);
+                  }}
+                  className="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  className="px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 font-bold disabled:opacity-50"
+                >
+                  {createMutation.isPending ? 'Creating…' : 'Create change set'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="max-w-xl mx-auto text-center space-y-3">
+              <GitCompare className="w-8 h-8 mx-auto text-slate-500" aria-hidden="true" />
+              <h2 className="text-base font-bold text-white">No change sets yet</h2>
+              <p className="text-xs text-slate-400">
+                Create a change set describing a proposed modification, then run a What-If simulation to see its blast radius.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowCreateForm(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 font-bold text-xs"
+              >
+                Create change set
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Split Layout */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">

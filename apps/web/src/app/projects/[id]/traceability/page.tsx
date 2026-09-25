@@ -23,6 +23,7 @@ import {
   TraceabilityNodeItem,
   TraceabilityMatrixResponse,
 } from '@/lib/api-client';
+import { exportRawData } from '@/lib/export';
 
 export default function TraceabilityMatrixPage() {
   const queryClient = useQueryClient();
@@ -85,13 +86,23 @@ export default function TraceabilityMatrixPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
               Sync Findings
             </button>
-            <a
-              href={`/api/v1/projects/${projectId}/export?format=XLSX`}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors"
+            {/* No server-side traceability export endpoint exists; export the
+                matrix rows already loaded from GET /projects/:id/traceability. */}
+            <button
+              type="button"
+              disabled={!data?.nodes?.length}
+              onClick={() =>
+                exportRawData(
+                  (data?.nodes ?? []) as unknown as Record<string, unknown>[],
+                  'csv',
+                  `traceability-matrix-${projectId}-${new Date().toISOString().slice(0, 10)}.csv`
+                )
+              }
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors disabled:opacity-50"
             >
-              <Download className="w-3.5 h-3.5" />
-              Download Matrix (XLSX)
-            </a>
+              <Download className="w-3.5 h-3.5" aria-hidden="true" />
+              Export Matrix (CSV)
+            </button>
           </div>
         </div>
 

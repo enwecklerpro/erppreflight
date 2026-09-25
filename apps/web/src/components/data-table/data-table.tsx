@@ -534,7 +534,12 @@ export function DataTable<TData, TValue = unknown>({
         ))}
 
       {/* Table Pagination Controls (for non-virtualized or server-windowed grids) */}
-      {!enableVirtualization && <DataTablePagination table={table} />}
+      {!enableVirtualization && (
+        <DataTablePagination
+          table={table}
+          pageSizeOptions={pageCount !== undefined ? [10, 25, 50, 100] : undefined}
+        />
+      )}
     </div>
   );
 }

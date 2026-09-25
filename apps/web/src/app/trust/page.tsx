@@ -1,21 +1,8 @@
 'use client';
 
 import React from 'react';
-import {
-  ShieldCheck,
-  Lock,
-  Database,
-  Cpu,
-  Server,
-  FileText,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-  Download,
-  PackageCheck,
-  Binary,
-  Mail,
-} from 'lucide-react';
+import Link from 'next/link';
+import { ShieldCheck, CheckCircle2, PackageCheck, Mail, Info } from 'lucide-react';
 
 const CONTROLS = [
   {
@@ -24,9 +11,9 @@ const CONTROLS = [
     status: 'ACTIVE_ENFORCED',
   },
   {
-    title: 'Fail-Closed Antivirus Ingestion Gate',
-    desc: 'Uploaded customer files pass through streaming ClamAV INSTREAM inspection. Any connection loss or error immediately fails closed with quarantine rejection.',
-    status: 'ACTIVE_ENFORCED',
+    title: 'Antivirus Ingestion Gate',
+    desc: 'Uploaded files are scanned with ClamAV (INSTREAM) before they can be analysed; only files with status CLEAN are accepted as analysis input. Whether the scanner is live or running in mock mode on a given deployment is shown on the public status page.',
+    status: 'DEPLOYMENT_DEPENDENT',
   },
   {
     title: 'Deterministic Logic & Epistemic Ceiling',
@@ -39,23 +26,19 @@ const CONTROLS = [
     status: 'ACTIVE_ENFORCED',
   },
   {
-    title: 'Argon2id Cryptographic Authentication',
-    desc: 'Passwords are protected with Argon2id (memoryCost: 19456 KB, timeCost: 2) with HttpOnly, Secure, SameSite=Lax session cookies.',
+    title: 'Argon2id Password Hashing & Token Sessions',
+    desc: 'Passwords are hashed with Argon2id (memoryCost 19456 KiB, timeCost 2). The web application authenticates API calls with a signed bearer token held in browser local storage; it is removed from the browser on sign-out.',
     status: 'ACTIVE_ENFORCED',
   },
 ];
 
 const SUBPROCESSORS = [
-  { name: 'Hostinger Cloud VPS', purpose: 'Primary SaaS Compute & Container Hosting', region: 'European Union (Frankfurt)', dpaSigned: true },
-  { name: 'MinIO / AWS S3', purpose: 'Encrypted Multi-Tenant Artifact & Report Storage', region: 'European Union / Tenant Scoped', dpaSigned: true },
-  { name: 'Anthropic / OpenAI (Optional)', purpose: 'Secondary Explanatory & Translation Assistance (When Enabled)', region: 'EU / US (Zero-Retention)', dpaSigned: true },
+  { name: 'Hostinger Cloud VPS', purpose: 'Primary SaaS Compute & Container Hosting', region: 'European Union (Frankfurt)' },
+  { name: 'MinIO / AWS S3', purpose: 'Multi-Tenant Artifact & Report Storage', region: 'European Union / Tenant Scoped' },
+  { name: 'Anthropic / OpenAI (Optional)', purpose: 'Secondary Explanatory & Translation Assistance (When Enabled)', region: 'EU / US' },
 ];
 
 export default function TrustCenterPage() {
-  const handleDownloadSbom = () => {
-    // SBOM generation requires build pipeline integration
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
@@ -81,10 +64,20 @@ export default function TrustCenterPage() {
               <div key={ctrl.title} className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-sm text-white">{ctrl.title}</span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3 h-3" />
-                    ENFORCED
-                  </span>
+                  {ctrl.status === 'ACTIVE_ENFORCED' ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                      ENFORCED
+                    </span>
+                  ) : (
+                    <Link
+                      href="/status"
+                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-500/10 text-slate-300 border border-slate-500/20"
+                    >
+                      <Info className="w-3 h-3" aria-hidden="true" />
+                      SEE STATUS
+                    </Link>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">{ctrl.desc}</p>
               </div>
@@ -102,7 +95,6 @@ export default function TrustCenterPage() {
                   <th className="p-3.5">Subprocessor</th>
                   <th className="p-3.5">Operational Purpose</th>
                   <th className="p-3.5">Data Hosting Region</th>
-                  <th className="p-3.5">DPA Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
@@ -111,7 +103,6 @@ export default function TrustCenterPage() {
                     <td className="p-3.5 font-bold text-white">{sp.name}</td>
                     <td className="p-3.5">{sp.purpose}</td>
                     <td className="p-3.5 font-mono text-cyan-400">{sp.region}</td>
-                    <td className="p-3.5 text-emerald-400 font-semibold">Active & Executed</td>
                   </tr>
                 ))}
               </tbody>
@@ -119,47 +110,18 @@ export default function TrustCenterPage() {
           </div>
         </div>
 
-        {/* Software Bill of Materials (SBOM) & Supply Chain Security (Part 20.3 & 20.5) */}
+        {/* Software Bill of Materials & container hardening — only verifiable facts */}
         <div className="mb-12">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <PackageCheck className="w-5 h-5 text-emerald-400" />
-                Software Bill of Materials (SBOM) & Build Provenance
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Every release includes a machine-readable CycloneDX 1.5 and SPDX 2.3 inventory verifying zero unpatched critical vulnerabilities.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-500 text-xs font-semibold cursor-not-allowed shrink-0 shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              SBOM Requires Build Pipeline Integration
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Specification Standard</span>
-              <span className="font-mono text-sm font-bold text-white mt-1 block">CycloneDX 1.5 / SPDX 2.3</span>
-              <span className="text-[10px] text-emerald-400 mt-1 block">Cryptographically Signed</span>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Vetted Production Packages</span>
-              <span className="font-mono text-sm font-bold text-cyan-400 mt-1 block">83 Direct Dependencies</span>
-              <span className="text-[10px] text-slate-400 mt-1 block">0 Unpatched High/Critical CVEs</span>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Container Hardening</span>
-              <span className="font-mono text-sm font-bold text-white mt-1 block">Non-Root UID 10001</span>
-              <span className="text-[10px] text-emerald-400 mt-1 block">Read-Only Root Filesystem</span>
-            </div>
-          </div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-2">
+            <PackageCheck className="w-5 h-5 text-emerald-400" aria-hidden="true" />
+            Software Bill of Materials & Container Hardening
+          </h2>
+          <ul className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-xs text-slate-300 space-y-2 list-disc list-inside">
+            <li>
+              A machine-readable SBOM is not yet published on this page. It can be requested through the security package contact below.
+            </li>
+            <li>Production web and API containers run as a dedicated non-root user (UID 1001).</li>
+          </ul>
         </div>
 
         {/* Responsible Disclosure Program (Part 20.12) */}
@@ -195,7 +157,7 @@ export default function TrustCenterPage() {
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <h3 className="font-bold text-white text-sm">Need our Enterprise Security Package or Custom DPA?</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Download our complete Architecture Overview, Data Flow Diagrams, and SBOM summary.</p>
+            <p className="text-xs text-slate-400 mt-0.5">Request our architecture overview, data flow documentation, and dependency inventory by email.</p>
           </div>
           <a
             href="mailto:contact@erppreflight.com?subject=Enterprise%20Security%20Packet%20Request"

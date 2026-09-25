@@ -20,6 +20,11 @@ export function DataTablePagination<TData>({
 }: DataTablePaginationProps<TData>) {
   const selectedCount = table.getFilteredSelectedRowModel().rows.length;
   const totalFilteredCount = table.getFilteredRowModel().rows.length;
+  // With server-side pagination the table only holds the current page;
+  // report the server-provided total instead.
+  const totalRecordCount = table.options.manualPagination
+    ? table.getRowCount()
+    : totalFilteredCount;
   const pageIndex = table.getState().pagination.pageIndex;
   const pageSize = table.getState().pagination.pageSize;
   const pageCount = table.getPageCount();
@@ -33,7 +38,7 @@ export function DataTablePagination<TData>({
             {selectedCount} of {totalFilteredCount} row(s) selected
           </span>
         ) : (
-          <span>{totalFilteredCount} total record(s)</span>
+          <span>{totalRecordCount} total record(s)</span>
         )}
       </div>
 

@@ -133,8 +133,7 @@ export default function SuperAdminPortal() {
           </div>
           <h2 className="text-2xl font-bold text-foreground">Super Admin Access Required</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            You must be logged in as an authorized Super Admin (e.g.{' '}
-            <code className="text-primary font-semibold">contact@erppreflight.com</code>) to access the ERP
+            You must be logged in with an account that holds the Super Admin system role to access the ERP
             Preflight Trust Center, tenant directory, and global infrastructure telemetry.
           </p>
           <div className="pt-4 flex flex-col sm:flex-row justify-center gap-3">
@@ -578,11 +577,9 @@ export default function SuperAdminPortal() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs px-2.5 py-1 bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 font-bold rounded-full">
-                  {engineStatus?.summary?.operationalCount || 19} /{' '}
-                  {engineStatus?.summary?.totalEngines || 19} Operational
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  ({engineStatus?.summary?.totalRules || 312} Rules Certified)
+                  {engineStatus?.summary
+                    ? `${engineStatus.summary.operationalCount} / ${engineStatus.summary.totalEngines} Operational`
+                    : 'Status unavailable'}
                 </span>
               </div>
             </div>
@@ -605,7 +602,7 @@ export default function SuperAdminPortal() {
                   <p className="text-xs text-muted-foreground line-clamp-2">{eng.description}</p>
                   <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/50">
                     <span>{eng.domain}</span>
-                    <span className="font-medium">{eng.rulesCount} Rules</span>
+                    <span className="font-mono">{eng.id}</span>
                   </div>
                 </div>
               ))}

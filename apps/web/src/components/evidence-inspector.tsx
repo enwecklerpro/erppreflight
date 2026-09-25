@@ -113,9 +113,17 @@ export function EvidenceInspector({ finding, onClose }: EvidenceInspectorProps) 
                     key={idx}
                     className="border border-border rounded-lg p-3 bg-muted/20 text-xs font-mono space-y-2"
                   >
-                    <div className="flex items-center justify-between text-muted-foreground">
-                      <span>Path: {ev.artifactPath}</span>
-                      {ev.lineNumber && <span>Line: {ev.lineNumber}</span>}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                      <span className="break-all">Path: {ev.artifactPath}</span>
+                      {ev.lineNumber !== undefined && ev.lineNumber !== null && (
+                        <span>
+                          Line: {ev.lineNumber}
+                          {ev.columnNumber ? `:${ev.columnNumber}` : ''}
+                        </span>
+                      )}
+                      {typeof ev.trustScore === 'number' && (
+                        <span>Trust: {ev.trustScore.toFixed(2)}</span>
+                      )}
                     </div>
 
                     {ev.snippet && (

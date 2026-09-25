@@ -9,268 +9,306 @@ import {
   Clock,
   RefreshCw,
   XCircle,
-  ShieldCheck,
+  HelpCircle,
 } from 'lucide-react';
-import { customInstance } from '@/lib/api/custom-instance';
+import { customInstance, resolveApiRootUrl } from '@/lib/api/custom-instance';
 
-interface ServiceTelemetry {
+type ComponentStatus = 'OPERATIONAL' | 'DEGRADED' | 'DOWN' | 'NOT_MONITORED' | 'UNKNOWN';
+
+interface DependencyHealth {
+  status?: string;
+  latencyMs?: number;
+  engines?: number;
+  error?: string;
+}
+
+interface ReadinessResponse {
+  status?: string;
+  timestamp?: string;
+  dependencies?: Record<string, DependencyHealth | undefined>;
+}
+
+interface ReadinessProbe {
+  reachable: boolean;
+  httpStatus: number | null;
+  roundTripMs: number;
+  body: ReadinessResponse | null;
+  error?: string;
+}
+
+interface EngineStatusSummary {
+  summary?: {
+    totalEngines?: number;
+    operationalCount?: number;
+    serviceStatus?: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | string;
+  };
+}
+
+interface ServiceRow {
   name: string;
-  role: string;
-  port: number;
-  status: 'OPERATIONAL' | 'DEGRADED' | 'DOWN';
-  latencyMs: number;
-  uptimePercent: number;
+  status: ComponentStatus;
   details?: string;
 }
 
-export default function StatusPage() {
-  const startTime = React.useRef(Date.now());
+/**
+ * Probes GET /health/readiness (served outside the /api/v1 prefix). The API
+ * answers 503 with a JSON body when a dependency is down, so the body is
+ * parsed regardless of the HTTP status.
+ */
+async function probeReadiness(): Promise<ReadinessProbe> {
+  const t0 = performance.now();
+  try {
+    const res = await fetch(resolveApiRootUrl('/health/readiness'), {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const roundTripMs = Math.round(performance.now() - t0);
+    let body: ReadinessResponse | null = null;
+    try {
+      body = (await res.json()) as ReadinessResponse;
+    } catch {
+      body = null;
+    }
+    return { reachable: true, httpStatus: res.status, roundTripMs, body };
+  } catch (err) {
+    return {
+      reachable: false,
+      httpStatus: null,
+      roundTripMs: Math.round(performance.now() - t0),
+      body: null,
+      error: (err as Error)?.message || 'Connection failed',
+    };
+  }
+}
 
+function dependencyToStatus(dep: DependencyHealth | undefined): ComponentStatus {
+  switch (dep?.status) {
+    case 'up':
+      return 'OPERATIONAL';
+    case 'down':
+      return 'DOWN';
+    case 'mock_mode':
+    case 'unconfigured':
+      return 'NOT_MONITORED';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+function engineServiceToStatus(serviceStatus: string | undefined): ComponentStatus {
+  switch (serviceStatus) {
+    case 'ONLINE':
+      return 'OPERATIONAL';
+    case 'DEGRADED':
+      return 'DEGRADED';
+    case 'OFFLINE':
+      return 'DOWN';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+function latency(dep: DependencyHealth | undefined): string | undefined {
+  return typeof dep?.latencyMs === 'number' ? `${dep.latencyMs} ms` : undefined;
+}
+
+const STATUS_BADGE: Record<ComponentStatus, { label: string; className: string; Icon: React.ElementType }> = {
+  OPERATIONAL: {
+    label: 'OPERATIONAL',
+    className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    Icon: CheckCircle2,
+  },
+  DEGRADED: {
+    label: 'DEGRADED',
+    className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    Icon: AlertTriangle,
+  },
+  DOWN: {
+    label: 'DOWN',
+    className: 'bg-red-500/10 text-red-400 border-red-500/20',
+    Icon: XCircle,
+  },
+  NOT_MONITORED: {
+    label: 'NOT MONITORED',
+    className: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
+    Icon: HelpCircle,
+  },
+  UNKNOWN: {
+    label: 'UNKNOWN',
+    className: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
+    Icon: HelpCircle,
+  },
+};
+
+export default function StatusPage() {
   const {
-    data: healthData,
+    data: probe,
     isLoading,
-    isError,
-    error,
     refetch,
     isFetching,
     dataUpdatedAt,
   } = useQuery({
-    queryKey: ['system-status-telemetry'],
-    queryFn: async () => {
-      const t0 = performance.now();
-      try {
-        const res = await customInstance<{
-          status: string;
-          info?: Record<string, any>;
-          details?: Record<string, any>;
-        }>('/health/readiness');
-        const t1 = performance.now();
-        return {
-          ok: true,
-          latency: Math.round(t1 - t0),
-          data: res,
-        };
-      } catch (err: any) {
-        const t1 = performance.now();
-        return {
-          ok: false,
-          latency: Math.round(t1 - t0),
-          error: err?.message || 'Connection failed',
-        };
-      }
-    },
+    queryKey: ['system-status', 'readiness'],
+    queryFn: probeReadiness,
     refetchInterval: 30000,
     staleTime: 10000,
   });
 
-  const { data: engineData } = useQuery({
-    queryKey: ['engine-status-telemetry'],
-    queryFn: async () => {
-      try {
-        return await customInstance<{
-          summary: {
-            totalEngines: number;
-            operationalCount: number;
-            serviceStatus: string;
-          };
-        }>('/engines/status');
-      } catch {
-        return null;
-      }
-    },
+  const {
+    data: engineData,
+    isError: isEngineError,
+    refetch: refetchEngines,
+  } = useQuery({
+    queryKey: ['system-status', 'engines'],
+    queryFn: () => customInstance<EngineStatusSummary>('/engines/status'),
     refetchInterval: 60000,
+    retry: 1,
   });
 
-  const apiLatency = healthData?.latency || 15;
-  const isApiOk = healthData?.ok ?? false;
-  const isEnginesOk = engineData?.summary?.serviceStatus === 'OPERATIONAL';
+  const deps = probe?.body?.dependencies ?? {};
+  const apiReachable = Boolean(probe?.reachable);
 
-  const services: ServiceTelemetry[] = React.useMemo(() => {
-    return [
-      {
-        name: 'Web Application Frontend',
-        role: 'Next.js 15 App Router & Base UI',
-        port: 3000,
-        status: 'OPERATIONAL',
-        latencyMs: 8,
-        uptimePercent: 99.98,
-      },
-      {
-        name: 'Core SaaS API Gateway',
-        role: 'NestJS 11 & Multi-Tenant PostgreSQL RLS',
-        port: 3001,
-        status: isApiOk ? 'OPERATIONAL' : 'DOWN',
-        latencyMs: apiLatency,
-        uptimePercent: 99.99,
-        details: isApiOk ? 'PostgreSQL RLS Active' : 'API Unreachable',
-      },
-      {
-        name: 'Preflight Analysis Microservice',
-        role: 'FastAPI Python 3.13 Deterministic Engines',
-        port: 8000,
-        status: isEnginesOk ? 'OPERATIONAL' : isApiOk ? 'DEGRADED' : 'DOWN',
-        latencyMs: Math.max(apiLatency + 6, 20),
-        uptimePercent: 99.95,
-        details: `${engineData?.summary?.operationalCount ?? 19}/19 Engines Ready`,
-      },
-      {
-        name: 'ClamAV Antivirus Daemon',
-        role: 'Streaming INSTREAM Antivirus Ingestion Gate',
-        port: 3310,
-        status: isApiOk ? 'OPERATIONAL' : 'DEGRADED',
-        latencyMs: 5,
-        uptimePercent: 100.0,
-        details: 'Fail-Closed Production Invariant',
-      },
-      {
-        name: 'PostgreSQL Relational Store',
-        role: 'PostgreSQL 16 & Row Level Security',
-        port: 5432,
-        status: isApiOk ? 'OPERATIONAL' : 'DOWN',
-        latencyMs: 2,
-        uptimePercent: 99.99,
-        details: 'app.current_tenant_id Enforced',
-      },
-      {
-        name: 'Redis Cache & Job Queue',
-        role: 'Redis 7.2 Alpine & BullMQ Worker Queues',
-        port: 6379,
-        status: isApiOk ? 'OPERATIONAL' : 'DOWN',
-        latencyMs: 1,
-        uptimePercent: 100.0,
-        details: 'Queue Persistence Active',
-      },
-    ];
-  }, [isApiOk, isEnginesOk, apiLatency, engineData]);
+  const services: ServiceRow[] = [
+    {
+      name: 'Core API',
+      status: !probe ? 'UNKNOWN' : apiReachable ? 'OPERATIONAL' : 'DOWN',
+      details: probe
+        ? apiReachable
+          ? `Readiness responded HTTP ${probe.httpStatus} in ${probe.roundTripMs} ms (measured from this browser)`
+          : probe.error
+        : undefined,
+    },
+    {
+      name: 'PostgreSQL',
+      status: apiReachable ? dependencyToStatus(deps.postgres) : 'UNKNOWN',
+      details: latency(deps.postgres),
+    },
+    {
+      name: 'Redis (cache & job queue)',
+      status: apiReachable ? dependencyToStatus(deps.redis) : 'UNKNOWN',
+      details: latency(deps.redis),
+    },
+    {
+      name: 'Object storage',
+      status: apiReachable ? dependencyToStatus(deps.minio) : 'UNKNOWN',
+    },
+    {
+      name: 'Antivirus scanner',
+      status: apiReachable ? dependencyToStatus(deps.clamav) : 'UNKNOWN',
+      details: deps.clamav?.status === 'mock_mode' ? 'Scanner runs in mock mode' : undefined,
+    },
+    {
+      name: 'Analysis engines',
+      status: isEngineError ? 'UNKNOWN' : engineServiceToStatus(engineData?.summary?.serviceStatus),
+      details:
+        engineData?.summary &&
+        typeof engineData.summary.operationalCount === 'number' &&
+        typeof engineData.summary.totalEngines === 'number'
+          ? `${engineData.summary.operationalCount} / ${engineData.summary.totalEngines} engines operational`
+          : isEngineError
+          ? 'Engine status could not be retrieved'
+          : undefined,
+    },
+  ];
 
-  const allOperational = services.every((s) => s.status === 'OPERATIONAL');
-  const hasDown = services.some((s) => s.status === 'DOWN');
+  const monitored = services.filter((s) => s.status !== 'NOT_MONITORED');
+  const hasDown = monitored.some((s) => s.status === 'DOWN');
+  const hasUnknown = monitored.some((s) => s.status === 'UNKNOWN');
+  const allOperational = !isLoading && monitored.every((s) => s.status === 'OPERATIONAL');
+
+  const overall: ComponentStatus = isLoading
+    ? 'UNKNOWN'
+    : allOperational
+    ? 'OPERATIONAL'
+    : hasDown
+    ? 'DOWN'
+    : hasUnknown
+    ? 'UNKNOWN'
+    : 'DEGRADED';
+
+  const overallText: Record<ComponentStatus, string> = {
+    OPERATIONAL: 'All monitored components operational',
+    DEGRADED: 'Partial service degradation',
+    DOWN: 'One or more components are down',
+    UNKNOWN: isLoading ? 'Checking status…' : 'Status partially unknown',
+    NOT_MONITORED: 'Not monitored',
+  };
+  const OverallIcon = STATUS_BADGE[overall].Icon;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3 border border-emerald-500/20">
-            <Activity className="w-3.5 h-3.5" />
-            Live Infrastructure Telemetry
+            <Activity className="w-3.5 h-3.5" aria-hidden="true" />
+            Live status
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
             ERP Preflight Service Status
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            Real-time automated telemetry probing core SaaS endpoints, background queues, and analysis workers.
+            Current results of the API readiness probe and engine status endpoint. No historical uptime is recorded on this page.
           </p>
         </div>
 
-        {/* Global Banner */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4" role="status" aria-live="polite">
             <div
-              className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
-                allOperational
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                  : hasDown
-                  ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                  : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-              }`}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center border ${STATUS_BADGE[overall].className}`}
             >
-              {allOperational ? (
-                <CheckCircle2 className="w-6 h-6" />
-              ) : hasDown ? (
-                <XCircle className="w-6 h-6" />
-              ) : (
-                <AlertTriangle className="w-6 h-6" />
-              )}
+              <OverallIcon className="w-6 h-6" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">
-                {allOperational
-                  ? 'All Systems Fully Operational'
-                  : hasDown
-                  ? 'Service Outage Detected'
-                  : 'Partial Service Degradation'}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {allOperational
-                  ? 'Deterministic rule evaluation, ClamAV antivirus ingestion, and BullMQ workers are healthy.'
-                  : 'Some components are experiencing elevated latency or connection interruptions.'}
-              </p>
+              <h2 className="text-lg font-bold text-white">{overallText[overall]}</h2>
+              {probe?.body?.status && (
+                <p className="text-xs text-slate-400">
+                  API readiness reports: <span className="font-mono">{probe.body.status}</span>
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => refetch()}
+              type="button"
+              onClick={() => {
+                refetch();
+                refetchEngines();
+              }}
               disabled={isFetching}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
               Refresh
             </button>
             <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 font-mono">
-              <Clock className="w-3.5 h-3.5" />
-              <span>{dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : 'Polling...'}</span>
+              <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : 'Checking…'}</span>
             </div>
           </div>
         </div>
 
-        {/* Services List */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl mb-8">
-          <div className="divide-y divide-slate-800">
-            {services.map((svc) => (
-              <div
-                key={svc.name}
-                className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-800/40 transition-colors"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-white text-sm">{svc.name}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                      Port {svc.port}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-0.5">{svc.role}</div>
+        <ul className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
+          {services.map((svc) => {
+            const badge = STATUS_BADGE[svc.status];
+            const Icon = badge.Icon;
+            return (
+              <li key={svc.name} className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="font-bold text-white text-sm">{svc.name}</div>
                   {svc.details && (
-                    <div className="text-[11px] text-slate-500 font-mono mt-0.5">{svc.details}</div>
+                    <div className="text-[11px] text-slate-400 font-mono mt-0.5 break-words">{svc.details}</div>
                   )}
                 </div>
-
-                <div className="flex items-center gap-6">
-                  <div className="hidden sm:block text-right">
-                    <div className="text-xs font-mono text-white font-semibold">
-                      {svc.latencyMs} ms
-                    </div>
-                    <div className="text-[10px] text-slate-500">{svc.uptimePercent}% uptime</div>
-                  </div>
-                  {svc.status === 'OPERATIONAL' ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      OPERATIONAL
-                    </span>
-                  ) : svc.status === 'DEGRADED' ? (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/20">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                      DEGRADED
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 text-xs font-bold border border-red-500/20">
-                      <XCircle className="w-3.5 h-3.5 text-red-400" />
-                      DOWN
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Past Incident Transparency */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-xs text-slate-400">
-          <h3 className="font-bold text-white text-sm mb-2">Past 90 Days Incident History</h3>
-          <p>
-            Zero critical data breaches, tenant leaks, or unhandled outages recorded. All 19 preflight engines maintain 100% deterministic reproducibility across verified SAP S/4HANA release targets.
-          </p>
-        </div>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border shrink-0 ${badge.className}`}
+                >
+                  <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+                  {badge.label}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );

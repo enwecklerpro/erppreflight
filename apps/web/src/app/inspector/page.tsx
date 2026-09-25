@@ -1,11 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { SearchCode, RefreshCw } from 'lucide-react';
-import { queryKeys } from '../../lib/query/query-keys';
-import { fetchFindings } from '../../lib/api-client';
-import { Finding } from '@erppreflight/schemas';
+import { useFindingsPage } from '../../hooks/useFindingsPage';
 import { DataTable } from '../../components/data-table';
 import {
   findingColumns,
@@ -15,23 +12,12 @@ import { FindingDetailRow } from '../../components/findings/finding-detail-row';
 import { useTableUrlSync } from '../../hooks/useTableUrlSync';
 
 function UniversalInspectorContent() {
-  const {
-    data: findings = [],
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = useQuery<Finding[], Error>({
-    queryKey: queryKeys.findings.lists(),
-    queryFn: async () => {
-      return await fetchFindings();
-    },
-    staleTime: 1000 * 60 * 2,
-    refetchOnWindowFocus: false,
-  });
+  const { state: urlState, tableProps } = useTableUrlSync(50);
 
-  const { state: urlState, updateUrl, tableProps } = useTableUrlSync(50);
+  // Server-paginated findings across all projects of the tenant
+  const { data, isLoading, isError, error, refetch, isFetching } = useFindingsPage(urlState);
+  const findings = data?.items ?? [];
+  const pagination = data?.pagination;
 
   return (
     <div className="space-y-6">
@@ -65,8 +51,8 @@ function UniversalInspectorContent() {
         columns={findingColumns}
         data={findings}
         tableProps={tableProps}
-        enableVirtualization={findings.length > 50}
-        virtualHeight="calc(100vh - 280px)"
+        pageCount={pagination?.totalPages ?? 0}
+        rowCount={pagination?.total ?? 0}
         facetedFilters={findingFacetedFilters}
         searchColumnId="title"
         searchPlaceholder="Search findings by rule ID, title, engine, or object..."

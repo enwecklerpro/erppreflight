@@ -1,45 +1,35 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  Sparkles,
-  ShieldAlert,
-  ArrowRight,
-  Database,
-  FileCode,
-  FileSpreadsheet,
-  Layers,
-  Truck,
-  Flame,
-  CheckCircle2,
-  Lock,
-} from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, AlertCircle } from 'lucide-react';
 import { exploreDemoProject } from '@/lib/api-client';
-
-import { useQuery } from '@tanstack/react-query';
-import { customInstance } from '@/lib/api/custom-instance';
+import { ApiError } from '@/lib/api/custom-instance';
 
 export default function DemoSandboxPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [launchError, setLaunchError] = useState<{ message: string; needsLogin: boolean } | null>(
+    null
+  );
 
-  const { data: scenarios, isLoading: scenariosLoading, isError } = useQuery({
-    queryKey: ['demo', 'scenarios'],
-    queryFn: async () => {
-      const res = await customInstance('/api/v1/demo/scenarios');
-      return res as any[];
-    },
-    retry: false,
-  });
-
+  // The only demo endpoint is POST /demo/explore, which provisions (or reuses)
+  // a synthetic demo project in the signed-in user's organization.
   async function handleLaunch() {
     setLoading(true);
+    setLaunchError(null);
     try {
       const res = await exploreDemoProject();
       router.push(`/projects/${res.project.id}`);
     } catch (err) {
-      console.error('Failed to launch demo project:', err);
+      const needsLogin = err instanceof ApiError && err.statusCode === 401;
+      setLaunchError({
+        needsLogin,
+        message: needsLogin
+          ? 'Sign in to provision the demo sandbox in your organization.'
+          : (err as Error)?.message || 'The demo sandbox could not be provisioned.',
+      });
       setLoading(false);
     }
   }
@@ -70,59 +60,31 @@ export default function DemoSandboxPage() {
             </button>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Lock className="w-3.5 h-3.5 text-emerald-400" />
-              100% Synthetic Data • No Customer Credentials Required
+              Synthetic data only • Requires a signed-in account
             </div>
           </div>
         </div>
 
-        {/* Scenarios Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
-          {scenariosLoading ? (
-            <div className="col-span-full text-center py-12 text-slate-400">Loading demo scenarios...</div>
-          ) : isError || !scenarios || scenarios.length === 0 ? (
-            <div className="col-span-full text-center py-12 text-slate-400">Demo scenarios are being configured. Please check back later.</div>
-          ) : scenarios.map((sc, idx) => {
-            const Icon = sc.icon || FileCode;
-            const isBlocker = sc.severity === 'BLOCKER';
-            const isCritical = sc.severity === 'CRITICAL';
-            return (
-              <div
-                key={idx}
-                className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-lg bg-slate-800 text-emerald-400">
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span className="font-bold text-sm text-white">{sc.title}</span>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
-                        isBlocker
-                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          : isCritical
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                      }`}
-                    >
-                      {sc.severity}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">{sc.desc}</p>
-                </div>
-                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>Engine: <strong className="text-slate-300 font-mono">{sc.engine}</strong></span>
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Verified Evidence
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {launchError && (
+          <div
+            role="alert"
+            className="mb-12 max-w-xl mx-auto p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-200 flex items-start gap-3"
+          >
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="flex-1">
+              <p>{launchError.message}</p>
+              {launchError.needsLogin ? (
+                <Link href="/login" className="mt-2 inline-block font-semibold underline">
+                  Sign in
+                </Link>
+              ) : (
+                <button type="button" onClick={handleLaunch} className="mt-2 font-semibold underline">
+                  Try again
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Footer Note */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center text-xs text-slate-400">

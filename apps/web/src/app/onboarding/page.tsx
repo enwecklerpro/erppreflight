@@ -14,6 +14,7 @@ import {
   Truck,
   Flame,
   FileSpreadsheet,
+  AlertCircle,
 } from 'lucide-react';
 import { createProject, exploreDemoProject } from '@/lib/api-client';
 
@@ -35,11 +36,12 @@ const DOMAINS = [
   { id: 'MFS', label: 'Material Flow Systems Telegram Diagnostics', icon: Flame },
 ];
 
+// Must stay aligned with TargetReleaseEnum in @erppreflight/schemas.
 const RELEASES = [
   { id: 'S4H_2023', label: 'SAP S/4HANA 2023 (Private Cloud / On-Premise)' },
   { id: 'S4H_2022', label: 'SAP S/4HANA 2022' },
-  { id: 'CLOUD_2502', label: 'SAP S/4HANA Cloud Public Edition 2502' },
-  { id: 'ECC_608', label: 'SAP ECC 6.0 EHP8' },
+  { id: 'S4HC_2408', label: 'SAP S/4HANA Cloud Public Edition 2408' },
+  { id: 'S4HC_2402', label: 'SAP S/4HANA Cloud Public Edition 2402' },
 ];
 
 import { useMutation } from '@tanstack/react-query';
@@ -57,9 +59,6 @@ export default function OnboardingPage() {
     onSuccess: (created) => {
       router.push(`/projects/${created.id}`);
     },
-    onError: (err) => {
-      console.error(err);
-    }
   });
 
   const exploreDemoMutation = useMutation({
@@ -67,14 +66,18 @@ export default function OnboardingPage() {
     onSuccess: (demo) => {
       router.push(`/projects/${demo.project.id}`);
     },
-    onError: (err) => {
-      console.error(err);
-    }
   });
 
   const loading = createProjectMutation.isPending || exploreDemoMutation.isPending;
 
+  const failedMutation = createProjectMutation.isError
+    ? { label: 'Workspace could not be created', error: createProjectMutation.error, retry: () => handleComplete() }
+    : exploreDemoMutation.isError
+    ? { label: 'Demo project could not be provisioned', error: exploreDemoMutation.error, retry: () => handleExploreDemo() }
+    : null;
+
   async function handleComplete() {
+    exploreDemoMutation.reset();
     createProjectMutation.mutate({
       name: projectName,
       description: `Configured during onboarding for ${selectedRole} focusing on ${selectedDomain}`,
@@ -83,6 +86,7 @@ export default function OnboardingPage() {
   }
 
   async function handleExploreDemo() {
+    createProjectMutation.reset();
     exploreDemoMutation.mutate();
   }
 
@@ -252,6 +256,29 @@ export default function OnboardingPage() {
                   </div>
                 </div>
               </div>
+
+              {failedMutation && (
+                <div
+                  role="alert"
+                  className="mb-6 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-200 flex items-start gap-3"
+                >
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="flex-1">
+                    <p className="font-semibold">{failedMutation.label}</p>
+                    <p className="text-xs mt-0.5">
+                      {(failedMutation.error as Error)?.message || 'Unexpected server error.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={failedMutation.retry}
+                      disabled={loading}
+                      className="mt-2 text-xs font-semibold underline"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-800">
                 <button

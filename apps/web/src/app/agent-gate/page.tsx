@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldCheck,
@@ -45,6 +45,9 @@ export default function AgentGatePage() {
   const [agentRuntime, setAgentRuntime] = useState('MCP_CLIENT');
   const [agentMaxRisk, setAgentMaxRisk] = useState('MEDIUM');
 
+  // Project whose proposals are listed (the API scopes proposals per project)
+  const [proposalProjectId, setProposalProjectId] = useState('');
+
   // Simulator Form State
   const [simProjectId, setSimProjectId] = useState('');
   const [simAgentId, setSimAgentId] = useState('');
@@ -67,14 +70,33 @@ export default function AgentGatePage() {
     queryFn: fetchAgents,
   });
 
-  const { data: proposals = [], isLoading: isProposalsLoading } = useQuery({
-    queryKey: ['agent-gate-proposals'],
-    queryFn: () => fetchAgentProposals(),
-  });
-
-  const { data: projects = [] } = useQuery({
+  const {
+    data: projects = [],
+    isLoading: isProjectsLoading,
+    isError: isProjectsError,
+    refetch: refetchProjects,
+  } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
+  });
+
+  // Default the proposal list to the first project once projects load.
+  useEffect(() => {
+    if (!proposalProjectId && projects.length > 0) {
+      setProposalProjectId(projects[0].id);
+    }
+  }, [projects, proposalProjectId]);
+
+  const {
+    data: proposals = [],
+    isLoading: isProposalsLoading,
+    isError: isProposalsError,
+    error: proposalsError,
+    refetch: refetchProposals,
+  } = useQuery({
+    queryKey: ['agent-gate-proposals', proposalProjectId],
+    queryFn: () => fetchAgentProposals(proposalProjectId),
+    enabled: Boolean(proposalProjectId),
   });
 
   // Mutations
@@ -89,8 +111,9 @@ export default function AgentGatePage() {
 
   const submitProposalMutation = useMutation({
     mutationFn: submitAgentProposal,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['agent-gate-proposals'] });
+      setProposalProjectId(variables.projectId);
       setSimSuccess(`Change proposal submitted! Gate verdict: ${data.verdict}`);
       setSimError(null);
     },
@@ -272,7 +295,52 @@ export default function AgentGatePage() {
       {/* Tab: Proposals */}
       {activeTab === 'proposals' && (
         <div className="space-y-4">
-          {isProposalsLoading ? (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+            <label htmlFor="proposal-project" className="font-semibold text-foreground">
+              Project
+            </label>
+            <select
+              id="proposal-project"
+              value={proposalProjectId}
+              onChange={(e) => setProposalProjectId(e.target.value)}
+              disabled={isProjectsLoading || projects.length === 0}
+              className="w-full sm:w-80 px-3 py-2 bg-background border border-border rounded-lg text-foreground"
+            >
+              <option value="">Select project...</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isProjectsError ? (
+            <div role="alert" className="border border-destructive/30 rounded-xl p-6 text-center text-xs space-y-2">
+              <AlertTriangle className="size-5 mx-auto text-destructive" aria-hidden="true" />
+              <p className="font-semibold text-foreground">Could not load projects</p>
+              <button type="button" onClick={() => refetchProjects()} className="font-semibold underline">
+                Retry
+              </button>
+            </div>
+          ) : !isProjectsLoading && projects.length === 0 ? (
+            <div className="border border-dashed border-border rounded-xl p-8 text-center text-xs text-muted-foreground">
+              Change proposals are scoped to a project. Create a project first.
+            </div>
+          ) : !proposalProjectId ? (
+            <div className="border border-dashed border-border rounded-xl p-8 text-center text-xs text-muted-foreground">
+              Select a project to list its agent change proposals.
+            </div>
+          ) : isProposalsError ? (
+            <div role="alert" className="border border-destructive/30 rounded-xl p-6 text-center text-xs space-y-2">
+              <AlertTriangle className="size-5 mx-auto text-destructive" aria-hidden="true" />
+              <p className="font-semibold text-foreground">Could not load change proposals</p>
+              <p className="text-muted-foreground">{(proposalsError as Error)?.message}</p>
+              <button type="button" onClick={() => refetchProposals()} className="font-semibold underline">
+                Retry
+              </button>
+            </div>
+          ) : isProposalsLoading ? (
             <div className="p-12 text-center text-muted-foreground flex items-center justify-center gap-2 text-sm">
               <Loader2 className="size-4 animate-spin" />
               <span>Loading agent change proposals...</span>

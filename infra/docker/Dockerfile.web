@@ -16,6 +16,11 @@ COPY apps/web/ ./apps/web/
 ENV DOCKER_BUILD=1
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# NEXT_PUBLIC_* variables are inlined into the client bundle at build time,
+# so the API base URL must be supplied as a build argument.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Install dependencies and build shared packages & web
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @erppreflight/schemas build && \

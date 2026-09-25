@@ -123,10 +123,10 @@ export function EngineMatrix() {
             18-Engine Operational Status Matrix
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Real-time readiness and deterministic rule inventory across SAP preflight domains
+            Readiness of the deterministic preflight engines as reported by the analysis service
             {engineData?.summary ? (
               <span className="ml-2 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                • {engineData.summary.operationalCount} / {engineData.summary.totalEngines} Active ({engineData.summary.totalRules} Rules)
+                • {engineData.summary.operationalCount} / {engineData.summary.totalEngines} Active
               </span>
             ) : isError ? (
               <span className="ml-2 font-mono font-semibold text-red-600 dark:text-red-400">
@@ -301,9 +301,7 @@ export function EngineMatrix() {
                 </div>
 
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs">
-                  <span className="text-muted-foreground">
-                    <strong className="text-foreground">{eng.rulesCount}</strong> Rules Evaluated
-                  </span>
+                  <span className="text-muted-foreground">{eng.domain}</span>
                   <span className="font-mono text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
                     {eng.id}
                   </span>

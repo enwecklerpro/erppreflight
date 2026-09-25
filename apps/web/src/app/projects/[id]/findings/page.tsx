@@ -3,16 +3,13 @@
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
 import {
   ChevronRight,
   ShieldAlert,
   ArrowLeft,
   RefreshCw,
 } from 'lucide-react';
-import { queryKeys } from '../../../../lib/query/query-keys';
-import { fetchFindings } from '../../../../lib/api-client';
-import { Finding } from '@erppreflight/schemas';
+import { useFindingsPage } from '../../../../hooks/useFindingsPage';
 import { DataTable } from '../../../../components/data-table';
 import {
   findingColumns,
@@ -25,29 +22,19 @@ function ProjectFindingsContent() {
   const params = useParams();
   const projectId = (params?.id as string) || '';
 
-  // TanStack Query for server state
-  const {
-    data: rawFindings = [],
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = useQuery<Finding[], Error>({
-    queryKey: queryKeys.findings.byProject(projectId),
-    queryFn: async () => {
-      return fetchFindings({ projectId });
-    },
-    staleTime: 1000 * 60 * 2,
-    refetchOnWindowFocus: false,
-  });
+  // URL synchronization hook for table filters, sorts, search and pagination
+  const { state: urlState, tableProps } = useTableUrlSync(50);
 
-  // URL synchronization hook for table filters, sorts, and search
-  const { state: urlState, updateUrl, tableProps } = useTableUrlSync(50);
+  // Server-paginated findings (page / pageSize / search / single-value filters)
+  const { data, isLoading, isError, error, refetch, isFetching } = useFindingsPage(
+    urlState,
+    projectId
+  );
 
-  const findings = rawFindings;
+  const findings = data?.items ?? [];
+  const pagination = data?.pagination;
 
-  // High-level statistics
+  // Statistics for the current page (the total comes from the server)
   const blockerCount = findings.filter((f) => f.severity === 'BLOCKER').length;
   const criticalCount = findings.filter((f) => f.severity === 'CRITICAL').length;
   const tier3Count = findings.filter((f) =>
@@ -109,8 +96,11 @@ function ProjectFindingsContent() {
         <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-card border border-border shadow-xs">
             <span className="text-muted-foreground">Total Findings:</span>
-            <span className="font-bold text-foreground font-mono">{findings.length}</span>
+            <span className="font-bold text-foreground font-mono">
+              {pagination ? pagination.total : '—'}
+            </span>
           </div>
+          <span className="text-muted-foreground">Counts below refer to the current page.</span>
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200 dark:border-red-900 shadow-xs">
             <span className="font-semibold">Blockers:</span>
             <span className="font-bold font-mono">{blockerCount}</span>
@@ -131,8 +121,8 @@ function ProjectFindingsContent() {
         columns={findingColumns}
         data={findings}
         tableProps={tableProps}
-        enableVirtualization={findings.length > 50}
-        virtualHeight="calc(100vh - 340px)"
+        pageCount={pagination?.totalPages ?? 0}
+        rowCount={pagination?.total ?? 0}
         facetedFilters={findingFacetedFilters}
         searchColumnId="title"
         searchPlaceholder="Filter by title, rule ID, or description..."

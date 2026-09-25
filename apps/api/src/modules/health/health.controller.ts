@@ -19,7 +19,7 @@ export class HealthController {
   @Get('readiness')
   async getReadiness(@Response({ passthrough: true }) res: ExpressResponse) {
     const health = await this.healthService.getReadiness();
-    if (health.status !== 'ready') {
+    if (health.status === 'unhealthy') {
       res.status(HttpStatus.SERVICE_UNAVAILABLE);
     }
     return health;

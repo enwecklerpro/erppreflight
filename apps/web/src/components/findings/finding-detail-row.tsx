@@ -397,7 +397,18 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             Audit Provenance & Cryptographic Lineage
           </h5>
           <span className="text-[10px] font-mono text-muted-foreground">
-            Reproducibility Chain: VERIFIED_DETERMINISTIC
+            {finding.evidence &&
+            finding.evidence.length > 0 &&
+            finding.evidence.every(
+              (ev) =>
+                Boolean(ev.artifactPath) &&
+                ev.lineNumber !== undefined &&
+                ev.lineNumber !== null &&
+                typeof ev.sha256 === 'string' &&
+                /^[a-fA-F0-9]{64}$/.test(ev.sha256)
+            )
+              ? 'Evidence chain: complete (path, line, SHA-256)'
+              : 'Evidence chain: incomplete'}
           </span>
         </div>
 
@@ -408,8 +419,8 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               <FileCode className="size-3 text-cyan-500" />
               1. Source Artifact
             </span>
-            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.artifactPath || 'Artifact Stream'}>
-              {finding.evidence?.[0]?.artifactPath ? finding.evidence[0].artifactPath.split('/').pop() : 'Input File'}
+            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.artifactPath || 'Not recorded'}>
+              {finding.evidence?.[0]?.artifactPath ? finding.evidence[0].artifactPath.split('/').pop() : 'Not recorded'}
             </span>
           </div>
 
@@ -419,8 +430,8 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               <Binary className="size-3 text-emerald-500" />
               2. SHA-256 Digest
             </span>
-            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.sha256 || 'Calculated on Ingestion'}>
-              {finding.evidence?.[0]?.sha256 ? `${finding.evidence[0].sha256.substring(0, 10)}...` : 'Pre-flight Hash'}
+            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.sha256 || 'Not recorded'}>
+              {finding.evidence?.[0]?.sha256 ? `${finding.evidence[0].sha256.substring(0, 10)}...` : 'Not recorded'}
             </span>
           </div>
 
@@ -428,10 +439,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <Cpu className="size-3 text-purple-500" />
-              3. Hardened Parser
+              3. Evidence Items
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1">
-              Deterministic AST
+              {finding.evidence?.length ?? 0}
             </span>
           </div>
 
@@ -442,7 +453,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               4. Analysis Engine
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1">
-              {finding.engineType || 'PREFLIGHT_CORE'}
+              {finding.engineType || 'Not recorded'}
             </span>
           </div>
 
@@ -450,10 +461,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <BookOpen className="size-3 text-amber-500" />
-              5. Knowledge Base
+              5. Rule
             </span>
-            <span className="font-mono text-foreground font-semibold truncate mt-1">
-              SAP S/4HANA 2023+
+            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.ruleId}>
+              {finding.ruleId || 'Not recorded'}
             </span>
           </div>
 

@@ -20,7 +20,7 @@ import {
 
 function ProjectObjectInventoryContent() {
   const params = useParams();
-  const projectId = (params?.id as string) || '1a91cf25-87a4-4a41-b0db-6e69001b9201';
+  const projectId = (params?.id as string) || '';
 
   // 1. URL State Synchronization Hook
   const { state: urlState, updateUrl, resetAll, tableProps } = useTableUrlSync(50);
@@ -112,7 +112,7 @@ function ProjectObjectInventoryContent() {
               Total Catalog Objects
             </span>
             <span className="text-2xl font-extrabold text-foreground mt-1 block font-mono">
-              {data?.totalCount?.toLocaleString() || '10,000+'}
+              {data?.totalCount !== undefined ? data.totalCount.toLocaleString() : '—'}
             </span>
             <span className="text-[11px] text-muted-foreground mt-1 block">
               Parsed from customer transports

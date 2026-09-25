@@ -1,47 +1,15 @@
 import { MetadataRoute } from 'next';
+import { PUBLIC_INDEXABLE_ROUTES, getAppBaseUrl } from '../lib/seo';
 
+/**
+ * Lists only public routes that exist under src/app. Authenticated
+ * application routes are excluded (see robots.ts).
+ */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://erppreflight.com';
-  const now = new Date();
-
-  const publicRoutes = [
-    {
-      url: baseUrl,
-      lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 1.0,
-    },
-    {
-      url: `${baseUrl}/knowledge`,
-      lastModified: now,
-      changeFrequency: 'daily' as const,
-      priority: 0.9,
-    },
-    {
-      url: `${baseUrl}/lab`,
-      lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/templates`,
-      lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/changelog`,
-      lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 0.7,
-    },
-    {
-      url: `${baseUrl}/trust-center`,
-      lastModified: now,
-      changeFrequency: 'monthly' as const,
-      priority: 0.7,
-    },
-  ];
-
-  return publicRoutes;
+  const baseUrl = getAppBaseUrl();
+  return PUBLIC_INDEXABLE_ROUTES.map((route) => ({
+    url: route === '/' ? baseUrl : `${baseUrl}${route}`,
+    changeFrequency: route === '/changelog' ? ('weekly' as const) : ('monthly' as const),
+    priority: route === '/' ? 1.0 : 0.7,
+  }));
 }

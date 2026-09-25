@@ -3,8 +3,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Project, TargetRelease } from '@erppreflight/schemas';
-import { fetchProjects, createProject, CreateProjectPayload } from '../../lib/api-client';
+import {
+  fetchProjects,
+  createProject,
+  CreateProjectPayload,
+  ProjectRecord,
+} from '../../lib/api-client';
 import {
   FolderGit2,
   Plus,
@@ -17,13 +21,21 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
+// Must stay aligned with TargetReleaseEnum in @erppreflight/schemas.
 const TARGET_RELEASES = [
   { value: 'S4H_2023', label: 'SAP S/4HANA 2023 (Private / On-Premise)' },
   { value: 'S4HC_2408', label: 'SAP S/4HANA Cloud Public Edition 2408' },
   { value: 'S4HC_2402', label: 'SAP S/4HANA Cloud Public Edition 2402' },
   { value: 'S4H_2022', label: 'SAP S/4HANA 2022' },
-  { value: 'ECC_608', label: 'SAP ERP 6.0 EHP8' },
+  { value: 'S4H_2021', label: 'SAP S/4HANA 2021' },
+  { value: 'S4H_2020', label: 'SAP S/4HANA 2020' },
 ];
+
+function formatDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+}
 
 export default function ProjectsPage() {
   const queryClient = useQueryClient();
@@ -39,7 +51,7 @@ export default function ProjectsPage() {
     isError,
     error,
     refetch,
-  } = useQuery<Project[]>({
+  } = useQuery<ProjectRecord[]>({
     queryKey: ['projects'],
     queryFn: fetchProjects,
     staleTime: 1000 * 30,
@@ -72,7 +84,6 @@ export default function ProjectsPage() {
       name: formName.trim(),
       description: formDesc.trim() || undefined,
       targetRelease: formRelease,
-      environments: ['DEV', 'TEST', 'PROD'],
     });
   };
 
@@ -169,18 +180,13 @@ export default function ProjectsPage() {
                 <div className="flex items-start justify-between">
                   <span className="inline-flex items-center gap-1.5 text-xs font-mono font-bold px-2.5 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                     <Server className="h-3 w-3" />
-                    Target: {proj.targetRelease}
+                    Target: {proj.targetRelease || 'Not set'}
                   </span>
-                  <div className="flex gap-1">
-                    {(proj.environments || ['DEV', 'TEST', 'PROD']).map((env) => (
-                      <span
-                        key={env}
-                        className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-                      >
-                        {env}
-                      </span>
-                    ))}
-                  </div>
+                  {proj.status && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                      {proj.status}
+                    </span>
+                  )}
                 </div>
 
                 <h2 className="text-lg font-bold text-foreground mt-3">
@@ -194,7 +200,7 @@ export default function ProjectsPage() {
               <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
                 <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <Calendar className="h-3 w-3" />
-                  Created: {new Date(proj.createdAt || Date.now()).toLocaleDateString()}
+                  {formatDate(proj.createdAt) ? `Created: ${formatDate(proj.createdAt)}` : 'Creation date unavailable'}
                 </span>
 
                 <Link

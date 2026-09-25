@@ -19,7 +19,6 @@ import {
   X,
 } from 'lucide-react';
 import { fetchProjects, ProjectListItem } from '@/lib/api-client';
-import type { Project } from '@erppreflight/schemas';
 
 interface PaletteItem {
   id: string;
@@ -152,7 +151,7 @@ export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
 
   // Load projects for dynamic search
   useEffect(() => {
