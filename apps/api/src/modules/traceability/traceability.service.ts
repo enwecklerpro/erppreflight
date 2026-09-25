@@ -28,17 +28,24 @@ export class TraceabilityService {
       [organizationId, projectId]
     );
 
-    // If empty, auto-seed default traceability based on project findings
+    // If empty, auto-seed default traceability ONLY if project is explicitly a demo sandbox
     if (!res.rows?.length) {
-      await this.syncFromFindings(organizationId, projectId);
-      res = await this.db.query(
-        `SELECT t.*, f.title as finding_title, f.severity as finding_severity, f.rule_id as finding_rule_id
-         FROM traceability_nodes t
-         LEFT JOIN findings f ON t.finding_id = f.id
-         WHERE t.organization_id = $1 AND t.project_id = $2
-         ORDER BY t.created_at ASC`,
+      const projRes = await this.db.query(
+        `SELECT slug, description FROM projects WHERE organization_id = $1 AND id = $2`,
         [organizationId, projectId]
       );
+      const isDemo = projRes.rows?.[0]?.slug?.startsWith('demo-') || false;
+      if (isDemo) {
+        await this.syncFromFindings(organizationId, projectId);
+        res = await this.db.query(
+          `SELECT t.*, f.title as finding_title, f.severity as finding_severity, f.rule_id as finding_rule_id
+           FROM traceability_nodes t
+           LEFT JOIN findings f ON t.finding_id = f.id
+           WHERE t.organization_id = $1 AND t.project_id = $2
+           ORDER BY t.created_at ASC`,
+          [organizationId, projectId]
+        );
+      }
     }
 
     const rows = res.rows || [];

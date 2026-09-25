@@ -15,6 +15,7 @@
     "test:python": "py -m pytest services/analysis-python/tests -v",
     "check:deps": "node scripts/check-no-dependency-soup.mjs",
     "check:no-production-facades": "node scripts/check-no-production-facades.mjs",
+    "check:production-truth": "node scripts/check-production-truth.mjs",
     "codegen:api": "pnpm --filter @erppreflight/web codegen:api",
     "test:e2e": "playwright test"
   },

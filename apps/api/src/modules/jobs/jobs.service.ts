@@ -355,4 +355,120 @@ export class JobsService {
       findings: normalizedFindings,
     };
   }
+
+  /**
+   * Part 17.16 & Section 31: Schedule automated recurring preflight analysis via BullMQ repeatable jobs.
+   */
+  async schedulePreflight(
+    organizationId: string,
+    userId: string,
+    dto: {
+      projectId: string;
+      cronExpression: string;
+      engineTypes: EngineType[];
+      targetRelease?: TargetRelease;
+    }
+  ) {
+    const id = uuidv4();
+    const cron = dto.cronExpression.trim();
+    const parts = cron.split(/\s+/);
+    if (parts.length !== 5) {
+      throw new Error(`Invalid cron pattern '${cron}'. Expected standard 5-part cron syntax (e.g. '0 2 * * *')`);
+    }
+
+    const targetRelease = (dto.targetRelease || 'S4H_2023') as TargetRelease;
+    const repeatJobKey = `sched:${organizationId}:${dto.projectId}:${id}`;
+
+    if (this.analysisQueue) {
+      await this.analysisQueue.add(
+        'scheduled-preflight',
+        {
+          scheduleId: id,
+          organizationId,
+          projectId: dto.projectId,
+          userId,
+          engineTypes: dto.engineTypes,
+          targetRelease,
+        },
+        {
+          repeat: {
+            pattern: cron,
+            jobId: repeatJobKey,
+          },
+          jobId: repeatJobKey,
+        }
+      );
+    }
+
+    const res = await this.db.query(
+      `INSERT INTO scheduled_preflights (
+        id, organization_id, project_id, cron_expression, engine_types, target_release,
+        status, repeat_job_key, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $8)
+      RETURNING *`,
+      [
+        id,
+        organizationId,
+        dto.projectId,
+        cron,
+        JSON.stringify(dto.engineTypes),
+        targetRelease,
+        repeatJobKey,
+        userId,
+      ],
+      { tenantId: organizationId }
+    );
+
+    return res.rows[0];
+  }
+
+  async listScheduledPreflights(organizationId: string, projectId?: string) {
+    if (projectId) {
+      const res = await this.db.query(
+        `SELECT * FROM scheduled_preflights WHERE organization_id = $1 AND project_id = $2 ORDER BY created_at DESC`,
+        [organizationId, projectId],
+        { tenantId: organizationId }
+      );
+      return res.rows;
+    }
+
+    const res = await this.db.query(
+      `SELECT * FROM scheduled_preflights WHERE organization_id = $1 ORDER BY created_at DESC`,
+      [organizationId],
+      { tenantId: organizationId }
+    );
+    return res.rows;
+  }
+
+  async cancelScheduledPreflight(organizationId: string, scheduleId: string) {
+    const existing = await this.db.query(
+      `SELECT * FROM scheduled_preflights WHERE organization_id = $1 AND id = $2`,
+      [organizationId, scheduleId],
+      { tenantId: organizationId }
+    );
+    if (!existing.rows?.length) {
+      throw new NotFoundException(`Scheduled preflight '${scheduleId}' not found`);
+    }
+
+    const row = existing.rows[0];
+    if (this.analysisQueue && row.cron_expression && row.repeat_job_key) {
+      try {
+        await this.analysisQueue.removeRepeatable(
+          'scheduled-preflight',
+          { pattern: row.cron_expression, jobId: row.repeat_job_key }
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed to remove BullMQ repeatable job ${row.repeat_job_key}: ${err.message}`);
+      }
+    }
+
+    const res = await this.db.query(
+      `UPDATE scheduled_preflights SET status = 'CANCELLED', updated_at = NOW()
+       WHERE organization_id = $1 AND id = $2 RETURNING *`,
+      [organizationId, scheduleId],
+      { tenantId: organizationId }
+    );
+
+    return res.rows[0];
+  }
 }

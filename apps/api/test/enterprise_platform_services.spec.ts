@@ -8,6 +8,7 @@ import { AgentGateService } from '../src/modules/agent-gate/agent-gate.service';
 import { ApiKeysService } from '../src/modules/api-keys/api-keys.service';
 import { WebhooksService } from '../src/modules/webhooks/webhooks.service';
 import { LandscapesService } from '../src/modules/landscapes/landscapes.service';
+import { JobsService } from '../src/modules/jobs/jobs.service';
 
 describe('Enterprise Platform Services Suite', () => {
   let mockDb: any;
@@ -573,5 +574,152 @@ describe('Enterprise Platform Services Suite', () => {
       expect(res.handshakeStatus).toBe('CONFIG_ERROR');
       expect(res.status).toBe('OFFLINE');
     });
+
+    it('should block SSRF attempts to cloud metadata IP with BLOCKED_SSRF and mark SECURITY_BLOCKED', async () => {
+      mockDb.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'land-ssrf-1',
+              system_id: 'S4H_ATTACK',
+              environment: 'PROD',
+              product: 'SAP S/4HANA',
+              edition: 'Private Cloud',
+              release: '2023',
+              url: 'http://169.254.169.254/latest/meta-data/',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }); // update landscapes status to SECURITY_BLOCKED
+
+      const service = new LandscapesService(mockDb);
+      const res = await service.testConnection(orgId, 'land-ssrf-1');
+
+      expect(res.handshakeStatus).toBe('BLOCKED_SSRF');
+      expect(res.status).toBe('SECURITY_BLOCKED');
+      expect(res.error).toContain('SSRF');
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE landscapes SET status = 'SECURITY_BLOCKED'"),
+        expect.any(Array)
+      );
+    });
+
+    it('should reject cloud metadata URL during landscape registration', async () => {
+      const service = new LandscapesService(mockDb);
+      await expect(
+        service.create(orgId, {
+          systemId: 'SSRF_DEV',
+          product: 'SAP S/4HANA',
+          edition: 'Private Cloud',
+          release: '2023',
+          environment: 'DEV',
+          url: 'http://metadata.google.internal/computeMetadata/v1/',
+        })
+      ).rejects.toThrow('Cloud instance metadata endpoint detected');
+    });
+  });
+
+  describe('JobsService (Scheduled Preflights Runtime)', () => {
+    let mockQueue: any;
+    let mockConfig: any;
+
+    beforeEach(() => {
+      mockQueue = {
+        add: vi.fn().mockResolvedValue({ id: 'job-1' }),
+        removeRepeatable: vi.fn().mockResolvedValue(true),
+      };
+      mockConfig = {
+        get: vi.fn().mockReturnValue('http://localhost:8000'),
+      };
+    });
+
+    it('should schedule recurring preflight with valid cron pattern and register BullMQ repeatable job', async () => {
+      mockDb.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'sched-1',
+            organization_id: orgId,
+            project_id: projectId,
+            cron_expression: '0 2 * * *',
+            engine_types: ['OPD_GUARD', 'FORM_DOCTOR'],
+            target_release: 'S4H_2023',
+            status: 'ACTIVE',
+            repeat_job_key: `sched:${orgId}:${projectId}:sched-1`,
+          },
+        ],
+      });
+
+      const service = new JobsService(mockDb, mockConfig, mockQueue);
+      const res = await service.schedulePreflight(orgId, userId, {
+        projectId,
+        cronExpression: '0 2 * * *',
+        engineTypes: ['OPD_GUARD', 'FORM_DOCTOR'] as any,
+        targetRelease: 'S4H_2023' as any,
+      });
+
+      expect(res.id).toBe('sched-1');
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'scheduled-preflight',
+        expect.objectContaining({
+          organizationId: orgId,
+          projectId,
+          engineTypes: ['OPD_GUARD', 'FORM_DOCTOR'],
+        }),
+        expect.objectContaining({
+          repeat: expect.objectContaining({ pattern: '0 2 * * *' }),
+        })
+      );
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO scheduled_preflights'),
+        expect.any(Array),
+        expect.any(Object)
+      );
+    });
+
+    it('should reject malformed cron patterns', async () => {
+      const service = new JobsService(mockDb, mockConfig, mockQueue);
+      await expect(
+        service.schedulePreflight(orgId, userId, {
+          projectId,
+          cronExpression: 'invalid-cron',
+          engineTypes: ['OPD_GUARD'] as any,
+        })
+      ).rejects.toThrow('Invalid cron pattern');
+    });
+
+    it('should cancel scheduled preflight and deregister BullMQ repeatable job', async () => {
+      mockDb.query
+        // find existing
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'sched-1',
+              organization_id: orgId,
+              cron_expression: '0 2 * * *',
+              repeat_job_key: 'sched:repeat:key:1',
+              status: 'ACTIVE',
+            },
+          ],
+        })
+        // update status to CANCELLED
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'sched-1',
+              status: 'CANCELLED',
+            },
+          ],
+        });
+
+      const service = new JobsService(mockDb, mockConfig, mockQueue);
+      const res = await service.cancelScheduledPreflight(orgId, 'sched-1');
+
+      expect(res.status).toBe('CANCELLED');
+      expect(mockQueue.removeRepeatable).toHaveBeenCalledWith('scheduled-preflight', {
+        pattern: '0 2 * * *',
+        jobId: 'sched:repeat:key:1',
+      });
+    });
   });
 });
+

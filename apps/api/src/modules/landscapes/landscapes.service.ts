@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CreateLandscapeDto } from './dto/landscape.dto';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,7 +9,92 @@ export class LandscapesService {
 
   constructor(private readonly db: DatabaseService) {}
 
+  /**
+   * Section 4 & Part 18.1: Validates target URL against SSRF and cloud metadata exfiltration attacks.
+   */
+  validateUrlSafety(parsedUrl: URL): { safe: boolean; reason?: string } {
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return {
+        safe: false,
+        reason: `Disallowed protocol '${parsedUrl.protocol}'. Only HTTP and HTTPS are permitted.`,
+      };
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    // 1. Cloud instance metadata services (Unconditionally Blocked in all environments)
+    const blockedCloudMetadata = [
+      '169.254.169.254',
+      '169.254.169.253',
+      'metadata.google.internal',
+      'metadata.google',
+      '100.100.100.200',
+      'instance-data',
+    ];
+    if (blockedCloudMetadata.includes(hostname) || hostname.endsWith('.metadata.google.internal')) {
+      return {
+        safe: false,
+        reason: 'Target URL is blocked: Cloud instance metadata endpoint detected (SSRF protection).',
+      };
+    }
+
+    // 2. Link-local address range (169.254.0.0/16, fe80::/10)
+    if (hostname.startsWith('169.254.') || hostname.startsWith('fe80:')) {
+      return {
+        safe: false,
+        reason: 'Target URL is blocked: Link-local addresses are prohibited (SSRF protection).',
+      };
+    }
+
+    // 3. Loopback / Localhost Addresses
+    const isLoopback =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.startsWith('127.');
+
+    if (isLoopback) {
+      const allowLocal = process.env.ALLOW_LOCAL_LANDSCAPE_PROBES === 'true' || process.env.NODE_ENV === 'test';
+      if (!allowLocal) {
+        return {
+          safe: false,
+          reason: 'Target URL is blocked: Loopback addresses are prohibited in SaaS cloud deployment.',
+        };
+      }
+    }
+
+    // 4. Private RFC 1918 Subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+    const allowPrivate = process.env.ALLOW_PRIVATE_LANDSCAPE_PROBES === 'true' || process.env.NODE_ENV === 'test';
+    if (!allowPrivate) {
+      if (
+        hostname.startsWith('10.') ||
+        hostname.startsWith('192.168.') ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
+      ) {
+        return {
+          safe: false,
+          reason: 'Target URL is blocked: Private RFC 1918 subnets require configured Local Agent connector or ALLOW_PRIVATE_LANDSCAPE_PROBES=true.',
+        };
+      }
+    }
+
+    return { safe: true };
+  }
+
   async create(organizationId: string, dto: CreateLandscapeDto) {
+    if (dto.url) {
+      try {
+        const parsed = new URL(dto.url);
+        const safety = this.validateUrlSafety(parsed);
+        if (!safety.safe) {
+          throw new BadRequestException(safety.reason);
+        }
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        throw new BadRequestException(`Invalid landscape URL: ${dto.url}`);
+      }
+    }
+
     const id = uuidv4();
     const res = await this.db.query(
       `INSERT INTO landscapes (
@@ -143,6 +228,35 @@ export class LandscapesService {
         [organizationId, id]
       );
       return errResult;
+    }
+
+    const safety = this.validateUrlSafety(parsedUrl);
+    if (!safety.safe) {
+      const blockedResult = {
+        landscapeId: row.id,
+        systemId: row.system_id,
+        product: row.product,
+        edition: row.edition,
+        release: row.release,
+        environment: row.environment,
+        protocol: parsedUrl.protocol === 'https:' ? 'HTTPS_TLS13' : 'HTTP_INSECURE',
+        handshakeStatus: 'BLOCKED_SSRF',
+        error: safety.reason || 'Target URL blocked by SSRF protection policy.',
+        status: 'SECURITY_BLOCKED',
+        latencyMs: 0,
+        handshakeTimestamp: new Date().toISOString(),
+        writeSafety: {
+          isReadOnly: true,
+          productionWriteLocked: true,
+          requiresDualApproval: isProd,
+          policyStatement: 'Security policy violation: SSRF target blocked.',
+        },
+      };
+      await this.db.query(
+        `UPDATE landscapes SET status = 'SECURITY_BLOCKED', updated_at = NOW() WHERE organization_id = $1 AND id = $2`,
+        [organizationId, id]
+      );
+      return blockedResult;
     }
 
     const isHttps = parsedUrl.protocol === 'https:';
