@@ -103,7 +103,7 @@ H:/erppreflight/
 │   │   ├── src/schema/             # 6 modular schema definitions (core, platform, templates, etc.)
 │   │   ├── src/schema.ts           # Master export for all 25 tables + $inferSelect/$inferInsert
 │   │   ├── src/client.ts           # pg.Pool with withTenantTransaction & getDrizzle() helper
-│   │   ├── src/migrations/         # 9 canonical SQL migrations (001 to 009)
+│   │   ├── migrations/             # 9 canonical SQL migrations (001 to 009) — NOT under src/
 │   │   └── src/rls.ts              # PostgreSQL app.current_tenant_id RLS integration
 │   │
 │   ├── schemas/                    # Shared Zod contracts (@erppreflight/schemas)
@@ -114,7 +114,7 @@ H:/erppreflight/
 │
 ├── infra/
 │   ├── coolify/                    # Hostinger VPS & Coolify deployment configurations
-│   │   ├── docker-compose.coolify.yml # Master 7-container production compose
+│   │   ├── docker-compose.coolify.yml # OLDER variant (publishes DB ports) — NOT the live file
 │   │   └── .env.coolify.example       # Documented production environment configuration
 │   └── docker/                     # Hardened multi-stage non-root container definitions
 │       ├── Dockerfile.web          # Next.js standalone container
@@ -127,6 +127,12 @@ H:/erppreflight/
 │       ├── preflight-pipeline.mocked-ui.spec.ts # Category A: UI Contract tests
 │       └── preflight-pipeline.live.spec.ts      # Category B: Live multi-container E2E
 │
+├── docker-compose.coolify.yml      # ★ LIVE production compose deployed by Coolify on the Hostinger VPS
+├── .env.coolify.example            # Env template matching the live compose file
+├── docker-compose.yaml             # Legacy compose (no ClamAV) — reference only
+├── server.js                       # Alternative: Hostinger hPanel Node.js startup file (Next.js only)
+├── scripts/                        # Quality-gate checks + Coolify deploy/monitor helpers (*.py)
+├── .github/workflows/              # ci.yml, security.yml
 ├── AGENTS.md                       # Binding repository rules & Cardinal Axioms
 ├── ARCHITECTURE_DECISIONS.md       # Authoritative ADR records (Base UI, Drizzle, etc.)
 └── package.json                    # Workspace orchestrator & verification scripts
@@ -160,10 +166,20 @@ Deploying ERP Preflight to a **Hostinger VPS** (e.g. KVM 2, KVM 4, or KVM 8 runn
 
 ### 4.1 Recommended Hostinger Topology: Coolify v4+
 
-The repository includes a production-tested Coolify orchestration file:
-[`infra/coolify/docker-compose.coolify.yml`](file:///h:/erppreflight/infra/coolify/docker-compose.coolify.yml).
+> **⚠ There are THREE compose files. Only one is the live production file.**
+>
+> | File | Purpose | Status |
+> |---|---|---|
+> | **`docker-compose.coolify.yml` (repo root)** | **Live Coolify deployment on the Hostinger VPS.** Uses `expose:` only (no public DB/Redis/MinIO ports), joins the external `coolify` Traefik network, build `context: .`, container aliases `erppreflight-postgres`, `erppreflight-redis`, `erppreflight-minio`, `erppreflight-analysis`, volume `erppreflight_postgres_data_v2`. | **USE THIS** |
+> | `infra/coolify/docker-compose.coolify.yml` | Older variant. Publishes `5432`, `6379`, `9000/9001`, `8000`, `3001`, `3000` on the host, has no `coolify` network (Traefik labels cannot route), build `context: ../..`. | Do **not** deploy on a public VPS — Docker port publishing bypasses `ufw` and exposes the database to the internet. |
+> | `docker-compose.yaml` (repo root) | Similar stack without ClamAV. | Legacy / local reference |
+>
+> Env templates likewise exist twice: `.env.coolify.example` (root, matches the live file) and `infra/coolify/.env.coolify.example`.
+> Any change to production infrastructure must be made in the **root** `docker-compose.coolify.yml`.
 
-| Container | Service Name | Host Port | Internal Port | Technology | Role |
+Internal ports of the live stack (host ports are **not** published; Traefik routes only `web` and `api`):
+
+| Container | Service Name | Host Port (infra/ variant only) | Internal Port | Technology | Role |
 |---|---|---|---|---|---|
 | 1 | `postgres` | `5432` | `5432` | PostgreSQL 16 + pgvector | Relational data, RLS, 1536-dim vector store |
 | 2 | `redis` | `6379` | `6379` | Redis 7.2 Alpine | BullMQ queues, caching, distributed locks |
@@ -197,14 +213,16 @@ Access the Coolify dashboard at `http://[HOSTINGER_VPS_IP]:8000`.
 2. Select **Docker Compose** or **GitHub Repository**:
    - Repository: `https://github.com/enwecklerpro/erppreflight`
    - Branch: `main`
-   - Compose File Path: `infra/coolify/docker-compose.coolify.yml`
-3. Configure the **Environment Variables** in Coolify using the values from `infra/coolify/.env.coolify.example`.
+   - Base Directory: `/`
+   - Compose File Path: `/docker-compose.coolify.yml` (repo root — see warning in 4.1)
+3. Configure the **Environment Variables** in Coolify using the values from the root `.env.coolify.example`.
+4. Database migrations run automatically on `api` container start (`infra/docker/api-entrypoint.sh`, controlled by `AUTO_MIGRATE`, default `true`; SQL files from `MIGRATIONS_DIR=/app/packages/database/migrations`).
 
 ---
 
 ### 4.3 Alternative: Pure Docker Compose on Hostinger VPS (Without Coolify)
 
-If running directly on the VPS via Docker without Coolify:
+If running directly on the VPS via Docker without Coolify. The root file declares the external `coolify` network, so create it once (or remove it from the file) and put your own reverse proxy / Traefik in front of `web` and `api`:
 
 ```bash
 # 1. SSH into Hostinger VPS
@@ -215,14 +233,15 @@ git clone https://github.com/enwecklerpro/erppreflight.git /opt/erppreflight
 cd /opt/erppreflight
 
 # 3. Setup environment configuration
-cp infra/coolify/.env.coolify.example .env
+cp .env.coolify.example .env
 nano .env  # Fill in production passwords, JWT_SECRET, S3 keys, and domains
 
 # 4. Start all services
-docker compose -f infra/coolify/docker-compose.coolify.yml up -d --build
+docker network create coolify 2>/dev/null || true
+docker compose -f docker-compose.coolify.yml up -d --build
 
 # 5. Verify all 7 containers are healthy
-docker compose -f infra/coolify/docker-compose.coolify.yml ps
+docker compose -f docker-compose.coolify.yml ps
 ```
 
 ---
@@ -264,8 +283,9 @@ CLAMAV_MOCK_MODE=false
 # Install all dependencies across the monorepo
 pnpm install
 
-# Run database migrations locally
-pnpm run db:migrate
+# Database migrations: there is NO root `db:migrate` script.
+# Migrations run automatically when the api container starts (api-entrypoint.sh).
+# Locally, start postgres (docker compose) and the api; SQL lives in packages/database/migrations/.
 
 # Start all applications in watch/dev mode
 pnpm dev
@@ -274,10 +294,10 @@ pnpm dev
 pnpm --filter @erppreflight/web dev
 
 # Start only the NestJS backend API
-pnpm --filter @erppreflight/api dev
+pnpm --filter @erppreflight/api start:dev   # (the api package has no `dev` script)
 
 # Start the Python analysis microservice
-cd services/analysis-python && uvicorn src.api.main:app --reload --port 8000
+cd services/analysis-python && uvicorn src.main:app --reload --port 8000   # entrypoint is src/main.py
 ```
 
 ### 5.2 Mandatory Pre-Commit Quality Gates
@@ -292,7 +312,9 @@ pnpm run typecheck
 pnpm run test
 
 # 3. Python Analysis Engines Pytest Suite (Must pass all 501 tests)
-pnpm run test:python
+pnpm run test:python        # NOTE: script calls `py` (Windows launcher only)
+# On Linux/macOS/CI use instead:
+python3 -m pytest services/analysis-python/tests -v
 
 # 4. Production Truth Gate (Verifies zero fake IDs, real HTTP handshakes)
 pnpm run check:production-truth
@@ -315,4 +337,4 @@ pnpm run build
 | **Database changes / New tables** | `packages/database/` | 1. Add SQL in `migrations/010_*.sql`<br>2. Add Drizzle table in `src/schema/`<br>3. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
 | **Add or update On-Prem Agent features** | `apps/local-agent/src/` | Commands in `cli.ts`, daemon tasks in `daemon.ts`, network checks in `probe.ts`. |
-| **Deploy or modify Hostinger VPS containers** | `infra/coolify/` & `infra/docker/` | Edit `docker-compose.coolify.yml` or container Dockerfiles. |
+| **Deploy or modify Hostinger VPS containers** | `docker-compose.coolify.yml` (repo root) & `infra/docker/` | Edit the **root** compose file (live Coolify deployment) or the Dockerfiles. Do not edit only `infra/coolify/` — it is not what Coolify deploys. |
