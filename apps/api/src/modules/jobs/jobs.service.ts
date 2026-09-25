@@ -89,6 +89,32 @@ export class JobsService {
       { tenantId: organizationId }
     );
 
+    // Query organization data governance policy
+    let isDeterministicOnly = false;
+    let allowAiAssistance = true;
+    try {
+      const orgRes = await this.db.query(
+        `SELECT data_policy FROM organizations WHERE id = $1`,
+        [organizationId],
+        { bypassRls: true }
+      );
+      if (orgRes.rows.length > 0 && orgRes.rows[0].data_policy) {
+        const policy = typeof orgRes.rows[0].data_policy === 'string'
+          ? JSON.parse(orgRes.rows[0].data_policy)
+          : orgRes.rows[0].data_policy;
+        if (policy.deterministicOnly) isDeterministicOnly = true;
+        if (policy.allowAiAssistance === false) allowAiAssistance = false;
+      }
+    } catch {
+      // default to secure deterministic execution
+    }
+
+    const effectiveConfig = {
+      ...(dto.configuration ?? {}),
+      deterministicOnly: isDeterministicOnly || (dto.configuration as any)?.deterministicOnly === true,
+      allowAiAssistance: !isDeterministicOnly && allowAiAssistance && (dto.configuration as any)?.allowAiAssistance !== false,
+    };
+
     // 2. Dispatch job to BullMQ analysis queue
     const jobPayload = {
       analysisId,
@@ -100,7 +126,7 @@ export class JobsService {
       artifactS3Key: dto.artifactS3Key ?? null,
       artifactType: dto.artifactType,
       rawContent: dto.rawContent ?? null,
-      configuration: dto.configuration ?? {},
+      configuration: effectiveConfig,
     };
 
     if (this.analysisQueue) {
@@ -124,7 +150,7 @@ export class JobsService {
         dto.artifactS3Key,
         dto.artifactType,
         dto.rawContent,
-        dto.configuration
+        effectiveConfig
       ).catch((err) => {
         this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
       });

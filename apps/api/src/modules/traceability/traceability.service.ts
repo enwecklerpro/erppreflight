@@ -1,5 +1,8 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { CloudAlmConnectorService } from './connectors/cloud-alm.connector';
+import { JiraConnectorService } from './connectors/jira.connector';
 import { CreateTraceabilityNodeDto, CreateRemediationTaskDto } from './dto/traceability.dto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -7,7 +10,12 @@ import { v4 as uuidv4 } from 'uuid';
 export class TraceabilityService {
   private readonly logger = new Logger(TraceabilityService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly cloudAlm: CloudAlmConnectorService,
+    private readonly jira: JiraConnectorService,
+    @Optional() private readonly outbox?: OutboxService
+  ) {}
 
   async getMatrix(organizationId: string, projectId: string) {
     // 1. Fetch existing nodes
@@ -124,29 +132,97 @@ export class TraceabilityService {
     const evidence = evidenceRes.rows?.[0];
 
     const system = dto.externalSystem || 'SAP_CLOUD_ALM';
-    const taskId = `${system === 'SAP_CLOUD_ALM' ? 'CALM-TSK' : system === 'JIRA' ? 'JIRA-ERP' : 'ADO-TASK'}-${Date.now().toString().slice(-5)}`;
+    const findingDeepLink = `https://erppreflight.com/projects/${projectId}/findings?id=${finding.id}`;
+    const payload = {
+      title: finding.title,
+      description: finding.description || '',
+      ruleId: finding.rule_id,
+      severity: finding.severity,
+      remediation: finding.remediation || 'Follow Clean Core guidance to refactor target object.',
+      artifactPath: evidence?.artifact_path,
+      artifactSha256: evidence?.sha256,
+      findingDeepLink,
+    };
 
-    // Update or insert into traceability_nodes
-    await this.db.query(
-      `UPDATE traceability_nodes
-       SET remediation_task_id = $1,
-           task_status = 'IN_PROGRESS',
-           updated_at = NOW()
-       WHERE organization_id = $2 AND project_id = $3 AND finding_id = $4`,
-      [taskId, organizationId, projectId, dto.findingId]
-    );
+    let syncResult: {
+      success: boolean;
+      taskId?: string;
+      deepLink?: string;
+      status: string;
+      error?: string;
+    };
+
+    if (system === 'SAP_CLOUD_ALM') {
+      const config = {
+        tokenUrl: process.env.SAP_CLOUD_ALM_TOKEN_URL || (dto as any).tokenUrl || '',
+        clientId: process.env.SAP_CLOUD_ALM_CLIENT_ID || (dto as any).clientId || '',
+        clientSecret: process.env.SAP_CLOUD_ALM_CLIENT_SECRET || (dto as any).clientSecret || '',
+        apiBaseUrl: process.env.SAP_CLOUD_ALM_API_URL || (dto as any).apiBaseUrl || '',
+        calmProjectId: (dto as any).calmProjectId,
+      };
+      syncResult = await this.cloudAlm.createRemediationTask(
+        config.tokenUrl && config.clientId ? config : null,
+        payload
+      );
+    } else if (system === 'JIRA') {
+      const config = {
+        host: process.env.JIRA_HOST || (dto as any).jiraHost || '',
+        email: process.env.JIRA_EMAIL || (dto as any).jiraEmail || '',
+        apiToken: process.env.JIRA_API_TOKEN || (dto as any).jiraApiToken || '',
+        projectKey: process.env.JIRA_PROJECT_KEY || (dto as any).projectKey || '',
+      };
+      syncResult = await this.jira.createIssue(
+        config.host && config.apiToken ? config : null,
+        payload
+      );
+    } else {
+      // Azure DevOps or other
+      syncResult = {
+        success: false,
+        status: 'CREDENTIALS_REQUIRED',
+        error: `Connector credentials for ${system} are not configured.`,
+      };
+    }
+
+    const taskId = syncResult.taskId || null;
+    const taskStatus = syncResult.success ? 'IN_PROGRESS' : 'PENDING_CONFIG';
+
+    if (taskId) {
+      await this.db.query(
+        `UPDATE traceability_nodes
+         SET remediation_task_id = $1,
+             task_status = $2,
+             updated_at = NOW()
+         WHERE organization_id = $3 AND project_id = $4 AND finding_id = $5`,
+        [taskId, taskStatus, organizationId, projectId, dto.findingId]
+      );
+    }
+
+    if (this.outbox) {
+      await this.outbox
+        .recordEvent(organizationId, 'traceability.task_dispatched', 'FINDING', finding.id, {
+          findingId: finding.id,
+          projectId,
+          externalSystem: system,
+          status: syncResult.status,
+          taskId,
+          error: syncResult.error,
+        })
+        .catch(() => {});
+    }
 
     return {
-      taskId,
+      taskId: taskId || 'PENDING_CREATION',
       externalSystem: system,
       findingId: finding.id,
       title: `[Remediation] ${finding.rule_id}: ${finding.title}`,
       severity: finding.severity,
-      deepLink: `https://erppreflight.com/projects/${projectId}/findings?id=${finding.id}`,
+      deepLink: syncResult.deepLink || findingDeepLink,
       remediationSummary: finding.remediation || 'Follow Clean Core guidance to refactor target object.',
       evidenceArtifact: evidence?.artifact_path || 'unknown_artifact',
       evidenceSha256: evidence?.sha256 || 'none',
-      status: 'SYNCHRONIZED',
+      status: syncResult.status,
+      error: syncResult.error,
     };
   }
 }

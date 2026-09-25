@@ -71,8 +71,9 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
       expect(result.targetRelease).toBe('S4H_2023');
 
       // 2. Inserts analyses record with QUEUED status and tenant context
-      expect(mockDb.query).toHaveBeenCalledTimes(1);
-      const insertQuery = dbQueries[0];
+      expect(mockDb.query).toHaveBeenCalled();
+      const insertQuery = dbQueries.find((q) => q.text.includes("VALUES ($1, $2, $3, 'QUEUED'")) || dbQueries[0];
+      expect(insertQuery).toBeDefined();
       expect(insertQuery.text).toContain("VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)");
       expect(insertQuery.params[0]).toBe(result.analysisId);
       expect(insertQuery.params[1]).toBe(orgId);
@@ -94,7 +95,11 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
         artifactS3Key: 'artifacts/opd.xml',
         artifactType: 'XML',
         rawContent: null,
-        configuration: { customParam: 'test' },
+        configuration: {
+          customParam: 'test',
+          deterministicOnly: false,
+          allowAiAssistance: true,
+        },
       });
 
       // Assert BullMQ retry & retention options:

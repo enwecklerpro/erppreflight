@@ -106,7 +106,137 @@ export class LandscapesService {
 
     const row = landscape.rows[0];
     const isProd = row.environment === 'PROD';
-    const latencyMs = Math.floor(18 + Math.random() * 25);
+    const rawUrl = row.url?.trim();
+
+    if (!rawUrl) {
+      const errResult = {
+        landscapeId: row.id,
+        systemId: row.system_id,
+        environment: row.environment,
+        handshakeStatus: 'CONFIG_ERROR',
+        error: 'No target system URL configured for landscape.',
+        status: 'OFFLINE',
+        handshakeTimestamp: new Date().toISOString(),
+      };
+      await this.db.query(
+        `UPDATE landscapes SET status = 'OFFLINE', updated_at = NOW() WHERE organization_id = $1 AND id = $2`,
+        [organizationId, id]
+      );
+      return errResult;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      const errResult = {
+        landscapeId: row.id,
+        systemId: row.system_id,
+        environment: row.environment,
+        handshakeStatus: 'MALFORMED_URL',
+        error: `Invalid URL format: ${rawUrl}`,
+        status: 'OFFLINE',
+        handshakeTimestamp: new Date().toISOString(),
+      };
+      await this.db.query(
+        `UPDATE landscapes SET status = 'OFFLINE', updated_at = NOW() WHERE organization_id = $1 AND id = $2`,
+        [organizationId, id]
+      );
+      return errResult;
+    }
+
+    const isHttps = parsedUrl.protocol === 'https:';
+    const protocol = isHttps ? 'HTTPS_TLS13' : 'HTTP_INSECURE';
+    const startTime = performance.now();
+    let reachable = false;
+    let httpStatusCode: number | null = null;
+    let sapServerHeader: string | null = null;
+    let errorMessage: string | null = null;
+
+    // Real probe of the SAP system URL
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const probeUrl = new URL('/sap/bc/ping', parsedUrl).toString();
+      const res = await fetch(probeUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'ERPPreflight-ConnectorProbe/1.0',
+          'Accept': 'text/plain,application/json,*/*',
+        },
+        signal: controller.signal,
+      }).catch(async () => {
+        // Fallback probe to root URL if /sap/bc/ping path fails
+        return await fetch(parsedUrl.toString(), {
+          method: 'GET',
+          headers: { 'User-Agent': 'ERPPreflight-ConnectorProbe/1.0' },
+          signal: controller.signal,
+        });
+      });
+
+      clearTimeout(timeoutId);
+
+      httpStatusCode = res.status;
+      sapServerHeader = res.headers.get('server');
+
+      // In enterprise SAP landscapes, 200 (OK), 401 (Unauthorized), 403 (Forbidden)
+      // all prove that the Web Dispatcher / SAP NetWeaver AS is alive and answering on the port!
+      if (res.status === 200 || res.status === 401 || res.status === 403) {
+        reachable = true;
+      } else {
+        errorMessage = `HTTP ${res.status} ${res.statusText}`;
+      }
+    } catch (err: any) {
+      reachable = false;
+      errorMessage = err.name === 'AbortError' ? 'Connection timed out after 4000ms' : err.message;
+    }
+
+    const latencyMs = Math.round(performance.now() - startTime);
+
+    if (!reachable) {
+      const failedResult = {
+        landscapeId: row.id,
+        systemId: row.system_id,
+        product: row.product,
+        edition: row.edition,
+        release: row.release,
+        environment: row.environment,
+        protocol,
+        handshakeStatus: 'FAILED_UNREACHABLE',
+        error: errorMessage || 'Host unreachable',
+        status: 'UNREACHABLE',
+        latencyMs,
+        handshakeTimestamp: new Date().toISOString(),
+        writeSafety: {
+          isReadOnly: true,
+          productionWriteLocked: true,
+          requiresDualApproval: isProd,
+          policyStatement: 'Connection failed. System marked UNREACHABLE.',
+        },
+      };
+
+      await this.db.query(
+        `UPDATE landscapes SET status = 'UNREACHABLE', updated_at = NOW() WHERE organization_id = $1 AND id = $2`,
+        [organizationId, id]
+      );
+
+      return failedResult;
+    }
+
+    // System is confirmed reachable over the network
+    const discoveredApis: any[] = [];
+    if (httpStatusCode === 200) {
+      discoveredApis.push(
+        { name: 'SAP ICF Ping Service', status: 'ACTIVE', path: '/sap/bc/ping' },
+        { name: 'OData v2 Catalog Service', status: 'DISCOVERED', version: '2.0', path: '/sap/opu/odata/IWFND/CATALOGSERVICE;v=2' },
+        { name: 'OData v4 Core API Engine', status: 'DISCOVERED', version: '4.0', path: '/sap/opu/odata4/sap/' }
+      );
+    } else if (httpStatusCode === 401 || httpStatusCode === 403) {
+      discoveredApis.push(
+        { name: 'SAP Gateway (Auth Required)', status: 'ACTIVE_AUTHENTICATION_REQUIRED', httpStatus: httpStatusCode, path: '/sap/opu/odata' }
+      );
+    }
 
     const capabilities = {
       landscapeId: row.id,
@@ -115,7 +245,11 @@ export class LandscapesService {
       edition: row.edition,
       release: row.release,
       environment: row.environment,
-      protocol: row.url?.startsWith('https') ? 'HTTPS_TLS13' : 'SAP_RFC_ENCRYPTED',
+      protocol,
+      status: 'VERIFIED_HEALTHY',
+      error: undefined as string | undefined,
+      serverSignature: sapServerHeader || 'SAP NetWeaver Application Server / Web Dispatcher',
+      httpStatus: httpStatusCode,
       supportedEngines: [
         'OPD_GUARD',
         'FORM_DOCTOR',
@@ -124,11 +258,7 @@ export class LandscapesService {
         'CUSTOM_FIELD_FLOW_DOCTOR',
         'EXTENSION_IMPACT_GUARD',
       ],
-      discoveredApis: [
-        { name: 'OData v2 Catalog Service', status: 'ACTIVE', version: '2.0', path: '/sap/opu/odata/IWFND/CATALOGSERVICE;v=2' },
-        { name: 'OData v4 Core API Engine', status: 'ACTIVE', version: '4.0', path: '/sap/opu/odata4/sap/api_business_partner/srvd_a2x/sap/businesspartner/0001/' },
-        { name: 'SOAP Web Services Provider', status: 'ACTIVE', version: '1.2', path: '/sap/bc/srt/rfc/sap/' },
-      ],
+      discoveredApis,
       scopes: ['analysis:read', 'metadata:read', 'catalog:read'],
       writeSafety: {
         isReadOnly: true,

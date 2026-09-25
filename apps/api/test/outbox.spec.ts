@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OutboxService } from '../src/modules/outbox/outbox.service';
+import { OutboxDispatcherService } from '../src/modules/outbox/outbox-dispatcher.service';
 
 describe('Transactional Outbox Service Suite (Part 16.7)', () => {
   let service: OutboxService;
+  let dispatcher: OutboxDispatcherService;
   let mockDb: any;
   let storedEvents: any[] = [];
 
@@ -56,6 +58,7 @@ describe('Transactional Outbox Service Suite (Part 16.7)', () => {
       }),
     };
     service = new OutboxService(mockDb);
+    dispatcher = new OutboxDispatcherService(service);
   });
 
   it('atomically records domain event with PENDING status and valid metadata', async () => {
@@ -116,5 +119,23 @@ describe('Transactional Outbox Service Suite (Part 16.7)', () => {
     expect(storedEvents[0].attempts).toBe(1);
     expect(storedEvents[0].status).toBe('PENDING');
     expect(storedEvents[0].error_message).toContain('downstream webhook');
+  });
+
+  it('OutboxDispatcherService starts worker, executes triggerDispatch, and stops worker cleanly', async () => {
+    await service.recordEvent(
+      'org-100',
+      'project.created',
+      'PROJECT',
+      'p0000000-0000-0000-0000-000000000001',
+      { name: 'Migration Project' }
+    );
+
+    const res = await dispatcher.triggerDispatch(10);
+    expect(res.dispatched).toBe(1);
+    expect(res.failed).toBe(0);
+    expect(storedEvents[0].status).toBe('DISPATCHED');
+
+    dispatcher.onModuleInit();
+    dispatcher.onModuleDestroy();
   });
 });

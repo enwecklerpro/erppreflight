@@ -16,8 +16,12 @@ describe('Enterprise Platform Services Suite', () => {
   const userId = '33333333-3333-3333-3333-333333333333';
 
   beforeEach(() => {
-    mockDb = {
+      mockDb = {
       query: vi.fn(),
+      withTenantTransaction: vi.fn(async (_tenantIdOrCb, maybeCb) => {
+        const cb = typeof _tenantIdOrCb === 'function' ? _tenantIdOrCb : maybeCb;
+        return await cb(mockDb);
+      }),
     };
   });
 
@@ -74,6 +78,10 @@ describe('Enterprise Platform Services Suite', () => {
         .mockResolvedValueOnce({
           rows: [{ id: 'f-1', rule_id: 'EXISTING_WARNING' }],
         })
+        // sap_objects (empty for fallback path)
+        .mockResolvedValueOnce({
+          rows: [],
+        })
         // update simulation result
         .mockResolvedValueOnce({
           rows: [
@@ -94,6 +102,81 @@ describe('Enterprise Platform Services Suite', () => {
 
       expect(sim.simulation_result.verdict).toBe('CONDITIONAL_APPROVAL_REQUIRED');
       expect(sim.simulation_result.blastRadiusObjects.length).toBeGreaterThan(0);
+    });
+
+    it('should dynamically traverse sap_objects dependency graph and calculate real blast radius', async () => {
+      mockDb.query
+        // findOne
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'cs-2',
+              organization_id: orgId,
+              project_id: projectId,
+              proposed_changes: JSON.stringify([
+                { type: 'REMOVE_CUSTOM_FIELD', targetObject: 'YY1_INVOICE_REF', details: {} },
+              ]),
+            },
+          ],
+        })
+        // baseline findings
+        .mockResolvedValueOnce({
+          rows: [{ id: 'f-1', rule_id: 'RULE_CLEAN_CORE', title: 'Legacy DB Mutation' }],
+        })
+        // real sap_objects from database with dependency tree
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'obj-1',
+              name: 'YY1_INVOICE_REF',
+              object_type: 'DTEL',
+              clean_core_tier: 'TIER_1_CLOUD',
+              dependencies: [],
+            },
+            {
+              id: 'obj-2',
+              name: 'ZCL_BILLING_DISPATCHER',
+              object_type: 'CLAS',
+              clean_core_tier: 'TIER_3_CLASSIC',
+              dependencies: [{ target: 'YY1_INVOICE_REF', type: 'FIELD_REFERENCE' }],
+            },
+            {
+              id: 'obj-3',
+              name: 'ZCDS_INVOICE_VIEW',
+              object_type: 'CDS',
+              clean_core_tier: 'TIER_2_DEVELOPER',
+              dependencies: [{ target: 'YY1_INVOICE_REF', type: 'ANNOTATION_FIELD' }],
+            },
+          ],
+        })
+        // update simulation result
+        .mockImplementationOnce((sql: string, params: any[]) => {
+          const simResult = JSON.parse(params[0]);
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'cs-2',
+                simulation_result: simResult,
+                approval_status: 'SIMULATED',
+              },
+            ],
+          });
+        });
+
+      const service = new ChangeSetsService(mockDb);
+      const sim = await service.simulate(orgId, projectId, 'cs-2');
+
+      expect(sim.simulation_result.verdict).toBe('CONDITIONAL_APPROVAL_REQUIRED');
+      expect(sim.simulation_result.blastRadiusObjects.length).toBe(3);
+      expect(sim.simulation_result.blastRadiusObjects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'YY1_INVOICE_REF', direct: true }),
+          expect.objectContaining({ name: 'ZCL_BILLING_DISPATCHER', direct: false }),
+          expect.objectContaining({ name: 'ZCDS_INVOICE_VIEW', direct: false }),
+        ])
+      );
+      expect(sim.simulation_result.newFindings.length).toBe(2);
+      expect(sim.simulation_result.requiredTests.length).toBe(2);
     });
 
     it('should approve ChangeSet and issue signed Change Evidence Pack', async () => {
@@ -138,6 +221,18 @@ describe('Enterprise Platform Services Suite', () => {
   });
 
   describe('TraceabilityService (Delivery Traceability)', () => {
+    let mockCloudAlm: any;
+    let mockJira: any;
+
+    beforeEach(() => {
+      mockCloudAlm = {
+        createRemediationTask: vi.fn(),
+      };
+      mockJira = {
+        createIssue: vi.fn(),
+      };
+    });
+
     it('should return 8-column matrix and calculate unmitigated risks', async () => {
       mockDb.query.mockResolvedValueOnce({
         rows: [
@@ -156,7 +251,7 @@ describe('Enterprise Platform Services Suite', () => {
         ],
       });
 
-      const service = new TraceabilityService(mockDb);
+      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
       const matrix = await service.getMatrix(orgId, projectId);
 
       expect(matrix.nodes.length).toBe(1);
@@ -164,7 +259,7 @@ describe('Enterprise Platform Services Suite', () => {
       expect(matrix.summary.criticalFindingsWithoutTasks).toBe(1);
     });
 
-    it('should generate Cloud ALM remediation task with deep links', async () => {
+    it('should dispatch remediation task to real SAP Cloud ALM connector when configured', async () => {
       mockDb.query
         // finding
         .mockResolvedValueOnce({
@@ -177,15 +272,61 @@ describe('Enterprise Platform Services Suite', () => {
         // update traceability node
         .mockResolvedValueOnce({ rows: [] });
 
-      const service = new TraceabilityService(mockDb);
+      mockCloudAlm.createRemediationTask.mockResolvedValueOnce({
+        success: true,
+        taskId: 'CALM-TASK-9988',
+        deepLink: 'https://tenant.alm.cloud.sap/launchpad#Task-manage?sap-ui-app-id-hint=calm-tasks&/task/CALM-TASK-9988',
+        status: 'SYNCHRONIZED',
+      });
+
+      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
+      const task = await service.createRemediationTask(orgId, projectId, {
+        findingId: 'f-1',
+        externalSystem: 'SAP_CLOUD_ALM',
+        tokenUrl: 'https://auth.btp.sap/oauth/token',
+        clientId: 'my-client-id',
+        clientSecret: 'my-client-secret',
+        apiBaseUrl: 'https://tenant.alm.cloud.sap',
+      } as any);
+
+      expect(mockCloudAlm.createRemediationTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tokenUrl: 'https://auth.btp.sap/oauth/token',
+          clientId: 'my-client-id',
+        }),
+        expect.objectContaining({
+          ruleId: 'OPD_RULE_MISSING',
+          severity: 'CRITICAL',
+        })
+      );
+      expect(task.taskId).toBe('CALM-TASK-9988');
+      expect(task.status).toBe('SYNCHRONIZED');
+      expect(task.deepLink).toContain('CALM-TASK-9988');
+    });
+
+    it('should report CREDENTIALS_REQUIRED when Cloud ALM credentials are not configured', async () => {
+      mockDb.query
+        .mockResolvedValueOnce({
+          rows: [{ id: 'f-1', rule_id: 'OPD_RULE_MISSING', severity: 'CRITICAL', title: 'Missing OPD rule' }],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ artifact_path: 'opd.xml', sha256: 'abc123hash' }],
+        });
+
+      mockCloudAlm.createRemediationTask.mockResolvedValueOnce({
+        success: false,
+        status: 'CREDENTIALS_REQUIRED',
+        error: 'SAP Cloud ALM OAuth2 credentials are not configured.',
+      });
+
+      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
       const task = await service.createRemediationTask(orgId, projectId, {
         findingId: 'f-1',
         externalSystem: 'SAP_CLOUD_ALM',
       });
 
-      expect(task.taskId).toContain('CALM-TSK');
-      expect(task.deepLink).toContain('/findings?id=f-1');
-      expect(task.evidenceSha256).toBe('abc123hash');
+      expect(task.status).toBe('CREDENTIALS_REQUIRED');
+      expect(task.error).toBeDefined();
     });
   });
 
@@ -381,6 +522,56 @@ describe('Enterprise Platform Services Suite', () => {
 
       expect(list.length).toBe(1);
       expect(list[0].system_id).toBe('S4H_PRD');
+    });
+
+    it('should fail closed with FAILED_UNREACHABLE when target SAP host cannot be reached over network', async () => {
+      mockDb.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'land-fail-1',
+              system_id: 'S4H_UNREACHABLE',
+              environment: 'QA',
+              product: 'SAP S/4HANA',
+              edition: 'Private Cloud',
+              release: '2023',
+              // Use non-routable documentation IP with closed port to trigger real connection rejection
+              url: 'http://127.0.0.1:49999',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }); // update landscapes status to UNREACHABLE
+
+      const service = new LandscapesService(mockDb);
+      const res = await service.testConnection(orgId, 'land-fail-1');
+
+      expect(res.handshakeStatus).toBe('FAILED_UNREACHABLE');
+      expect(res.error).toBeDefined();
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE landscapes SET status = 'UNREACHABLE'"),
+        expect.any(Array)
+      );
+    });
+
+    it('should handle missing URL with CONFIG_ERROR and mark OFFLINE', async () => {
+      mockDb.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'land-nourl',
+              system_id: 'S4H_NO_URL',
+              environment: 'DEV',
+              url: '',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const service = new LandscapesService(mockDb);
+      const res = await service.testConnection(orgId, 'land-nourl');
+
+      expect(res.handshakeStatus).toBe('CONFIG_ERROR');
+      expect(res.status).toBe('OFFLINE');
     });
   });
 });

@@ -160,6 +160,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.4)(jsdom@25.0.1)(terser@5.51.2)
 
+  apps/local-agent:
+    dependencies:
+      '@erppreflight/evidence':
+        specifier: workspace:*
+        version: link:../../packages/evidence
+      '@erppreflight/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.0
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.4)(jsdom@25.0.1)(terser@5.51.2)
+
   apps/web:
     dependencies:
       '@base-ui-components/react':
@@ -311,6 +330,8 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  packages/cli: {}
 
   packages/database:
     dependencies:

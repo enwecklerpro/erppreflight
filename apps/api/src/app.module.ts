@@ -37,6 +37,9 @@ import { LabModule } from './modules/lab/lab.module';
 import { ObjectsModule } from './modules/objects/objects.module';
 import { SapImportModule } from './modules/sap-import/sap-import.module';
 import { OutboxModule } from './modules/outbox/outbox.module';
+import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { TelemetryModule } from './modules/telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -89,6 +92,9 @@ import { OutboxModule } from './modules/outbox/outbox.module';
     ObjectsModule,
     SapImportModule,
     OutboxModule,
+    AiGatewayModule,
+    BillingModule,
+    TelemetryModule,
   ],
 })
 export class AppModule implements NestModule {
@@ -105,7 +111,9 @@ export class AppModule implements NestModule {
         'knowledge/(.*)',
         'knowledge',
         'changelog/(.*)',
-        'changelog'
+        'changelog',
+        'billing/webhook',
+        'metrics'
       )
       .forRoutes('*');
   }

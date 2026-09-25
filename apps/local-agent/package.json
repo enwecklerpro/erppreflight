@@ -1,0 +1,25 @@
+{
+  "name": "@erppreflight/local-agent",
+  "version": "0.1.0",
+  "description": "ERP Preflight Local On-Premise Secure Extraction & Ingestion Agent CLI",
+  "private": true,
+  "main": "dist/index.js",
+  "bin": {
+    "erp-preflight-agent": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@erppreflight/evidence": "workspace:*",
+    "@erppreflight/schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
