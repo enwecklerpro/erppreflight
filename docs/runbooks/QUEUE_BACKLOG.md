@@ -5,8 +5,7 @@
 > exponential backoff from 1 s, last 100 completed / 500 failed jobs kept). The worker
 > (`apps/api/src/modules/jobs/analysis.processor.ts`) runs inside the API container and calls the
 > Python service (`ANALYSIS_SERVICE_URL`). Uploads use `ingestion-queue`. BullMQ keys live under
-> `bull:<queue>:*` in Redis DB 0 (the BullMQ connection ignores a DB index in `REDIS_URL`,
-> KNOWN_LIMITATIONS O10).
+> `bull:<queue>:*` in the Redis database selected by `REDIS_URL` (DB 0 in the production compose).
 
 ## Symptoms
 

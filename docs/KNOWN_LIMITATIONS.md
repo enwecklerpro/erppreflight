@@ -59,7 +59,6 @@ Full list with owners: `SECURITY_REVIEW.md` §5. Headlines:
 | O6 | ClamAV needs ~3 GB RAM and several minutes to load signatures after a restart; uploads fail closed (HTTP 503) meanwhile. Summed container limits are ~13 GB; 8 GB VPS plans risk OOM. | `docs/runbooks/CLAMAV_DOWN.md` |
 | O7 | `services/analysis-python/requirements.txt` includes `pytest` and `pytest-asyncio`, so test tooling ships in the analysis image. | `services/analysis-python/requirements.txt` |
 | O8 | Next.js infers the output-tracing root from the nearest lockfile; when the repo is checked out inside another pnpm workspace (e.g. a git worktree) the standalone server lands at a nested path. Images and CI are unaffected; setting `outputFileTracingRoot` in `apps/web/next.config.ts` would make it explicit. | `scripts/ci-live-e2e.sh` handles both layouts |
-| O10 | BullMQ ignores `REDIS_URL`: the queue connection is built from `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD` only, so a database index in `REDIS_URL` has no effect and two API deployments sharing one Redis share `bull:analysis-queue` (jobs of one instance can be consumed by the other). Harmless with the single production stack; wrong for shared staging Redis. | `apps/api/src/app.module.ts` (`BullModule.forRootAsync`) |
 | O9 | Not verified here: deployment to the VPS, the release workflow (GHCR push, cosign) and the `live-e2e`/`docker` workflows on GitHub-hosted runners — they were reproduced locally command by command (`docs/E2E_TEST_REPORT.md`). The analysis image's `apt-get` steps could not run in the sandbox (Debian mirrors blocked). | — |
 
 ## 5. Resolved
@@ -69,3 +68,4 @@ Full list with owners: `SECURITY_REVIEW.md` §5. Headlines:
 | CI had no live E2E, no migration check, no image scan and no SBOM; Trivy never blocked and ran from `@master`. | workstream E (`.github/workflows/ci.yml`, `docker.yml`, `security.yml`, `release.yml`) |
 | No backup tooling or restore drill. | `scripts/backup.sh`, `scripts/restore.sh`; drill runs in every `live-e2e` job |
 | Runtime images shipped npm/yarn/corepack and pip with fixable HIGH CVEs. | `infra/docker/Dockerfile.*` (workstream E) |
+| BullMQ ignored `REDIS_URL` (db index), so API instances sharing one Redis shared `bull:analysis-queue`. | `c3f9b10` (coordinator) |
