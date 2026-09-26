@@ -166,5 +166,14 @@ export const apiErrorCodes = {
     RULE_PUBLISH_BLOCKED_SELF_TEST_OUTDATED: 'Publishing is blocked: the latest self-test ran against an older rule version.',
     RULE_PUBLISH_BLOCKED_REVIEWER_REQUIRED: 'Publishing is blocked: assign a reviewer first.',
     RULE_PUBLISH_BLOCKED_NOT_IN_REVIEW: 'Publishing is blocked: the rule must be in review first.',
+    // API Change Guard stored baselines
+    API_BASELINE_NOT_FOUND: 'The API baseline was not found in this project.',
+    API_BASELINE_EXISTS: 'A baseline with this name and version already exists in this project.',
+    API_BASELINE_ACTIVATION_CONFLICT: 'Another baseline of this project was activated at the same time. Reload and try again.',
+    API_BASELINE_TOO_LARGE: 'The API specification is too large to be stored as a baseline.',
+    API_BASELINE_NOT_TEXT: 'The API specification is not a UTF-8 text file.',
+    INVALID_API_BASELINE_REQUEST: 'The API baseline request is invalid.',
+    API_BASELINE_REQUIRES_API_CHANGE_GUARD: 'A stored API baseline can only be selected together with the API Change Guard engine.',
+    API_BASELINES_UNAVAILABLE: 'API baselines are not available right now. Please try again later.',
   },
 };

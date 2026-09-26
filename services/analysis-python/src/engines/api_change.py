@@ -90,6 +90,7 @@ class NormalizedProperty(BaseModel):
     deprecated: bool = False
     line_number: Optional[int] = None
     column_number: Optional[int] = None
+    pointer: Optional[str] = None
 
 
 class NormalizedEntity(BaseModel):
@@ -101,6 +102,7 @@ class NormalizedEntity(BaseModel):
     navigation_properties: List[str] = Field(default_factory=list)
     line_number: Optional[int] = None
     column_number: Optional[int] = None
+    pointer: Optional[str] = None
 
 
 class NormalizedParameter(BaseModel):
@@ -112,8 +114,22 @@ class NormalizedParameter(BaseModel):
     type: str = "string"
     format: Optional[str] = None
     schema_ref: Optional[str] = None
+    enums: List[str] = Field(default_factory=list)
     line_number: Optional[int] = None
     column_number: Optional[int] = None
+    pointer: Optional[str] = None
+
+
+class NormalizedResponse(BaseModel):
+    """One documented response of an operation: its body schema reduced to top-level properties."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: str
+    schema_ref: Optional[str] = None  # component / definition name when the body schema is a $ref
+    properties: Dict[str, str] = Field(default_factory=dict)  # property name -> type
+    property_pointers: Dict[str, str] = Field(default_factory=dict)
+    pointer: Optional[str] = None
 
 
 class NormalizedOperation(BaseModel):
@@ -125,9 +141,13 @@ class NormalizedOperation(BaseModel):
     request_body_schema: Optional[str] = None
     request_body_required: bool = False
     responses: Dict[str, str] = Field(default_factory=dict)
+    response_shapes: Dict[str, NormalizedResponse] = Field(default_factory=dict)
+    # Security requirement alternatives ("scheme" or "scheme:scope" per requirement); None = inherits global.
+    security: Optional[List[List[str]]] = None
     deprecated: bool = False
     line_number: Optional[int] = None
     column_number: Optional[int] = None
+    pointer: Optional[str] = None
 
 
 class NormalizedEndpoint(BaseModel):
@@ -137,6 +157,7 @@ class NormalizedEndpoint(BaseModel):
     operations: Dict[str, NormalizedOperation] = Field(default_factory=dict)
     line_number: Optional[int] = None
     column_number: Optional[int] = None
+    pointer: Optional[str] = None
 
 
 class NormalizedApiSchema(BaseModel):
@@ -150,6 +171,10 @@ class NormalizedApiSchema(BaseModel):
     entities: Dict[str, NormalizedEntity] = Field(default_factory=dict)
     enum_types: Dict[str, List[str]] = Field(default_factory=dict)
     operations_standalone: Dict[str, NormalizedOperation] = Field(default_factory=dict)
+    # OpenAPI security: scheme name -> canonical definition; global requirement alternatives.
+    security_schemes: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    global_security: List[List[str]] = Field(default_factory=list)
+    role: str = ""  # "baseline" | "candidate"
     raw_text: str = ""
     artifact_path: str = "spec"
     artifact_hash: str = ""
@@ -188,6 +213,230 @@ def _extract_context_snippet(raw_text: str, line_number: int, radius: int = 2) -
     start = max(0, target_idx - radius)
     end = min(len(lines), target_idx + radius + 1)
     return "\n".join(lines[start:end])
+
+
+def _ptr(token: str) -> str:
+    """RFC 6901 reference-token escaping."""
+    return str(token).replace("~", "~0").replace("/", "~1")
+
+
+def _resolve_local_ref(doc: Dict[str, Any], ref: Any, depth: int = 0) -> Any:
+    """Resolves a local '#/…' $ref (bounded depth, no remote references)."""
+    if not isinstance(ref, str) or not ref.startswith("#/") or depth > 8:
+        return None
+    node: Any = doc
+    for token in ref[2:].split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or token not in node:
+            return None
+        node = node[token]
+    if isinstance(node, dict) and "$ref" in node:
+        return _resolve_local_ref(doc, node["$ref"], depth + 1)
+    return node
+
+
+def _ref_name(ref: Any) -> Optional[str]:
+    if isinstance(ref, str) and ref.startswith("#/"):
+        return ref.rsplit("/", 1)[-1].replace("~1", "/").replace("~0", "~")
+    return None
+
+
+def _response_shape(status: str, resp: Any, doc: Dict[str, Any], pointer: str, is_swagger_2: bool) -> "NormalizedResponse":
+    """Top-level body properties of one response (object, or array items), following local $refs."""
+    shape = NormalizedResponse(status=status, pointer=pointer)
+    if not isinstance(resp, dict):
+        return shape
+    if "$ref" in resp:
+        resp = _resolve_local_ref(doc, resp["$ref"]) or {}
+    body: Any = None
+    body_ptr = pointer
+    if is_swagger_2:
+        body = resp.get("schema")
+        body_ptr = f"{pointer}/schema"
+    else:
+        content = resp.get("content")
+        if isinstance(content, dict) and content:
+            media = "application/json" if "application/json" in content else sorted(content)[0]
+            media_obj = content.get(media)
+            if isinstance(media_obj, dict):
+                body = media_obj.get("schema")
+                body_ptr = f"{pointer}/content/{_ptr(media)}/schema"
+    if not isinstance(body, dict):
+        return shape
+    if body.get("type") == "array" and isinstance(body.get("items"), dict):
+        body = body["items"]
+        body_ptr = f"{body_ptr}/items"
+    if "$ref" in body:
+        shape.schema_ref = _ref_name(body["$ref"])
+        ref = str(body["$ref"])
+        body_ptr = ref[1:] if ref.startswith("#") else body_ptr
+        body = _resolve_local_ref(doc, body["$ref"]) or {}
+    props = body.get("properties") if isinstance(body, dict) else None
+    if isinstance(props, dict):
+        for name, definition in props.items():
+            ptype = definition.get("type", "object" if "$ref" in definition else "string") if isinstance(definition, dict) else "string"
+            shape.properties[str(name)] = str(ptype)
+            shape.property_pointers[str(name)] = f"{body_ptr}/properties/{_ptr(str(name))}"
+    return shape
+
+
+def _security_requirements(value: Any) -> List[List[str]]:
+    """Security requirement alternatives as sorted 'scheme' / 'scheme:scope' lists (deterministic)."""
+    out: List[List[str]] = []
+    if not isinstance(value, list):
+        return out
+    for requirement in value:
+        if not isinstance(requirement, dict):
+            continue
+        items: List[str] = []
+        for scheme, scopes in requirement.items():
+            items.append(str(scheme))
+            if isinstance(scopes, list):
+                items.extend(f"{scheme}:{scope}" for scope in scopes)
+        out.append(sorted(items))
+    return sorted(out)
+
+
+def _canonical_security_scheme(definition: Dict[str, Any], pointer: str) -> Dict[str, Any]:
+    flows = definition.get("flows") if isinstance(definition.get("flows"), dict) else {}
+    canonical: Dict[str, Any] = {
+        "type": str(definition.get("type", "")),
+        "scheme": str(definition.get("scheme", "")).lower(),
+        "in": str(definition.get("in", "")),
+        "name": str(definition.get("name", "")),
+        "flow": str(definition.get("flow", "")),
+        "flows": sorted(str(f) for f in flows),
+        "tokenUrl": str(definition.get("tokenUrl", "")),
+        "pointer": pointer,
+    }
+    return canonical
+
+
+def _count_categories(findings: List["Finding"]) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    for f in findings:
+        if "BREAKING" in f.rule_id and "NON_BREAKING" not in f.rule_id:
+            cat = str(f.technical_details.get("changeCategory") or f.rule_id)
+            out[cat] = out.get(cat, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def _security_tightened(base: List[List[str]], cand: List[List[str]]) -> bool:
+    """True when a consumer that satisfied the baseline requirement may fail the candidate one: the API became
+    protected, or a baseline alternative (scheme + scopes) is no longer accepted."""
+    if base == cand:
+        return False
+    if not base:
+        return bool(cand)
+    if not cand:
+        return False  # became public: not breaking for authenticated consumers
+    cand_set = {tuple(a) for a in cand}
+    return any(tuple(a) not in cand_set for a in base)
+
+
+_CHANGE_CATEGORIES: Dict[str, str] = {
+    "API_BREAKING_ENDPOINT_REMOVED": "api-path-removed",
+    "API_BREAKING_OPERATION_REMOVED": "api-operation-removed",
+    "API_BREAKING_ENTITYSET_REMOVED": "edmx-entity-set-removed",
+    "API_BREAKING_MAX_LENGTH_DECREASED": "max-length-decreased",
+    "API_BREAKING_PARAM_REMOVED": "request-parameter-removed",
+    "API_BREAKING_PARAM_RENAMED": "request-parameter-renamed",
+    "API_BREAKING_RESPONSE_PROPERTY_REMOVED": "response-property-removed",
+    "API_BREAKING_NAVIGATION_REMOVED": "edmx-navigation-property-removed",
+    "API_BREAKING_KEY_CHANGED": "edmx-entity-key-changed",
+    "API_DEPRECATION_WARNING": "deprecated",
+    "API_NON_BREAKING_ENDPOINT_ADDED": "api-path-added",
+    "API_NON_BREAKING_OPERATION_ADDED": "api-operation-added",
+    "API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED": "optional-property-added",
+    "API_NON_BREAKING_ENUM_EXPANDED": "enum-value-added",
+    "API_NON_BREAKING_MAX_LENGTH_INCREASED": "max-length-increased",
+}
+
+
+def _change_category(rule_id: str, d: Dict[str, Any], spec: Optional["NormalizedApiSchema"]) -> str:
+    """Stable, oasdiff-style change category id for a finding (technical_details.changeCategory)."""
+    odata = bool(spec is not None and spec.schema_type.startswith("ODATA"))
+    param = "parameter" in d
+    if rule_id in _CHANGE_CATEGORIES:
+        return _CHANGE_CATEGORIES[rule_id]
+    if rule_id == "API_BREAKING_ENTITY_REMOVED":
+        return "edmx-entity-type-removed" if odata else "api-schema-removed"
+    if rule_id == "API_BREAKING_FIELD_REMOVED":
+        return "edmx-property-removed" if odata else "schema-property-removed"
+    if rule_id == "API_BREAKING_TYPE_CHANGED":
+        return "request-parameter-type-changed" if param else "property-type-changed"
+    if rule_id == "API_BREAKING_FORMAT_CHANGED":
+        return "request-parameter-format-changed" if param else "property-format-changed"
+    if rule_id == "API_BREAKING_ENUM_RESTRICTED":
+        return "request-parameter-enum-value-removed" if param else "enum-value-removed"
+    if rule_id == "API_BREAKING_REQUIRED_PARAM_ADDED":
+        return "request-parameter-became-required" if d.get("changeKind") == "BECAME_REQUIRED" else "new-required-request-parameter"
+    if rule_id == "API_BREAKING_REQUIRED_PROPERTY_ADDED":
+        kind = d.get("changeKind")
+        if kind == "BODY_BECAME_REQUIRED":
+            return "request-body-became-required"
+        if kind == "BECAME_NON_NULLABLE":
+            return "property-became-non-nullable"
+        return "new-required-property"
+    if rule_id == "API_BREAKING_RESPONSE_STATUS_REMOVED":
+        return "response-success-status-removed" if d.get("successStatus") else "response-non-success-status-removed"
+    if rule_id == "API_BREAKING_SECURITY_CHANGED":
+        return str(d.get("securityChange") or "security-changed")
+    return rule_id.lower().replace("_", "-")
+
+
+def _element_pointer(spec: "NormalizedApiSchema", d: Dict[str, Any]) -> Optional[str]:
+    """RFC 6901 JSON pointer (OpenAPI) or XPath-style locator (EDMX) of the element a finding is about."""
+    if spec.schema_type.startswith("ODATA"):
+        ent = d.get("entity")
+        if d.get("entitySet"):
+            return f"//EntitySet[@Name='{d['entitySet']}']"
+        if ent and d.get("navigationProperty"):
+            return f"//EntityType[@Name='{ent}']/NavigationProperty[@Name='{d['navigationProperty']}']"
+        if ent and d.get("keyChange"):
+            return f"//EntityType[@Name='{ent}']/Key"
+        if ent and d.get("property") and d.get("property") != "*":
+            return f"//EntityType[@Name='{ent}']/Property[@Name='{d['property']}']"
+        if ent:
+            return f"//EntityType[@Name='{ent}']"
+        if d.get("enum"):
+            return f"//EnumType[@Name='{d['enum']}']"
+        ep = spec.endpoints.get(d.get("endpoint") or "")
+        return ep.pointer if ep else None
+    ep_path = d.get("endpoint")
+    if ep_path:
+        ep = spec.endpoints.get(ep_path)
+        base = ep.pointer if ep and ep.pointer else f"/paths/{_ptr(ep_path)}"
+        method = d.get("method")
+        if not method:
+            return base
+        op = ep.operations.get(method) if ep else None
+        if op is None:
+            return f"{base}/{str(method).lower()}"
+        op_ptr = op.pointer or f"{base}/{str(method).lower()}"
+        param = op.parameters.get(d.get("parameter") or "")
+        if param is not None and param.pointer:
+            return param.pointer
+        status = d.get("status")
+        if status:
+            shape = op.response_shapes.get(status)
+            if shape is not None and d.get("responseProperty"):
+                return shape.property_pointers.get(d["responseProperty"]) or shape.pointer
+            return shape.pointer if shape is not None else f"{op_ptr}/responses/{_ptr(status)}"
+        if d.get("security"):
+            return f"{op_ptr}/security"
+        if d.get("changeKind") == "BODY_BECAME_REQUIRED":
+            return f"{op_ptr}/requestBody"
+        return op_ptr
+    ent = spec.entities.get(d.get("entity") or "")
+    if ent is not None:
+        prop = ent.properties.get(d.get("property") or "")
+        if prop is not None and prop.pointer:
+            return prop.pointer
+        return ent.pointer
+    if d.get("globalSecurity"):
+        return "/security"
+    return None
 
 
 # =============================================================================
@@ -235,6 +484,30 @@ RULES = rule_catalog(
          "Verify consumers handle unknown enum values gracefully."),
     _api("API_NON_BREAKING_MAX_LENGTH_INCREASED", "Maximum length increased", Severity.INFO,
          "Check that consumers storing the value have sufficient field length."),
+    # oasdiff-level categories (request / response / security / OData structure)
+    _api("API_BREAKING_PARAM_REMOVED", "Request parameter removed", Severity.MAJOR,
+         "Keep accepting the parameter (ignore it server-side) until every consumer stopped sending it, or version "
+         "the operation; path parameters change the URL template."),
+    _api("API_BREAKING_PARAM_RENAMED", "Required request parameter renamed", Severity.MAJOR,
+         "Accept the old parameter name as an alias (or keep both) and deprecate it before removal; consumers "
+         "still send the previous name."),
+    _api("API_BREAKING_FORMAT_CHANGED", "Type format changed", Severity.MAJOR,
+         "Keep the previous format (e.g. date vs date-time, int32 vs int64) or introduce a new parameter / "
+         "property; consumers serialise and validate against the old format."),
+    _api("API_BREAKING_RESPONSE_PROPERTY_REMOVED", "Response property removed", Severity.MAJOR,
+         "Keep returning the property (mark it deprecated) until consumers no longer read it, or version the "
+         "response."),
+    _api("API_BREAKING_RESPONSE_STATUS_REMOVED", "Response status code removed", Severity.MAJOR,
+         "Keep the documented status code or version the operation; consumers branch on the success status."),
+    _api("API_BREAKING_SECURITY_CHANGED", "Security scheme or requirement changed", Severity.CRITICAL,
+         "Keep the previous authentication scheme / scopes available in parallel, update the Communication "
+         "Arrangement / OAuth clients of every consumer before switching, then retire the old scheme."),
+    _api("API_BREAKING_NAVIGATION_REMOVED", "OData navigation property removed", Severity.MAJOR,
+         "Restore the navigation property (association) or version the service; consumers using $expand or "
+         "navigation paths fail."),
+    _api("API_BREAKING_KEY_CHANGED", "OData entity key changed", Severity.CRITICAL,
+         "Keep the entity key stable; a key change breaks every key-based read/update URL. Introduce a new "
+         "entity type / service version instead."),
 )
 
 
@@ -293,7 +566,7 @@ class ApiChangeEngine(BaseEngine):
     input_contract = INPUT_CONTRACT
     name = "API Change Guard"
     description = "OData, SOAP, RFC compatibility and deprecation impact scanner"
-    version = "2.0.0"
+    version = "2.1.0"
     supported_artifact_types = [
         ArtifactType.JSON,
         ArtifactType.EDMX,
@@ -338,7 +611,7 @@ class ApiChangeEngine(BaseEngine):
                 ),
             )
 
-        baseline_schema, candidate_schema, integrations = parse_result
+        baseline_schema, candidate_schema, integrations, provenance = parse_result
         artifacts_scanned = max(2, len(request.artifacts))
 
         # 2. Execute Deterministic Schema Diffing Pipeline
@@ -367,7 +640,13 @@ class ApiChangeEngine(BaseEngine):
             "entitySetsAnalyzed": len(baseline_schema.entity_sets),
             "baselineVersion": baseline_schema.version,
             "candidateVersion": candidate_schema.version,
+            "baselineArtifact": baseline_schema.artifact_path,
+            "candidateArtifact": candidate_schema.artifact_path,
+            "candidateSha256": candidate_schema.artifact_hash,
+            "breakingByCategory": _count_categories(classified_findings),
+            **provenance,
         }
+        additional_metrics.setdefault("baselineSha256", baseline_schema.artifact_hash)
 
         status = AnalysisStatus.COMPLETED
 
@@ -389,7 +668,7 @@ class ApiChangeEngine(BaseEngine):
 
     def _parse_request_inputs(
         self, request: AnalysisRequest
-    ) -> Tuple[NormalizedApiSchema, NormalizedApiSchema, List[ClientIntegration]] | Finding:
+    ) -> Tuple[NormalizedApiSchema, NormalizedApiSchema, List[ClientIntegration], Dict[str, Any]] | Finding:
         """
         Extracts baseline and candidate API specifications and the integration registry
         from bundled raw_content, configuration dictionaries, or attached artifacts.
@@ -459,6 +738,42 @@ class ApiChangeEngine(BaseEngine):
                     except Exception:
                         pass
 
+        # E. Stored project baseline (sent by the API from the api_baselines registry). An explicitly selected
+        #    baseline always wins; the project's ACTIVE baseline is used when the input carries no baseline itself.
+        baseline_source = "INPUT" if baseline_raw is not None else None
+        stored_meta: Dict[str, Any] = {}
+        stored = request.configuration.get("stored_baseline")
+        if isinstance(stored, dict) and isinstance(stored.get("content"), str) and stored["content"].strip():
+            expected = str(stored.get("sha256") or "").lower()
+            actual = EvidenceEngine.compute_sha256(stored["content"])
+            if expected and expected != actual:
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    f"Stored API baseline '{stored.get('name')}' failed its integrity check (expected SHA-256 "
+                    f"{expected}, got {actual}); the baseline object was modified after it was registered.",
+                    details={"baselineId": stored.get("id")},
+                )
+            if stored.get("explicit") or baseline_raw is None:
+                baseline_raw = stored["content"]
+                baseline_path = f"api-baseline:{stored.get('name') or 'baseline'}@{stored.get('version') or 'unversioned'}"
+                baseline_source = "STORED_BASELINE"
+                stored_meta = {
+                    "baselineId": stored.get("id"),
+                    "baselineName": stored.get("name"),
+                    "baselineVersionLabel": stored.get("version"),
+                    "baselineSha256": actual,
+                    "baselineSelection": "EXPLICIT" if stored.get("explicit") else "ACTIVE",
+                }
+
+        # F. A standalone specification in raw_content is the candidate when the baseline comes from elsewhere
+        #    (stored baseline or configuration).
+        if candidate_raw is None and baseline_raw is not None and request.raw_content and request.raw_content.strip():
+            if self._is_standalone_spec(request.raw_content):
+                candidate_raw = request.raw_content
+                candidate_path = str(
+                    request.configuration.get("sourceFileName") or request.artifact_s3_key or "candidate_spec"
+                )
+
         # Both specifications are mandatory inputs (explicit contract): no verdict without them.
         missing = [name for name, val in (("baseline", baseline_raw), ("candidate", candidate_raw)) if val is None]
         if missing:
@@ -482,6 +797,9 @@ class ApiChangeEngine(BaseEngine):
         # Parse both specifications; syntax / format errors are input errors, never verdicts.
         baseline_schema = self._parse_spec_or_raise(base_str, baseline_path, "baseline")
         candidate_schema = self._parse_spec_or_raise(cand_str, candidate_path, "candidate")
+        baseline_schema.role = "baseline"
+        candidate_schema.role = "candidate"
+        provenance = {"baselineSource": baseline_source or "INPUT", **stored_meta}
         if not (
             baseline_schema.endpoints or baseline_schema.entity_sets or baseline_schema.entities
             or baseline_schema.operations_standalone
@@ -492,7 +810,20 @@ class ApiChangeEngine(BaseEngine):
                 "sets; there is no API surface to compare.",
             )
 
-        return baseline_schema, candidate_schema, integrations
+        return baseline_schema, candidate_schema, integrations, provenance
+
+    def _is_standalone_spec(self, text: str) -> bool:
+        """True for one OpenAPI / Swagger (JSON or YAML) or OData EDMX document (not a baseline/candidate bundle)."""
+        clean = text.strip()
+        if clean.startswith("<"):
+            return "Edmx" in clean[:4000] or "edmx" in clean[:4000]
+        try:
+            parsed = self._try_parse_json_or_yaml(clean)
+        except ValueError:
+            return False
+        return isinstance(parsed, dict) and "baseline" not in parsed and "candidate" not in parsed and any(
+            k in parsed for k in ("openapi", "swagger", "paths")
+        )
 
     def _parse_spec_or_raise(self, text: str, path: str, role: str) -> "NormalizedApiSchema":
         try:
@@ -590,6 +921,7 @@ class ApiChangeEngine(BaseEngine):
                         name=entity_name,
                         line_number=line_no,
                         column_number=col_no,
+                        pointer=f"//EntityType[@Name='{entity_name}']",
                     )
 
                     # Extract Keys
@@ -625,6 +957,7 @@ class ApiChangeEngine(BaseEngine):
                                 deprecated=deprecated,
                                 line_number=p_line,
                                 column_number=p_col,
+                                pointer=f"//EntityType[@Name='{entity_name}']/Property[@Name='{p_name}']",
                             )
                             entity.properties[p_name] = prop
 
@@ -648,6 +981,7 @@ class ApiChangeEngine(BaseEngine):
                         path=f"/{set_name}",
                         line_number=line_no,
                         column_number=col_no,
+                        pointer=f"//EntitySet[@Name='{set_name}']",
                         operations={
                             "GET": NormalizedOperation(method="GET", line_number=line_no, column_number=col_no),
                             "POST": NormalizedOperation(method="POST", line_number=line_no, column_number=col_no),
@@ -684,7 +1018,7 @@ class ApiChangeEngine(BaseEngine):
     def _parse_openapi(
         self, doc: Dict[str, Any], raw_text: str, artifact_path: str, artifact_hash: str
     ) -> NormalizedApiSchema:
-        """Parses OpenAPI 2.0 or 3.0 dictionary with token line tracking."""
+        """Parses OpenAPI 2.0 or 3.x with token line tracking and RFC 6901 JSON pointers for every element."""
         is_swagger_2 = "swagger" in doc and str(doc["swagger"]).startswith("2")
         schema_type = "OPENAPI_2" if is_swagger_2 else "OPENAPI_3"
         info = doc.get("info") or {}
@@ -697,6 +1031,19 @@ class ApiChangeEngine(BaseEngine):
             artifact_path=artifact_path,
             artifact_hash=artifact_hash,
         )
+        schemas_root = "/definitions" if is_swagger_2 else "/components/schemas"
+        schemas_dict = (doc.get("definitions") or {}) if is_swagger_2 else ((doc.get("components") or {}).get("schemas") or {})
+        if not isinstance(schemas_dict, dict):
+            schemas_dict = {}
+
+        # 0. Security schemes + global security requirement
+        schemes_root = "/securityDefinitions" if is_swagger_2 else "/components/securitySchemes"
+        schemes = (doc.get("securityDefinitions") or {}) if is_swagger_2 else ((doc.get("components") or {}).get("securitySchemes") or {})
+        if isinstance(schemes, dict):
+            for name, definition in schemes.items():
+                if isinstance(definition, dict):
+                    schema.security_schemes[str(name)] = _canonical_security_scheme(definition, f"{schemes_root}/{_ptr(str(name))}")
+        schema.global_security = _security_requirements(doc.get("security"))
 
         # 1. Parse Paths and Operations
         paths = doc.get("paths") or {}
@@ -704,22 +1051,21 @@ class ApiChangeEngine(BaseEngine):
             if not isinstance(path_item, dict):
                 continue
             p_line, p_col, _ = _locate_token_in_text(raw_text, path_str)
-            endpoint = NormalizedEndpoint(
-                path=path_str,
-                line_number=p_line,
-                column_number=p_col,
-            )
+            path_ptr = f"/paths/{_ptr(path_str)}"
+            endpoint = NormalizedEndpoint(path=path_str, line_number=p_line, column_number=p_col, pointer=path_ptr)
 
             # Common path-level parameters
             path_params: Dict[str, NormalizedParameter] = {}
             if "parameters" in path_item and isinstance(path_item["parameters"], list):
-                for p in path_item["parameters"]:
-                    norm_p = self._normalize_openapi_param(p, raw_text, p_line)
-                    path_params[norm_p.name] = norm_p
+                for idx, p in enumerate(path_item["parameters"]):
+                    if isinstance(p, dict):
+                        norm_p = self._normalize_openapi_param(p, raw_text, p_line, f"{path_ptr}/parameters/{idx}", doc)
+                        path_params[norm_p.name] = norm_p
 
             for method_str in ("get", "post", "put", "delete", "patch", "head", "options"):
                 if method_str in path_item and isinstance(path_item[method_str], dict):
                     op_dict = path_item[method_str]
+                    op_ptr = f"{path_ptr}/{method_str}"
                     op_line, op_col, _ = _locate_token_in_text(raw_text, method_str, start_line=p_line)
                     operation = NormalizedOperation(
                         method=method_str.upper(),
@@ -727,36 +1073,47 @@ class ApiChangeEngine(BaseEngine):
                         deprecated=bool(op_dict.get("deprecated")),
                         line_number=op_line,
                         column_number=op_col,
+                        pointer=op_ptr,
                     )
                     # Inherit path params
                     operation.parameters.update(path_params)
 
                     # Operation parameters
                     if "parameters" in op_dict and isinstance(op_dict["parameters"], list):
-                        for p in op_dict["parameters"]:
-                            norm_p = self._normalize_openapi_param(p, raw_text, op_line)
-                            operation.parameters[norm_p.name] = norm_p
+                        for idx, p in enumerate(op_dict["parameters"]):
+                            if isinstance(p, dict):
+                                norm_p = self._normalize_openapi_param(p, raw_text, op_line, f"{op_ptr}/parameters/{idx}", doc)
+                                operation.parameters[norm_p.name] = norm_p
 
                     # OpenAPI 3 requestBody
                     if "requestBody" in op_dict and isinstance(op_dict["requestBody"], dict):
                         rb = op_dict["requestBody"]
                         operation.request_body_required = bool(rb.get("required"))
 
+                    # Responses (status codes and top-level body properties)
+                    responses = op_dict.get("responses")
+                    if isinstance(responses, dict):
+                        for status_code, resp in responses.items():
+                            status_key = str(status_code)
+                            operation.responses[status_key] = str((resp or {}).get("description", "")) if isinstance(resp, dict) else ""
+                            operation.response_shapes[status_key] = _response_shape(
+                                status_key, resp, doc, f"{op_ptr}/responses/{_ptr(status_key)}", is_swagger_2
+                            )
+
+                    if "security" in op_dict:
+                        operation.security = _security_requirements(op_dict.get("security"))
+
                     endpoint.operations[method_str.upper()] = operation
 
             schema.endpoints[path_str] = endpoint
 
         # 2. Parse Definitions (OpenAPI 2) or Components Schemas (OpenAPI 3)
-        schemas_dict = (doc.get("definitions") or {}) if is_swagger_2 else ((doc.get("components") or {}).get("schemas") or {})
         for entity_name, entity_def in schemas_dict.items():
             if not isinstance(entity_def, dict):
                 continue
             e_line, e_col, _ = _locate_token_in_text(raw_text, entity_name)
-            entity = NormalizedEntity(
-                name=entity_name,
-                line_number=e_line,
-                column_number=e_col,
-            )
+            e_ptr = f"{schemas_root}/{_ptr(entity_name)}"
+            entity = NormalizedEntity(name=entity_name, line_number=e_line, column_number=e_col, pointer=e_ptr)
 
             required_props = set(entity_def.get("required") or [])
             properties_dict = entity_def.get("properties") or {}
@@ -782,6 +1139,7 @@ class ApiChangeEngine(BaseEngine):
                     deprecated=p_deprecated,
                     line_number=pr_line,
                     column_number=pr_col,
+                    pointer=f"{e_ptr}/properties/{_ptr(prop_name)}",
                 )
                 entity.properties[prop_name] = prop
 
@@ -789,21 +1147,37 @@ class ApiChangeEngine(BaseEngine):
 
         return schema
 
-    def _normalize_openapi_param(self, p: Dict[str, Any], raw_text: str, start_line: int) -> NormalizedParameter:
+    def _normalize_openapi_param(
+        self,
+        p: Dict[str, Any],
+        raw_text: str,
+        start_line: int,
+        pointer: Optional[str] = None,
+        doc: Optional[Dict[str, Any]] = None,
+    ) -> NormalizedParameter:
+        if "$ref" in p and doc is not None:
+            resolved = _resolve_local_ref(doc, p.get("$ref"))
+            if isinstance(resolved, dict):
+                pointer = str(p.get("$ref"))[1:] if str(p.get("$ref")).startswith("#") else pointer
+                p = resolved
         p_name = p.get("name", "")
         p_in = p.get("in", "query")
         p_req = bool(p.get("required", p_in == "path"))
         p_line, p_col, _ = _locate_token_in_text(raw_text, p_name, start_line=start_line)
-        p_type = p.get("type") or (p.get("schema") or {}).get("type", "string")
-        p_format = p.get("format") or (p.get("schema") or {}).get("format")
+        p_schema = p.get("schema") if isinstance(p.get("schema"), dict) else {}
+        p_type = p.get("type") or p_schema.get("type", "string")
+        p_format = p.get("format") or p_schema.get("format")
+        raw_enum = p.get("enum") if isinstance(p.get("enum"), list) else p_schema.get("enum")
         return NormalizedParameter(
             name=p_name,
             in_location=p_in,
             required=p_req,
             type=p_type,
             format=p_format,
+            enums=[str(e) for e in raw_enum] if isinstance(raw_enum, list) else [],
             line_number=p_line,
             column_number=p_col,
+            pointer=pointer,
         )
 
     # -------------------------------------------------------------------------
@@ -844,7 +1218,7 @@ class ApiChangeEngine(BaseEngine):
                     ),
                     remediation=f"Restore endpoint '{ep_path}', deploy a backwards-compatible URL rewrite in API Gateway, or migrate clients to the replacement endpoint.",
                     artifact_path=baseline.artifact_path,
-                    raw_text=baseline.raw_text,
+                    raw_text=baseline.raw_text, spec=baseline,
                     line_number=base_ep.line_number,
                     column_number=base_ep.column_number,
                     artifact_hash=baseline.artifact_hash,
@@ -883,7 +1257,7 @@ class ApiChangeEngine(BaseEngine):
                     description=f"New endpoint '{ep_path}' was added in candidate specification.",
                     remediation="Inform integration teams and update API client SDK documentation.",
                     artifact_path=candidate.artifact_path,
-                    raw_text=candidate.raw_text,
+                    raw_text=candidate.raw_text, spec=candidate,
                     line_number=cand_ep.line_number,
                     column_number=cand_ep.column_number,
                     artifact_hash=candidate.artifact_hash,
@@ -914,7 +1288,7 @@ class ApiChangeEngine(BaseEngine):
                     ),
                     remediation=f"Restore EntitySet '{es_name}' or redirect client integrations to the successor CDS entity set.",
                     artifact_path=baseline.artifact_path,
-                    raw_text=baseline.raw_text,
+                    raw_text=baseline.raw_text, spec=baseline,
                     line_number=line_no,
                     column_number=col_no,
                     artifact_hash=baseline.artifact_hash,
@@ -945,7 +1319,7 @@ class ApiChangeEngine(BaseEngine):
                     description=f"Entity model '{entity_name}' was removed from API schema definitions.",
                     remediation=f"Restore schema definition '{entity_name}' to maintain client payload compatibility.",
                     artifact_path=baseline.artifact_path,
-                    raw_text=baseline.raw_text,
+                    raw_text=baseline.raw_text, spec=baseline,
                     line_number=base_entity.line_number,
                     column_number=base_entity.column_number,
                     artifact_hash=baseline.artifact_hash,
@@ -997,7 +1371,7 @@ class ApiChangeEngine(BaseEngine):
                             ),
                             remediation="Restore removed enum values or ensure external systems no longer submit retired keys.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=line_no,
                             column_number=col_no,
                             artifact_hash=candidate.artifact_hash,
@@ -1020,7 +1394,7 @@ class ApiChangeEngine(BaseEngine):
                             description=f"Enum '{enum_name}' added new members: {sorted(list(added_members))}.",
                             remediation="Update consumer SDKs to recognize new enum values.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=line_no,
                             column_number=col_no,
                             artifact_hash=candidate.artifact_hash,
@@ -1031,6 +1405,14 @@ class ApiChangeEngine(BaseEngine):
                             },
                         )
                     )
+
+        # ---------------------------------------------------------------------
+        # Rule 5: Security schemes & global security requirement (OpenAPI)
+        # ---------------------------------------------------------------------
+        rules_evaluated += 1
+        sec_findings = self._diff_security(baseline, candidate)
+        findings.extend(sec_findings)
+        breaking_count += len(sec_findings)
 
         metrics_summary = {
             "breakingChangesCount": breaking_count,
@@ -1075,7 +1457,7 @@ class ApiChangeEngine(BaseEngine):
                     ),
                     remediation=f"Re-enable operation '{method}' on '{ep_path}' or migrate consumer workflows to supported methods.",
                     artifact_path=baseline.artifact_path,
-                    raw_text=baseline.raw_text,
+                    raw_text=baseline.raw_text, spec=baseline,
                     line_number=base_op.line_number,
                     column_number=base_op.column_number,
                     artifact_hash=baseline.artifact_hash,
@@ -1098,7 +1480,7 @@ class ApiChangeEngine(BaseEngine):
                         description=f"Operation '{method} {ep_path}' is marked as deprecated in the candidate specification.",
                         remediation="Plan migration to successor API routes prior to permanent retirement in future releases.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_op.line_number,
                         column_number=cand_op.column_number,
                         artifact_hash=candidate.artifact_hash,
@@ -1108,10 +1490,148 @@ class ApiChangeEngine(BaseEngine):
                     )
                     findings.append(finding)
 
+                # Removed / renamed request parameters (oasdiff: request-parameter-removed / -renamed)
+                renamed_targets: Set[str] = set()
+                added_required = [
+                    n for n, cp in cand_op.parameters.items() if n not in base_op.parameters and cp.required
+                ]
+                for param_name, base_param in base_op.parameters.items():
+                    if param_name in cand_op.parameters:
+                        continue
+                    evals += 1
+                    affected = self._cross_reference_operation(ep_path, method, integrations)
+                    rename_to = None
+                    if base_param.required:
+                        rename_to = next(
+                            (
+                                n for n in added_required
+                                if n not in renamed_targets
+                                and cand_op.parameters[n].in_location == base_param.in_location
+                                and cand_op.parameters[n].type == base_param.type
+                            ),
+                            None,
+                        )
+                    if rename_to is not None:
+                        renamed_targets.add(rename_to)
+                        breaking_count += 1
+                        new_param = cand_op.parameters[rename_to]
+                        findings.append(self._build_finding(
+                            rule_id="API_BREAKING_PARAM_RENAMED",
+                            severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                            category="API Breaking Change",
+                            title=f"Breaking Change: Required Parameter '{param_name}' Renamed to '{rename_to}' on '{method} {ep_path}'",
+                            description=(
+                                f"Required {base_param.in_location} parameter '{param_name}' ({base_param.type}) no longer exists "
+                                f"and a new required {new_param.in_location} parameter '{rename_to}' of the same type was added. "
+                                "Consumers still sending the old name fail validation (HTTP 400)."
+                            ),
+                            remediation=f"Accept '{param_name}' as an alias of '{rename_to}' until every consumer is migrated.",
+                            artifact_path=candidate.artifact_path,
+                            raw_text=candidate.raw_text, spec=candidate,
+                            line_number=new_param.line_number,
+                            column_number=new_param.column_number,
+                            artifact_hash=candidate.artifact_hash,
+                            affected_objects=[f"{method} {ep_path}:{param_name}", f"{method} {ep_path}:{rename_to}"] + affected,
+                            technical_details={
+                                "endpoint": ep_path, "method": method, "parameter": rename_to,
+                                "previousName": param_name, "location": base_param.in_location,
+                                "baselinePointer": base_param.pointer, "affectedIntegrations": affected,
+                            },
+                            is_derived=bool(affected),
+                        ))
+                        continue
+                    blocking = base_param.required or base_param.in_location == "path"
+                    if blocking:
+                        breaking_count += 1
+                    findings.append(self._build_finding(
+                        rule_id="API_BREAKING_PARAM_REMOVED",
+                        severity=(Severity.CRITICAL if affected else Severity.MAJOR) if blocking else Severity.MINOR,
+                        category="API Breaking Change",
+                        title=f"Breaking Change: {'Required ' if base_param.required else ''}Parameter '{param_name}' Removed from '{method} {ep_path}'",
+                        description=(
+                            f"{'Required' if base_param.required else 'Optional'} {base_param.in_location} parameter '{param_name}' "
+                            f"of '{method} {ep_path}' was removed. Consumers that send it are rejected by strict validation "
+                            "or silently lose its effect."
+                        ),
+                        remediation=f"Keep accepting '{param_name}' (ignored server-side) until consumers stop sending it, or version the operation.",
+                        artifact_path=baseline.artifact_path,
+                        raw_text=baseline.raw_text, spec=baseline,
+                        line_number=base_param.line_number,
+                        column_number=base_param.column_number,
+                        artifact_hash=baseline.artifact_hash,
+                        affected_objects=[f"{method} {ep_path}:{param_name}"] + affected,
+                        technical_details={
+                            "endpoint": ep_path, "method": method, "parameter": param_name,
+                            "required": base_param.required, "location": base_param.in_location,
+                            "affectedIntegrations": affected,
+                        },
+                        is_derived=bool(affected),
+                    ))
+
                 # Check parameters: required additions and type mutations
                 for param_name, cand_param in cand_op.parameters.items():
                     evals += 1
                     base_param = base_op.parameters.get(param_name)
+                    if param_name in renamed_targets:
+                        continue
+
+                    # Format change on an otherwise compatible parameter (oasdiff: request-parameter-format-changed)
+                    if (
+                        base_param is not None
+                        and base_param.type == cand_param.type
+                        and (base_param.format or None) != (cand_param.format or None)
+                    ):
+                        breaking_count += 1
+                        affected = self._cross_reference_operation(ep_path, method, integrations)
+                        findings.append(self._build_finding(
+                            rule_id="API_BREAKING_FORMAT_CHANGED",
+                            severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                            category="API Breaking Change",
+                            title=f"Breaking Change: Format of Parameter '{param_name}' Changed on '{method} {ep_path}'",
+                            description=(
+                                f"Parameter '{param_name}' ({cand_param.type}) changed format from "
+                                f"'{base_param.format or 'none'}' to '{cand_param.format or 'none'}'."
+                            ),
+                            remediation=f"Keep format '{base_param.format or 'none'}' for '{param_name}' or add a new parameter.",
+                            artifact_path=candidate.artifact_path,
+                            raw_text=candidate.raw_text, spec=candidate,
+                            line_number=cand_param.line_number,
+                            column_number=cand_param.column_number,
+                            artifact_hash=candidate.artifact_hash,
+                            affected_objects=[f"{method} {ep_path}:{param_name}"] + affected,
+                            technical_details={
+                                "endpoint": ep_path, "method": method, "parameter": param_name,
+                                "baselineFormat": base_param.format, "candidateFormat": cand_param.format,
+                                "affectedIntegrations": affected,
+                            },
+                            is_derived=bool(affected),
+                        ))
+
+                    # Enum values removed from a parameter (oasdiff: request-parameter-enum-value-removed)
+                    if base_param is not None and base_param.enums and cand_param.enums:
+                        removed_values = sorted(set(base_param.enums) - set(cand_param.enums))
+                        if removed_values:
+                            breaking_count += 1
+                            affected = self._cross_reference_operation(ep_path, method, integrations)
+                            findings.append(self._build_finding(
+                                rule_id="API_BREAKING_ENUM_RESTRICTED",
+                                severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                                category="API Breaking Change",
+                                title=f"Breaking Change: Enum Values Removed from Parameter '{param_name}' on '{method} {ep_path}'",
+                                description=f"Parameter '{param_name}' no longer accepts {removed_values}.",
+                                remediation="Keep accepting the removed values (map them server-side) or version the operation.",
+                                artifact_path=candidate.artifact_path,
+                                raw_text=candidate.raw_text, spec=candidate,
+                                line_number=cand_param.line_number,
+                                column_number=cand_param.column_number,
+                                artifact_hash=candidate.artifact_hash,
+                                affected_objects=[f"{method} {ep_path}:{param_name}"] + affected,
+                                technical_details={
+                                    "endpoint": ep_path, "method": method, "parameter": param_name,
+                                    "removedEnums": removed_values, "affectedIntegrations": affected,
+                                },
+                                is_derived=bool(affected),
+                            ))
 
                     # A. Required parameter added or existing parameter made required
                     if cand_param.required and (base_param is None or not base_param.required):
@@ -1128,7 +1648,7 @@ class ApiChangeEngine(BaseEngine):
                             ),
                             remediation=f"Make parameter '{param_name}' optional with default server values, or update client request payloads.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=cand_param.line_number,
                             column_number=cand_param.column_number,
                             artifact_hash=candidate.artifact_hash,
@@ -1138,6 +1658,7 @@ class ApiChangeEngine(BaseEngine):
                                 "method": method,
                                 "parameter": param_name,
                                 "affectedIntegrations": affected,
+                                "changeKind": "ADDED" if base_param is None else "BECAME_REQUIRED",
                             },
                             is_derived=bool(affected),
                         )
@@ -1158,7 +1679,7 @@ class ApiChangeEngine(BaseEngine):
                             ),
                             remediation=f"Retain compatible type '{base_param.type}' for parameter '{param_name}'.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=cand_param.line_number,
                             column_number=cand_param.column_number,
                             artifact_hash=candidate.artifact_hash,
@@ -1187,15 +1708,53 @@ class ApiChangeEngine(BaseEngine):
                         description=f"Request body for '{method} {ep_path}' was previously optional and is now required.",
                         remediation="Allow empty or optional request bodies to preserve backwards compatibility.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_op.line_number,
                         column_number=cand_op.column_number,
                         artifact_hash=candidate.artifact_hash,
                         affected_objects=[f"{method} {ep_path}"] + affected,
-                        technical_details={"endpoint": ep_path, "method": method, "affectedIntegrations": affected},
+                        technical_details={"endpoint": ep_path, "method": method, "affectedIntegrations": affected, "changeKind": "BODY_BECAME_REQUIRED"},
                         is_derived=bool(affected),
                     )
                     findings.append(finding)
+
+                resp_findings, resp_breaking = self._diff_responses(
+                    ep_path, method, base_op, cand_op, baseline, candidate, integrations
+                )
+                findings.extend(resp_findings)
+                breaking_count += resp_breaking
+                evals += len(base_op.response_shapes)
+
+                if base_op.security is not None or cand_op.security is not None:
+                    evals += 1
+                    base_sec = base_op.security if base_op.security is not None else baseline.global_security
+                    cand_sec = cand_op.security if cand_op.security is not None else candidate.global_security
+                    if _security_tightened(base_sec, cand_sec):
+                        breaking_count += 1
+                        affected = self._cross_reference_operation(ep_path, method, integrations)
+                        findings.append(self._build_finding(
+                            rule_id="API_BREAKING_SECURITY_CHANGED",
+                            severity=Severity.BLOCKER if affected else Severity.CRITICAL,
+                            category="API Security Change",
+                            title=f"Breaking Change: Security Requirement Changed on '{method} {ep_path}'",
+                            description=(
+                                f"The accepted authentication of '{method} {ep_path}' changed from {base_sec or 'none (public)'} "
+                                f"to {cand_sec or 'none (public)'}; consumers authenticated with a removed alternative are rejected (HTTP 401/403)."
+                            ),
+                            remediation="Keep the previous scheme / scopes as an accepted alternative until every consumer switched.",
+                            artifact_path=candidate.artifact_path,
+                            raw_text=candidate.raw_text, spec=candidate,
+                            line_number=cand_op.line_number,
+                            column_number=cand_op.column_number,
+                            artifact_hash=candidate.artifact_hash,
+                            affected_objects=[f"{method} {ep_path}"] + affected,
+                            technical_details={
+                                "endpoint": ep_path, "method": method, "security": True,
+                                "baselineSecurity": base_sec, "candidateSecurity": cand_sec,
+                                "securityChange": "operation-security-changed", "affectedIntegrations": affected,
+                            },
+                            is_derived=bool(affected),
+                        ))
 
         # Check newly added operations on existing endpoint
         for method, cand_op in cand_ep.operations.items():
@@ -1210,7 +1769,7 @@ class ApiChangeEngine(BaseEngine):
                         description=f"Operation '{method}' was added to existing route '{ep_path}'.",
                         remediation="Document new operation in API portal.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_op.line_number,
                         column_number=cand_op.column_number,
                         artifact_hash=candidate.artifact_hash,
@@ -1257,7 +1816,7 @@ class ApiChangeEngine(BaseEngine):
                     ),
                     remediation=f"Retain property '{prop_name}' in entity '{entity_name}' with Nullable/optional status until formal deprecation.",
                     artifact_path=baseline.artifact_path,
-                    raw_text=baseline.raw_text,
+                    raw_text=baseline.raw_text, spec=baseline,
                     line_number=base_prop.line_number,
                     column_number=base_prop.column_number,
                     artifact_hash=baseline.artifact_hash,
@@ -1289,7 +1848,7 @@ class ApiChangeEngine(BaseEngine):
                         ),
                         remediation=f"Maintain backwards-compatible type '{base_prop.type}' or expose a versioned V2 entity set.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_prop.line_number,
                         column_number=cand_prop.column_number,
                         artifact_hash=candidate.artifact_hash,
@@ -1324,7 +1883,7 @@ class ApiChangeEngine(BaseEngine):
                         ),
                         remediation=f"Restore MaxLength to >= {base_prop.max_length} or verify all upstream consumers stay within {cand_prop.max_length}.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_prop.line_number,
                         column_number=cand_prop.column_number,
                         artifact_hash=candidate.artifact_hash,
@@ -1355,7 +1914,7 @@ class ApiChangeEngine(BaseEngine):
                             description=f"Property '{prop_name}' MaxLength increased from {base_prop.max_length} to {cand_prop.max_length}.",
                             remediation="Clients can safely transmit longer values.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=cand_prop.line_number,
                             column_number=cand_prop.column_number,
                             artifact_hash=candidate.artifact_hash,
@@ -1379,12 +1938,12 @@ class ApiChangeEngine(BaseEngine):
                         ),
                         remediation=f"Keep property '{prop_name}' nullable (Nullable=true) or define default values in database table.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_prop.line_number,
                         column_number=cand_prop.column_number,
                         artifact_hash=candidate.artifact_hash,
                         affected_objects=[f"{entity_name}.{prop_name}"] + affected,
-                        technical_details={"entity": entity_name, "property": prop_name, "affectedIntegrations": affected},
+                        technical_details={"entity": entity_name, "property": prop_name, "affectedIntegrations": affected, "changeKind": "BECAME_NON_NULLABLE"},
                         is_derived=bool(affected),
                     )
                     findings.append(finding)
@@ -1409,7 +1968,7 @@ class ApiChangeEngine(BaseEngine):
                             ),
                             remediation="Restore removed enum values or update client payloads.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=cand_prop.line_number,
                             column_number=cand_prop.column_number,
                             artifact_hash=candidate.artifact_hash,
@@ -1437,7 +1996,7 @@ class ApiChangeEngine(BaseEngine):
                         description=f"Property '{prop_name}' in entity '{entity_name}' is marked as deprecated.",
                         remediation="Plan field replacement in client mappings before future major release.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_prop.line_number,
                         column_number=cand_prop.column_number,
                         artifact_hash=candidate.artifact_hash,
@@ -1446,6 +2005,97 @@ class ApiChangeEngine(BaseEngine):
                         is_derived=bool(affected),
                     )
                     findings.append(finding)
+
+        # OData navigation properties removed (edmx-navigation-property-removed)
+        for nav_name in base_entity.navigation_properties:
+            evals += 1
+            if nav_name in cand_entity.navigation_properties:
+                continue
+            breaking_count += 1
+            affected = self._cross_reference_field(entity_name, nav_name, integrations)
+            line_no, col_no, _ = _locate_token_in_text(baseline.raw_text, nav_name, start_line=base_entity.line_number or 1)
+            findings.append(self._build_finding(
+                rule_id="API_BREAKING_NAVIGATION_REMOVED",
+                severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                category="OData Breaking Change",
+                title=f"Breaking Change: Navigation Property '{nav_name}' Removed from '{entity_name}'",
+                description=(
+                    f"Navigation property '{nav_name}' of entity type '{entity_name}' was removed; $expand={nav_name} and "
+                    "navigation URLs of consumers fail."
+                ),
+                remediation=f"Restore navigation property '{nav_name}' or publish a new service version.",
+                artifact_path=baseline.artifact_path,
+                raw_text=baseline.raw_text, spec=baseline,
+                line_number=line_no or base_entity.line_number,
+                column_number=col_no or base_entity.column_number,
+                artifact_hash=baseline.artifact_hash,
+                affected_objects=[f"{entity_name}.{nav_name}"] + affected,
+                technical_details={"entity": entity_name, "navigationProperty": nav_name, "affectedIntegrations": affected},
+                is_derived=bool(affected),
+            ))
+
+        # OData entity key changed (edmx-entity-key-changed)
+        evals += 1
+        if base_entity.keys and cand_entity.keys and base_entity.keys != cand_entity.keys:
+            breaking_count += 1
+            affected = self._cross_reference_field(entity_name, "*", integrations)
+            line_no, col_no, _ = _locate_token_in_text(candidate.raw_text, "Key", start_line=cand_entity.line_number or 1)
+            findings.append(self._build_finding(
+                rule_id="API_BREAKING_KEY_CHANGED",
+                severity=Severity.BLOCKER if affected else Severity.CRITICAL,
+                category="OData Breaking Change",
+                title=f"Breaking Change: Key of Entity Type '{entity_name}' Changed",
+                description=(
+                    f"The key of '{entity_name}' changed from {base_entity.keys} to {cand_entity.keys}; every key-based "
+                    "read / update / delete URL of consumers addresses a different (or no) entity."
+                ),
+                remediation="Keep the entity key stable; introduce a new entity type or service version instead.",
+                artifact_path=candidate.artifact_path,
+                raw_text=candidate.raw_text, spec=candidate,
+                line_number=line_no or cand_entity.line_number,
+                column_number=col_no or cand_entity.column_number,
+                artifact_hash=candidate.artifact_hash,
+                affected_objects=[entity_name] + affected,
+                technical_details={
+                    "entity": entity_name, "keyChange": True, "baselineKeys": base_entity.keys,
+                    "candidateKeys": cand_entity.keys, "affectedIntegrations": affected,
+                },
+                is_derived=bool(affected),
+            ))
+
+        # Format changes on schema properties (property-format-changed)
+        for prop_name, base_prop in base_entity.properties.items():
+            cand_prop = cand_entity.properties.get(prop_name)
+            if (
+                cand_prop is None
+                or base_prop.type != cand_prop.type
+                or (base_prop.format or None) == (cand_prop.format or None)
+            ):
+                continue
+            breaking_count += 1
+            affected = self._cross_reference_field(entity_name, prop_name, integrations)
+            findings.append(self._build_finding(
+                rule_id="API_BREAKING_FORMAT_CHANGED",
+                severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                category="API Breaking Change",
+                title=f"Breaking Change: Format of '{entity_name}.{prop_name}' Changed",
+                description=(
+                    f"Property '{prop_name}' ({cand_prop.type}) changed format from '{base_prop.format or 'none'}' to "
+                    f"'{cand_prop.format or 'none'}'."
+                ),
+                remediation=f"Keep format '{base_prop.format or 'none'}' or add a new property with the new format.",
+                artifact_path=candidate.artifact_path,
+                raw_text=candidate.raw_text, spec=candidate,
+                line_number=cand_prop.line_number,
+                column_number=cand_prop.column_number,
+                artifact_hash=candidate.artifact_hash,
+                affected_objects=[f"{entity_name}.{prop_name}"] + affected,
+                technical_details={
+                    "entity": entity_name, "property": prop_name, "baselineFormat": base_prop.format,
+                    "candidateFormat": cand_prop.format, "affectedIntegrations": affected,
+                },
+                is_derived=bool(affected),
+            ))
 
         # Check newly added properties in candidate
         for prop_name, cand_prop in cand_entity.properties.items():
@@ -1465,12 +2115,12 @@ class ApiChangeEngine(BaseEngine):
                         ),
                         remediation=f"Make newly added property '{prop_name}' optional or specify default server-side value.",
                         artifact_path=candidate.artifact_path,
-                        raw_text=candidate.raw_text,
+                        raw_text=candidate.raw_text, spec=candidate,
                         line_number=cand_prop.line_number,
                         column_number=cand_prop.column_number,
                         artifact_hash=candidate.artifact_hash,
                         affected_objects=[f"{entity_name}.{prop_name}"] + affected,
-                        technical_details={"entity": entity_name, "property": prop_name, "affectedIntegrations": affected},
+                        technical_details={"entity": entity_name, "property": prop_name, "affectedIntegrations": affected, "changeKind": "ADDED"},
                         is_derived=bool(affected),
                     )
                     findings.append(finding)
@@ -1486,7 +2136,7 @@ class ApiChangeEngine(BaseEngine):
                             description=f"New optional field '{prop_name}' (type: {cand_prop.type}) was added to '{entity_name}'.",
                             remediation="Clients can optionally consume this field when ready.",
                             artifact_path=candidate.artifact_path,
-                            raw_text=candidate.raw_text,
+                            raw_text=candidate.raw_text, spec=candidate,
                             line_number=cand_prop.line_number,
                             column_number=cand_prop.column_number,
                             artifact_hash=candidate.artifact_hash,
@@ -1496,6 +2146,161 @@ class ApiChangeEngine(BaseEngine):
                     )
 
         return findings, evals, breaking_count, non_breaking_count
+
+    # -------------------------------------------------------------------------
+    # Sub-Diff: Responses (status codes, body properties) and security
+    # -------------------------------------------------------------------------
+
+    def _diff_responses(
+        self,
+        ep_path: str,
+        method: str,
+        base_op: NormalizedOperation,
+        cand_op: NormalizedOperation,
+        baseline: NormalizedApiSchema,
+        candidate: NormalizedApiSchema,
+        integrations: List[ClientIntegration],
+    ) -> Tuple[List[Finding], int]:
+        findings: List[Finding] = []
+        breaking = 0
+        affected = self._cross_reference_operation(ep_path, method, integrations)
+        for status_code in sorted(base_op.response_shapes):
+            base_shape = base_op.response_shapes[status_code]
+            cand_shape = cand_op.response_shapes.get(status_code)
+            if cand_shape is None:
+                success = status_code.startswith("2")
+                if success:
+                    breaking += 1
+                line_no, col_no, _ = _locate_token_in_text(baseline.raw_text, status_code, start_line=base_op.line_number or 1)
+                findings.append(self._build_finding(
+                    rule_id="API_BREAKING_RESPONSE_STATUS_REMOVED",
+                    severity=(Severity.CRITICAL if affected else Severity.MAJOR) if success else Severity.MINOR,
+                    category="API Breaking Change",
+                    title=f"Breaking Change: Response Status {status_code} Removed from '{method} {ep_path}'",
+                    description=(
+                        f"'{method} {ep_path}' no longer documents response status {status_code}."
+                        + (" Consumers expecting this success status mis-handle the response." if success else "")
+                    ),
+                    remediation=f"Keep returning status {status_code} or version the operation.",
+                    artifact_path=baseline.artifact_path,
+                    raw_text=baseline.raw_text, spec=baseline,
+                    line_number=line_no or base_op.line_number,
+                    column_number=col_no or base_op.column_number,
+                    artifact_hash=baseline.artifact_hash,
+                    affected_objects=[f"{method} {ep_path} {status_code}"] + affected,
+                    technical_details={
+                        "endpoint": ep_path, "method": method, "status": status_code, "successStatus": success,
+                        "affectedIntegrations": affected,
+                    },
+                    is_derived=bool(affected),
+                ))
+                continue
+            # Property removal through a shared, still-existing component is reported once, on the component.
+            if (
+                base_shape.schema_ref
+                and base_shape.schema_ref == cand_shape.schema_ref
+                and base_shape.schema_ref in baseline.entities
+                and base_shape.schema_ref in candidate.entities
+            ):
+                continue
+            for prop_name in sorted(set(base_shape.properties) - set(cand_shape.properties)):
+                breaking += 1
+                line_no, col_no, _ = _locate_token_in_text(baseline.raw_text, prop_name, start_line=base_op.line_number or 1)
+                findings.append(self._build_finding(
+                    rule_id="API_BREAKING_RESPONSE_PROPERTY_REMOVED",
+                    severity=Severity.CRITICAL if affected else Severity.MAJOR,
+                    category="API Breaking Change",
+                    title=f"Breaking Change: Response Property '{prop_name}' Removed ({method} {ep_path} {status_code})",
+                    description=(
+                        f"The {status_code} response of '{method} {ep_path}' no longer contains property '{prop_name}' "
+                        f"({base_shape.properties[prop_name]}); consumers reading it get undefined / null."
+                    ),
+                    remediation=f"Keep returning '{prop_name}' (deprecated) until consumers stopped reading it.",
+                    artifact_path=baseline.artifact_path,
+                    raw_text=baseline.raw_text, spec=baseline,
+                    line_number=line_no or base_op.line_number,
+                    column_number=col_no or base_op.column_number,
+                    artifact_hash=baseline.artifact_hash,
+                    affected_objects=[f"{method} {ep_path} {status_code}:{prop_name}"] + affected,
+                    technical_details={
+                        "endpoint": ep_path, "method": method, "status": status_code, "responseProperty": prop_name,
+                        "affectedIntegrations": affected,
+                    },
+                    is_derived=bool(affected),
+                ))
+        return findings, breaking
+
+    def _diff_security(self, baseline: NormalizedApiSchema, candidate: NormalizedApiSchema) -> List[Finding]:
+        findings: List[Finding] = []
+        for name in sorted(baseline.security_schemes):
+            base_def = baseline.security_schemes[name]
+            cand_def = candidate.security_schemes.get(name)
+            if cand_def is None:
+                line_no, col_no, _ = _locate_token_in_text(baseline.raw_text, name)
+                findings.append(self._build_finding(
+                    rule_id="API_BREAKING_SECURITY_CHANGED",
+                    severity=Severity.CRITICAL,
+                    category="API Security Change",
+                    title=f"Breaking Change: Security Scheme '{name}' Removed",
+                    description=f"Security scheme '{name}' ({base_def.get('type')}) is no longer defined; consumers using it cannot authenticate.",
+                    remediation=f"Keep scheme '{name}' available in parallel until every consumer switched.",
+                    artifact_path=baseline.artifact_path,
+                    raw_text=baseline.raw_text, spec=baseline,
+                    line_number=line_no or 1,
+                    column_number=col_no or 1,
+                    artifact_hash=baseline.artifact_hash,
+                    affected_objects=[name],
+                    technical_details={"securityScheme": name, "securityChange": "security-scheme-removed"},
+                    pointer=base_def.get("pointer"),
+                ))
+                continue
+            strip = lambda d: {k: v for k, v in d.items() if k != "pointer"}  # noqa: E731
+            if strip(base_def) != strip(cand_def):
+                changed = sorted(k for k in strip(base_def) if base_def.get(k) != cand_def.get(k))
+                line_no, col_no, _ = _locate_token_in_text(candidate.raw_text, name)
+                findings.append(self._build_finding(
+                    rule_id="API_BREAKING_SECURITY_CHANGED",
+                    severity=Severity.CRITICAL,
+                    category="API Security Change",
+                    title=f"Breaking Change: Security Scheme '{name}' Changed",
+                    description=f"Security scheme '{name}' changed ({', '.join(changed)}): {strip(base_def)} -> {strip(cand_def)}.",
+                    remediation=f"Introduce the new definition under a new scheme name and keep '{name}' until consumers migrated.",
+                    artifact_path=candidate.artifact_path,
+                    raw_text=candidate.raw_text, spec=candidate,
+                    line_number=line_no or 1,
+                    column_number=col_no or 1,
+                    artifact_hash=candidate.artifact_hash,
+                    affected_objects=[name],
+                    technical_details={
+                        "securityScheme": name, "securityChange": "security-scheme-changed", "changedAttributes": changed,
+                    },
+                    pointer=cand_def.get("pointer"),
+                ))
+        if _security_tightened(baseline.global_security, candidate.global_security):
+            line_no, col_no, _ = _locate_token_in_text(candidate.raw_text, "security")
+            findings.append(self._build_finding(
+                rule_id="API_BREAKING_SECURITY_CHANGED",
+                severity=Severity.CRITICAL,
+                category="API Security Change",
+                title="Breaking Change: Global Security Requirement Changed",
+                description=(
+                    f"The API-wide security requirement changed from {baseline.global_security or 'none (public)'} to "
+                    f"{candidate.global_security or 'none (public)'}; every operation without its own requirement is affected."
+                ),
+                remediation="Keep the previous requirement as an accepted alternative until every consumer switched.",
+                artifact_path=candidate.artifact_path,
+                raw_text=candidate.raw_text, spec=candidate,
+                line_number=line_no or 1,
+                column_number=col_no or 1,
+                artifact_hash=candidate.artifact_hash,
+                affected_objects=["security"],
+                technical_details={
+                    "globalSecurity": True, "securityChange": "global-security-changed",
+                    "baselineSecurity": baseline.global_security, "candidateSecurity": candidate.global_security,
+                },
+                pointer="/security",
+            ))
+        return findings
 
     # -------------------------------------------------------------------------
     # Consumer Integration Registry Matching
@@ -1623,10 +2428,22 @@ class ApiChangeEngine(BaseEngine):
         affected_objects: List[str],
         technical_details: Dict[str, Any],
         is_derived: bool = False,
+        spec: Optional[NormalizedApiSchema] = None,
+        pointer: Optional[str] = None,
+        change_category: Optional[str] = None,
     ) -> Finding:
         snippet = _extract_context_snippet(raw_text, line_number)
         provenance = ConfidenceClass.RULE_DERIVED if is_derived else ConfidenceClass.VERIFIED
         trust_score = 0.85 if is_derived else 1.0
+
+        details = dict(technical_details)
+        resolved_pointer = pointer or (_element_pointer(spec, details) if spec is not None else None)
+        if resolved_pointer:
+            details["jsonPointer" if spec is None or spec.schema_type.startswith("OPENAPI") else "xmlPath"] = resolved_pointer
+        details["changeCategory"] = change_category or _change_category(rule_id, details, spec)
+        if spec is not None and spec.role:
+            details["specRole"] = spec.role
+        details["specSha256"] = artifact_hash
 
         ev = Evidence(
             artifact_path=artifact_path,
@@ -1649,6 +2466,6 @@ class ApiChangeEngine(BaseEngine):
             confidence_score=trust_score,
             remediation=remediation,
             evidence=[ev],
-            technical_details=technical_details,
+            technical_details=details,
             affected_objects=affected_objects,
         )

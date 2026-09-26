@@ -106,15 +106,40 @@
       "remediation": "Keep the property (mark deprecated) until all consumers stop reading it, or version the API.",
       "title": "Property / field removed"
     },
+    "API_BREAKING_FORMAT_CHANGED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the previous format (e.g. date vs date-time, int32 vs int64) or introduce a new parameter / property; consumers serialise and validate against the old format.",
+      "title": "Type format changed"
+    },
+    "API_BREAKING_KEY_CHANGED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the entity key stable; a key change breaks every key-based read/update URL. Introduce a new entity type / service version instead.",
+      "title": "OData entity key changed"
+    },
     "API_BREAKING_MAX_LENGTH_DECREASED": {
       "engine": "API_CHANGE_GUARD",
       "remediation": "Keep the previous MaxLength; shorter limits reject existing consumer data.",
       "title": "Maximum length decreased"
     },
+    "API_BREAKING_NAVIGATION_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Restore the navigation property (association) or version the service; consumers using $expand or navigation paths fail.",
+      "title": "OData navigation property removed"
+    },
     "API_BREAKING_OPERATION_REMOVED": {
       "engine": "API_CHANGE_GUARD",
       "remediation": "Keep the HTTP operation (deprecate first) or version the API; update consumers before removal.",
       "title": "Operation removed"
+    },
+    "API_BREAKING_PARAM_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep accepting the parameter (ignore it server-side) until every consumer stopped sending it, or version the operation; path parameters change the URL template.",
+      "title": "Request parameter removed"
+    },
+    "API_BREAKING_PARAM_RENAMED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Accept the old parameter name as an alias (or keep both) and deprecate it before removal; consumers still send the previous name.",
+      "title": "Required request parameter renamed"
     },
     "API_BREAKING_REQUIRED_PARAM_ADDED": {
       "engine": "API_CHANGE_GUARD",
@@ -125,6 +150,21 @@
       "engine": "API_CHANGE_GUARD",
       "remediation": "Make the property optional (nullable / default value) so existing payloads remain valid.",
       "title": "New required property"
+    },
+    "API_BREAKING_RESPONSE_PROPERTY_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep returning the property (mark it deprecated) until consumers no longer read it, or version the response.",
+      "title": "Response property removed"
+    },
+    "API_BREAKING_RESPONSE_STATUS_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the documented status code or version the operation; consumers branch on the success status.",
+      "title": "Response status code removed"
+    },
+    "API_BREAKING_SECURITY_CHANGED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the previous authentication scheme / scopes available in parallel, update the Communication Arrangement / OAuth clients of every consumer before switching, then retire the old scheme.",
+      "title": "Security scheme or requirement changed"
     },
     "API_BREAKING_TYPE_CHANGED": {
       "engine": "API_CHANGE_GUARD",

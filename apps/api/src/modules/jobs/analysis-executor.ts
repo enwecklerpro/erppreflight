@@ -9,6 +9,7 @@ import {
   AnalysisJobResponseSchema,
 } from '@erppreflight/schemas';
 import { createFindingFingerprint } from '@erppreflight/evidence';
+import { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
@@ -36,6 +37,41 @@ export interface ReleasedObjectsSource {
     targetRelease: string
   ): Promise<ReleasedObjectsConfiguration | null>;
 }
+
+/** Stored API Change Guard baselines (ApiBaselinesService); optional so lab / tests can run without them. */
+export interface ApiBaselineSource {
+  resolveForAnalysis(
+    tenantId: string,
+    projectId: string,
+    explicitId?: string | null
+  ): Promise<{ baseline: StoredApiBaseline; explicit: boolean } | null>;
+  loadContent(baseline: StoredApiBaseline): Promise<string>;
+}
+
+export interface StoredApiBaseline {
+  id: string;
+  name: string;
+  version: string;
+  format: string;
+  sha256: string;
+  storageKey: string;
+}
+
+export interface AnalysisExecutorOptions {
+  baselines?: ApiBaselineSource;
+  /**
+   * Artifacts at or above this size that only streaming-capable engines read are streamed from object
+   * storage to POST /api/v1/analyze/stream instead of being loaded into memory (ANALYSIS_STREAM_THRESHOLD_MB).
+   */
+  streamThresholdBytes?: number;
+}
+
+/** Engines with a bounded-memory streaming transport in the analysis service. */
+export const STREAMING_ENGINES: ReadonlySet<EngineType> = new Set<EngineType>(['MFS_BLACKBOX']);
+/** Artifact types the streaming transport accepts (delimited text logs). */
+const STREAMABLE_ARTIFACT_TYPES: ReadonlySet<ArtifactType> = new Set<ArtifactType>(['CSV', 'TXT']);
+export const DEFAULT_STREAM_THRESHOLD_BYTES = 8 * 1024 * 1024;
+const API_CHANGE_GUARD: EngineType = 'API_CHANGE_GUARD';
 
 /** A server-resolved, tenant-verified CLEAN artifact to analyse. */
 export interface AnalysisJobFile {
@@ -70,6 +106,8 @@ export interface AnalysisRunInput {
   kind?: 'STANDARD' | 'FULL_PREFLIGHT';
   /** Cooperative cancellation (tests inject one; otherwise created per run, polling analyses.cancel_requested_at). */
   cancellation?: RunCancellation;
+  /** API_CHANGE_GUARD: explicitly selected stored baseline (default: the project's active baseline). */
+  apiBaselineId?: string | null;
 }
 
 export interface EngineAssignmentInput {
@@ -220,7 +258,16 @@ interface PreparedArtifact {
   artifactType: ArtifactType;
   rawContent: string | null;
   rawContentEncoding: RawContentEncoding;
+  /** STREAM: not loaded; the engine call streams it from object storage (bounded memory end to end). */
+  transport: 'INLINE' | 'STREAM';
+  sizeBytes: number;
 }
+
+/** stored_baseline configuration for API_CHANGE_GUARD calls (or the reason it is unavailable). */
+type BaselineConfig =
+  | { status: 'NONE' }
+  | { status: 'READY'; config: Record<string, unknown>; summary: Record<string, unknown> }
+  | { status: 'ERROR'; error: string };
 
 /**
  * Shared execution pipeline for an analysis run: fetches every resolved CLEAN
@@ -250,9 +297,86 @@ export class AnalysisExecutor {
     private readonly logger: Logger,
     private readonly releasedObjects?: ReleasedObjectsSource,
     /** Observability hook: engine call latency + outcome (C §57). */
-    private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void
+    private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void,
+    private readonly options: AnalysisExecutorOptions = {}
   ) {
     this.lifecycle = new FindingLifecycleReconciler(db, logger);
+  }
+
+  private get streamThresholdBytes(): number {
+    const v = this.options.streamThresholdBytes;
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : DEFAULT_STREAM_THRESHOLD_BYTES;
+  }
+
+  /** Engines that will read each artifact (companion use forces inline transport). */
+  private enginesByFile(input: AnalysisRunInput): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    const add = (fileId: string, engine: string) => {
+      const set = out.get(fileId) ?? new Set<string>();
+      set.add(engine);
+      out.set(fileId, set);
+    };
+    if (input.assignments && input.assignments.length > 0) {
+      for (const a of input.assignments) {
+        add(a.fileId, a.engine);
+        for (const c of a.companions ?? []) add(c.fileId, '__COMPANION__');
+      }
+    } else {
+      for (const f of input.files ?? []) for (const e of input.engineTypes) add(f.fileId, e);
+    }
+    return out;
+  }
+
+  /**
+   * Resolves the stored API baseline once per run (explicit selection, else the project's active
+   * baseline), loads and hash-verifies its content and records it on the analysis for reproducibility.
+   */
+  private async baselineConfiguration(input: AnalysisRunInput, engines: Set<EngineType>): Promise<BaselineConfig> {
+    if (!engines.has(API_CHANGE_GUARD) || !this.options.baselines) return { status: 'NONE' };
+    let resolved;
+    try {
+      resolved = await this.options.baselines.resolveForAnalysis(input.organizationId, input.projectId, input.apiBaselineId ?? null);
+    } catch (err: any) {
+      return { status: 'ERROR', error: `Selected API baseline is unavailable: ${String(err?.message ?? err).slice(0, 200)}` };
+    }
+    if (!resolved) return { status: 'NONE' };
+    const { baseline, explicit } = resolved;
+    let content: string;
+    try {
+      content = await this.options.baselines.loadContent(baseline);
+    } catch (err: any) {
+      return { status: 'ERROR', error: String(err?.message ?? err).slice(0, 300) };
+    }
+    const summary = {
+      id: baseline.id,
+      name: baseline.name,
+      version: baseline.version,
+      format: baseline.format,
+      sha256: baseline.sha256,
+      selection: explicit ? 'EXPLICIT' : 'ACTIVE',
+    };
+    await this.db
+      .query(
+        `UPDATE analyses SET orchestration = COALESCE(orchestration, '{}'::jsonb) || $1::jsonb WHERE id = $2 AND organization_id = $3`,
+        [JSON.stringify({ apiBaseline: summary }), input.analysisId, input.organizationId],
+        { tenantId: input.organizationId }
+      )
+      .catch((err: any) => this.logger.warn(`Could not record API baseline on analysis: ${err?.message ?? err}`));
+    return {
+      status: 'READY',
+      summary,
+      config: {
+        stored_baseline: {
+          id: baseline.id,
+          name: baseline.name,
+          version: baseline.version,
+          format: baseline.format,
+          sha256: baseline.sha256,
+          explicit,
+          content,
+        },
+      },
+    };
   }
 
   /**
@@ -295,10 +419,38 @@ export class AnalysisExecutor {
 
   private async prepareArtifacts(input: AnalysisRunInput): Promise<PreparedArtifact[]> {
     const prepared: PreparedArtifact[] = [];
+    const readers = this.enginesByFile(input);
 
     for (const file of input.files ?? []) {
       if (!this.storage) {
         throw new ArtifactFetchError(file.storagePath, 'object storage service unavailable');
+      }
+      const engines = readers.get(file.fileId);
+      const streamCandidate =
+        STREAMABLE_ARTIFACT_TYPES.has(file.artifactType) &&
+        !!engines &&
+        engines.size > 0 &&
+        [...engines].every((e) => STREAMING_ENGINES.has(e as EngineType));
+      if (streamCandidate) {
+        let sizeBytes: number;
+        try {
+          sizeBytes = (await this.storage.headCleanObject(file.storagePath)).sizeBytes;
+        } catch (err: any) {
+          throw new ArtifactFetchError(file.storagePath, err?.message ?? String(err));
+        }
+        if (sizeBytes >= this.streamThresholdBytes) {
+          prepared.push({
+            fileId: file.fileId,
+            fileName: file.fileName,
+            storagePath: file.storagePath,
+            artifactType: file.artifactType,
+            rawContent: null,
+            rawContentEncoding: 'utf-8',
+            transport: 'STREAM',
+            sizeBytes,
+          });
+          continue;
+        }
       }
       let buffer: Buffer;
       try {
@@ -314,6 +466,8 @@ export class AnalysisExecutor {
         storagePath: file.storagePath,
         artifactType: file.artifactType,
         ...encoded,
+        transport: 'INLINE',
+        sizeBytes: buffer.length,
       });
     }
 
@@ -330,6 +484,8 @@ export class AnalysisExecutor {
           artifactType,
           rawContent: input.legacyRawContent,
           rawContentEncoding: 'utf-8',
+          transport: 'INLINE',
+          sizeBytes: Buffer.byteLength(input.legacyRawContent, 'utf-8'),
         });
       } else if (input.legacyArtifactS3Key) {
         if (!this.storage) {
@@ -348,6 +504,8 @@ export class AnalysisExecutor {
           storagePath: input.legacyArtifactS3Key,
           artifactType,
           ...encodeArtifactContent(buffer, artifactType),
+          transport: 'INLINE',
+          sizeBytes: buffer.length,
         });
       }
     }
@@ -441,7 +599,8 @@ export class AnalysisExecutor {
     if (await cancellation.check()) return this.finishCancelled(input, progress, [], 0);
     await progress.complete('PARSING', {
       artifacts: artifacts.length,
-      bytes: artifacts.reduce((n, a) => n + (a.rawContent?.length ?? 0), 0),
+      bytes: artifacts.reduce((n, a) => n + a.sizeBytes, 0),
+      streamed: artifacts.filter((a) => a.transport === 'STREAM').length,
     });
 
     // --- Stage: RUNNING_RULES ------------------------------------------------------------
@@ -462,6 +621,7 @@ export class AnalysisExecutor {
     }
     const knowledgeCache = new Map<string, ReleasedObjectsConfiguration | null>();
     const recordedSnapshots = new Set<string>();
+    const baselineConfig = await this.baselineConfiguration(input, new Set(units.map((u) => u.engine)));
     let done = 0;
 
     const lifecycleRun = await this.lifecycle.beginRun({ analysisId, organizationId, projectId, targetRelease });
@@ -486,7 +646,8 @@ export class AnalysisExecutor {
           recordedSnapshots,
           lifecycleRun,
           cancellation,
-          unitOrder.get(unit) ?? 0
+          unitOrder.get(unit) ?? 0,
+          baselineConfig
         );
         if (!record) return; // aborted by cancellation
         reportedFindings += record.pending?.findings.length ?? 0;
@@ -730,7 +891,8 @@ export class AnalysisExecutor {
     recordedSnapshots: Set<string>,
     lifecycleRun: LifecycleRunContext | undefined,
     cancellation: RunCancellation,
-    order: number
+    order: number,
+    baselineConfig: BaselineConfig = { status: 'NONE' }
   ): Promise<{ call: EngineCallRecord; pending: PendingFindings | null } | null> {
     const { analysisId, organizationId, projectId, targetRelease } = input;
     const { engine, artifact } = unit;
@@ -746,10 +908,19 @@ export class AnalysisExecutor {
       durationMs: 0,
       error: null,
       engineVersion: null,
+      transport: artifact.transport,
+      bytes: artifact.sizeBytes,
     };
     let pending: PendingFindings | null = null;
     let aborted = false;
     try {
+      if (engine === API_CHANGE_GUARD && baselineConfig.status === 'ERROR') {
+        call.error = baselineConfig.error;
+        this.logger.error(`${label} not executed: ${baselineConfig.error}`);
+        return { call, pending };
+      }
+      const baselineEngineConfig = engine === API_CHANGE_GUARD && baselineConfig.status === 'READY' ? baselineConfig.config : {};
+      if (engine === API_CHANGE_GUARD && baselineConfig.status === 'READY') call.apiBaseline = baselineConfig.summary;
       const knowledgeConfig = await this.knowledgeConfiguration(engine, artifact, input, knowledgeCache, recordedSnapshots);
       const companionConfig: Record<string, unknown> = {};
       for (const c of unit.companions) {
@@ -772,21 +943,25 @@ export class AnalysisExecutor {
           ...(artifact.fileName ? { sourceFileName: artifact.fileName } : {}),
           ...companionConfig,
           ...knowledgeConfig,
+          ...baselineEngineConfig,
         },
         rawContent: artifact.rawContent,
         rawContentEncoding: artifact.rawContentEncoding,
       });
 
-      const res = await fetch(`${this.analysisUrl}/api/v1/analyze`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Tenant-Id': organizationId,
-        },
-        body: JSON.stringify(wirePayload),
-        signal: cancellation.signal,
-      });
+      const res =
+        artifact.transport === 'STREAM'
+          ? await this.postStream(wirePayload, artifact, organizationId, cancellation.signal)
+          : await fetch(`${this.analysisUrl}/api/v1/analyze`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-Tenant-Id': organizationId,
+              },
+              body: JSON.stringify(wirePayload),
+              signal: cancellation.signal,
+            });
 
       if (!res.ok) {
         const errText = await res.text();
@@ -798,6 +973,8 @@ export class AnalysisExecutor {
       const validated = AnalysisJobResponseSchema.parse(await res.json());
       call.rulesEvaluated = validated.metrics?.rulesEvaluated ?? 0;
       call.engineVersion = engineVersionOf(validated.metrics);
+      const telemetry = (validated.metrics?.additionalMetrics as Record<string, any> | undefined)?.telemetry;
+      if (typeof telemetry?.peakMemoryBytes === 'number') call.peakMemoryBytes = telemetry.peakMemoryBytes;
 
       if (validated.status === 'FAILED') {
         this.logger.error(
@@ -857,6 +1034,42 @@ export class AnalysisExecutor {
     }
     if (aborted) return null;
     return { call, pending };
+  }
+
+  /**
+   * Streaming transport: the framed body (one JSON metadata line, then the artifact bytes piped from
+   * object storage) is sent to POST /api/v1/analyze/stream; neither the API nor the analysis service
+   * holds the artifact in memory.
+   */
+  private async postStream(
+    wirePayload: Record<string, unknown>,
+    artifact: PreparedArtifact,
+    organizationId: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    if (!this.storage || !artifact.storagePath) {
+      throw new ArtifactFetchError(artifact.storagePath ?? 'inline', 'object storage service unavailable');
+    }
+    const { raw_content: _raw, ...metadata } = wirePayload as Record<string, unknown> & { raw_content?: unknown };
+    const source = await this.storage.getCleanStream(artifact.storagePath);
+    async function* framed(): AsyncGenerator<Buffer> {
+      yield Buffer.from(`${JSON.stringify(metadata)}\n`, 'utf-8');
+      for await (const chunk of source as AsyncIterable<Buffer | string | Uint8Array>) {
+        yield typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : Buffer.from(chunk);
+      }
+    }
+    const body = Readable.toWeb(Readable.from(framed())) as unknown as ReadableStream<Uint8Array>;
+    return fetch(`${this.analysisUrl}/api/v1/analyze/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/vnd.erppreflight.analysis-stream',
+        Accept: 'application/json',
+        'X-Tenant-Id': organizationId,
+      },
+      body,
+      duplex: 'half',
+      signal,
+    } as RequestInit & { duplex: 'half' });
   }
 
   /** Findings of this analysis with their evidence pointers (for correlation + tests). */

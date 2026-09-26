@@ -59,7 +59,7 @@ def test_mfs_engine_metadata():
     assert meta["engine_type"] == "MFS_BLACKBOX"
     assert meta["name"] == "MFS BlackBox"
     assert "telegram sequence" in meta["description"].lower()
-    assert meta["version"] == "1.0.0"
+    assert meta["version"] == "1.1.0"  # 1.1.0: bounded-memory streaming transport
     assert "CSV" in meta["supported_artifact_types"]
     assert "JSON" in meta["supported_artifact_types"]
     assert "TXT" in meta["supported_artifact_types"]

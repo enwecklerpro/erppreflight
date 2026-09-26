@@ -56,10 +56,20 @@ class BaseEngine(ABC):
     input_contract: ClassVar[Optional[InputContract]] = None
     knowledge_sources: ClassVar[Tuple[KnowledgeSource, ...]] = ()
 
+    # Streaming transport (POST /api/v1/analyze/stream): engines that can evaluate a multi-GB artifact line by
+    # line with bounded memory set supports_streaming and implement analyze_stream(); streaming_formats lists
+    # the sniffed formats they accept on that path.
+    supports_streaming: ClassVar[bool] = False
+    streaming_formats: ClassVar[Tuple[Any, ...]] = ()
+
     @abstractmethod
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         """Executes deterministic analysis against input request."""
         pass
+
+    async def analyze_stream(self, request: AnalysisRequest, source: Any) -> AnalysisResponse:
+        """Bounded-memory analysis of a spooled artifact (``src.core.streaming.LineSource``)."""
+        raise NotImplementedError(f"{self.engine_type.value} does not support the streaming transport")
 
     def get_rule_prefix(self) -> str:
         return self.rule_prefix or self.engine_type.value
@@ -160,5 +170,9 @@ class BaseEngine(ABC):
         entry["input_validation_rule_codes"] = sorted(set(catalog) - set(self.finding_codes))
         entry["input_contract"] = self.input_contract.describe() if self.input_contract else None
         entry["knowledge_sources"] = [k.as_dict() for k in self.knowledge_sources]
+        entry["streaming"] = {
+            "supported": bool(self.supports_streaming),
+            "formats": [getattr(f, "value", str(f)) for f in self.streaming_formats],
+        }
         entry["health"] = self.health()
         return entry

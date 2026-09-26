@@ -336,6 +336,10 @@ export class AnalysisLifecycleService {
       orchestration: orchestration.plan ? { plan: orchestration.plan } : undefined,
       problemStatement: row.problem_statement ?? null,
       routingId: row.routing_id ?? null,
+      apiBaselineId:
+        engineTypes.includes('API_CHANGE_GUARD') && typeof orchestration.apiBaseline?.id === 'string'
+          ? orchestration.apiBaseline.id
+          : null,
     };
   }
 

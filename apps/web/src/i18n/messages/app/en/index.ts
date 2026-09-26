@@ -43,6 +43,7 @@ import { notificationText } from './notificationText';
 import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
+import { apiBaselines } from './apiBaselines';
 
 export const appEn = {
   ui,
@@ -94,6 +95,7 @@ export const appEn = {
   lab,
   apiErrorCodes,
   notificationText,
+  apiBaselines,
 };
 
 export type AppMessages = typeof appEn;

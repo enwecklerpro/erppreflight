@@ -139,6 +139,8 @@ const DETAIL_API_ERROR_CODES = new Set<string>([
   'TRIAL_EXTENSION_LIMIT',
   'TRIAL_NOT_APPLICABLE',
   'RERUN_INPUTS_UNAVAILABLE',
+  'INVALID_API_BASELINE_REQUEST',
+  'API_BASELINE_TOO_LARGE',
 ]);
 
 export function isKnownApiErrorCode(code: unknown): code is ApiErrorCode {

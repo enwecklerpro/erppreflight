@@ -42,6 +42,7 @@ import { notificationText } from './notificationText';
 import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
+import { apiBaselines } from './apiBaselines';
 
 export const appDe: AppMessages = {
   ui,
@@ -93,4 +94,5 @@ export const appDe: AppMessages = {
   lab,
   apiErrorCodes,
   notificationText,
+  apiBaselines,
 };

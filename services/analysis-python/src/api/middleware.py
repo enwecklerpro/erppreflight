@@ -29,7 +29,12 @@ class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.max_bytes = max_bytes
 
+    # Streaming transport: bounded by MAX_STREAM_SIZE_MB while the body is spooled, not by the inline limit.
+    EXEMPT_PATHS = frozenset({"/api/v1/analyze/stream"})
+
     async def dispatch(self, request: Request, call_next) -> Response:
+        if request.url.path in self.EXEMPT_PATHS:
+            return await call_next(request)
         declared = request.headers.get("content-length")
         if declared is not None:
             try:

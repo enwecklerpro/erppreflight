@@ -23,6 +23,7 @@ import { UsageService } from '../usage/usage.service';
 import { RetentionService } from '../retention/retention.service';
 import { TenantAccessService } from '../tenant-access/tenant-access.service';
 import { gateJobForSuspendedTenant } from '../tenant-access/suspended-jobs';
+import { ApiBaselinesService } from '../api-baselines/api-baselines.service';
 
 export interface AnalysisJobData {
   analysisId: string;
@@ -44,6 +45,8 @@ export interface AnalysisJobData {
   artifactType?: ArtifactType;
   /** @deprecated */
   rawContent?: string | null;
+  /** API_CHANGE_GUARD: explicitly selected stored baseline (tenant + project verified at trigger time). */
+  apiBaselineId?: string | null;
 }
 
 export interface ScheduledPreflightJobData {
@@ -72,7 +75,8 @@ export class AnalysisProcessor extends WorkerHost {
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly releasedObjects?: ReleasedObjectsProvider,
     @Optional() private readonly telemetry?: TelemetryService,
-    @Optional() private readonly tenantAccess?: TenantAccessService
+    @Optional() private readonly tenantAccess?: TenantAccessService,
+    @Optional() private readonly apiBaselines?: ApiBaselinesService
   ) {
     super();
     this.analysisUrl =
@@ -84,7 +88,11 @@ export class AnalysisProcessor extends WorkerHost {
       this.analysisUrl,
       this.logger,
       this.releasedObjects,
-      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms)
+      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms),
+      {
+        baselines: this.apiBaselines,
+        streamThresholdBytes: Number(this.config.get('ANALYSIS_STREAM_THRESHOLD_MB') ?? 8) * 1024 * 1024,
+      }
     );
   }
 
@@ -199,6 +207,7 @@ export class AnalysisProcessor extends WorkerHost {
         assignments: data.assignments,
         stages: data.stages,
         kind: data.kind,
+        apiBaselineId: data.apiBaselineId ?? null,
       });
       if (result.finalStatus === 'CANCELLED') {
         await this.recordCancelled(data, result);

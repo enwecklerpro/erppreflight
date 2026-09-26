@@ -93,6 +93,46 @@ export const RULE_CATALOG_DE: Record<string, RuleTextDe> = {
     title: 'Maximale Länge verringert',
     remediation: 'Behalten Sie die bisherige MaxLength bei; kürzere Grenzen weisen bestehende Daten der Konsumenten ab.',
   },
+  API_BREAKING_FORMAT_CHANGED: {
+    title: 'Typformat geändert',
+    remediation:
+      'Behalten Sie das bisherige Format bei (z. B. date statt date-time, int32 statt int64) oder führen Sie einen neuen Parameter bzw. eine neue Eigenschaft ein; Konsumenten serialisieren und validieren gegen das alte Format.',
+  },
+  API_BREAKING_KEY_CHANGED: {
+    title: 'OData-Entitätsschlüssel geändert',
+    remediation:
+      'Halten Sie den Entitätsschlüssel stabil; eine Schlüsseländerung bricht jede schlüsselbasierte Lese- und Änderungs-URL. Führen Sie stattdessen einen neuen Entitätstyp bzw. eine neue Serviceversion ein.',
+  },
+  API_BREAKING_NAVIGATION_REMOVED: {
+    title: 'OData-Navigationseigenschaft entfernt',
+    remediation:
+      'Stellen Sie die Navigationseigenschaft (Assoziation) wieder her oder versionieren Sie den Service; Konsumenten mit $expand oder Navigationspfaden schlagen fehl.',
+  },
+  API_BREAKING_PARAM_REMOVED: {
+    title: 'Anfrageparameter entfernt',
+    remediation:
+      'Akzeptieren Sie den Parameter weiterhin (serverseitig ignorieren), bis kein Konsument ihn mehr sendet, oder versionieren Sie die Operation; Pfadparameter ändern die URL-Vorlage.',
+  },
+  API_BREAKING_PARAM_RENAMED: {
+    title: 'Pflicht-Anfrageparameter umbenannt',
+    remediation:
+      'Akzeptieren Sie den alten Parameternamen als Alias (oder beide Namen) und kennzeichnen Sie ihn vor dem Entfernen als veraltet; Konsumenten senden weiterhin den bisherigen Namen.',
+  },
+  API_BREAKING_RESPONSE_PROPERTY_REMOVED: {
+    title: 'Antworteigenschaft entfernt',
+    remediation:
+      'Liefern Sie die Eigenschaft weiterhin (als veraltet gekennzeichnet), bis Konsumenten sie nicht mehr lesen, oder versionieren Sie die Antwort.',
+  },
+  API_BREAKING_RESPONSE_STATUS_REMOVED: {
+    title: 'Antwort-Statuscode entfernt',
+    remediation:
+      'Behalten Sie den dokumentierten Statuscode bei oder versionieren Sie die Operation; Konsumenten verzweigen anhand des Erfolgsstatus.',
+  },
+  API_BREAKING_SECURITY_CHANGED: {
+    title: 'Sicherheitsschema oder -anforderung geändert',
+    remediation:
+      'Stellen Sie das bisherige Authentifizierungsschema bzw. die bisherigen Scopes parallel bereit, aktualisieren Sie vor der Umstellung das Communication Arrangement bzw. die OAuth-Clients jedes Konsumenten und nehmen Sie das alte Schema erst danach außer Betrieb.',
+  },
   API_BREAKING_OPERATION_REMOVED: {
     title: 'Operation entfernt',
     remediation:

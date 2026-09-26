@@ -52,6 +52,7 @@ export class AnalysesController {
       fileCount: Array.isArray(body?.fileIds) ? body.fileIds.length : 0,
       assignmentMode: body?.assignmentMode === 'AUTO' ? 'AUTO' : 'CROSS',
       routingId: typeof body?.routingId === 'string' ? body.routingId : null,
+      apiBaselineId: typeof body?.apiBaselineId === 'string' ? body.apiBaselineId : null,
     }),
   })
   @Metered({

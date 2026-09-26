@@ -20,3 +20,4 @@ export * from './orchestration';
 export * from './public-tools';
 export * from './finding-lifecycle';
 export * from './analysis-lifecycle';
+export * from './api-baselines';

@@ -1,0 +1,145 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Sales Order Integration API",
+    "version": "2.0.0"
+  },
+  "security": [
+    {
+      "oauth2": ["salesorder.read"]
+    }
+  ],
+  "paths": {
+    "/salesOrders": {
+      "get": {
+        "operationId": "listSalesOrders",
+        "parameters": [
+          {
+            "name": "companyCodeId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["OPEN", "IN_PROCESS", "COMPLETED"] }
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "salesOrg",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales order list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "salesOrder": { "type": "string" },
+                      "soldToParty": { "type": "string" },
+                      "netAmount": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSalesOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+            }
+          }
+        },
+        "security": [
+          {
+            "oauth2": ["salesorder.write", "salesorder.admin"]
+          }
+        ]
+      }
+    },
+    "/salesOrders/{salesOrder}": {
+      "get": {
+        "operationId": "getSalesOrder",
+        "parameters": [
+          { "name": "salesOrder", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales order",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+            }
+          }
+        }
+      }
+    },
+    "/salesOrders/{salesOrder}/confirm": {
+      "post": {
+        "operationId": "confirmSalesOrder",
+        "parameters": [
+          { "name": "salesOrder", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Confirmed" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://auth.example.invalid/oauth/token",
+            "scopes": { "salesorder.read": "read", "salesorder.write": "write", "salesorder.admin": "admin" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "SalesOrder": {
+        "type": "object",
+        "required": ["salesOrder", "soldToParty"],
+        "properties": {
+          "salesOrder": { "type": "string", "maxLength": 10 },
+          "soldToParty": { "type": "string", "maxLength": 10 },
+          "requestedDeliveryDate": { "type": "string", "format": "date-time" },
+          "incoterms": { "type": "string", "enum": ["EXW", "FCA", "DAP"] }
+        }
+      }
+    }
+  }
+}

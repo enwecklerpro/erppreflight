@@ -314,7 +314,8 @@ pnpm install
 # 012 billing/usage/retention; 013 knowledge articles; 014 knowledge graph + release intelligence;
 # 015 connectors/identity/partner; 016 billing_events RLS; 017 finding lifecycle + Test Lab;
 # 018 analysis orchestration; 019 knowledge content workflow; 020 analysis run lifecycle (inputs, cancel,
-# rerun link, Test Lab runs as analyses, generated-test promotion); 025 magic-link sign-in (MAGIC_LINK token purpose).
+# rerun link, Test Lab runs as analyses, generated-test promotion); 023 API Change Guard stored baselines
+# (api_baselines); 025 magic-link sign-in (MAGIC_LINK token purpose).
 # Verify: PG_ADMIN_URL=postgres://<user>:<pw>@localhost:5432 bash scripts/ci-migration-check.sh
 
 # Local infrastructure only (Postgres/pgvector, Redis, MinIO, ClamAV) from the production compose,
@@ -395,6 +396,9 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... DATABASE_URL=... node scr
 # Analysis run lifecycle: detail page, cancel queued + running run, rerun (identical inputs, immutability),
 # Test Lab runs in the history, generated-test promotion, VIEWER 403, cross-tenant 404, EN/DE + 375 px — 16 steps
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analysis-lifecycle-smoke.cjs   # pnpm smoke:analysis-lifecycle
+# Gap Radar input contract, API Change Guard baselines (register/activate/delete, cross-tenant, oasdiff-level
+# categories vs active + explicit baseline), MFS log streaming (> ANALYSIS_STREAM_THRESHOLD_MB), baseline UI
+WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-engines-smoke.cjs [shotDir]   # pnpm smoke:engines, 16 steps
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -466,6 +470,8 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 | **Browser auth in the web app** | `apps/web/src/lib/api/custom-instance.ts` | Cookie-only: `credentials: 'include'`, no `Authorization` header, `X-CSRF-Token` on unsafe methods (erp_csrf cookie → in-memory → `GET /auth/csrf`, one retry on `CSRF_REJECTED`). Never store a token in `localStorage`/`sessionStorage`; after sign-in call `storeSession()`/`markSignedIn()`, on sign-out `useLogout()`. |
 | **Database changes / New tables** | `packages/database/` | 1. Add a new SQL file `migrations/020_*.sql` (next free number; never edit an applied migration)<br>2. Every table with `organization_id` needs ENABLE + FORCE RLS and a policy (enforced by `scripts/ci-migration-check.sh`)<br>3. Add Drizzle table in `src/schema/`<br>4. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
+| **API Change Guard baselines** | `apps/api/src/modules/api-baselines/`, `services/analysis-python/src/engines/api_change.py` | Registry `/projects/:projectId/api-baselines` (create from a CLEAN upload, list, `:id/activate`, DELETE; @Audited; migration 023). The executor sends the explicit (`apiBaselineId` on POST /analyses) or active baseline as `configuration.stored_baseline` (content + SHA-256, verified on both sides). Findings carry `changeCategory` (oasdiff-style id), `jsonPointer` / `xmlPath`, `specRole`. UI: `components/analysis/api-baselines-panel.tsx`. |
+| **Large logs / streaming engines** | `services/analysis-python/src/core/streaming.py`, `src/api/analyze_stream.py`, `apps/api/src/modules/jobs/analysis-executor.ts` | Engines with `supports_streaming` (MFS BlackBox) implement `analyze_stream(request, LineSource)` sharing the inline code path. The executor pipes CSV/TXT artifacts >= `ANALYSIS_STREAM_THRESHOLD_MB` that only streaming engines read from MinIO to `POST /api/v1/analyze/stream` (framed: JSON metadata line + bytes); call records show `transport`, `bytes`, `peakMemoryBytes`. Disk/DoS guards: declared Content-Length above `MAX_STREAM_SIZE_MB` -> 413 before spooling; at most `MAX_CONCURRENT_STREAMS` spools at once (others wait `STREAM_QUEUE_TIMEOUT_SECONDS`, then 503); spooling stops with 507 before the spool volume's free space falls below `STREAM_MIN_FREE_DISK_MB`. |
 | **Add or update On-Prem Agent features** | `apps/local-agent/src/` | Commands in `cli.ts`, daemon tasks in `daemon.ts`, network checks in `probe.ts`. |
 | **Public website pages (EN/DE)** | `apps/web/src/app/[locale]/` | Server components only; call `resolveLocale(params)` (validates + `setRequestLocale`), export `generateMetadata` built with `publicPageMetadata()` from `lib/seo.ts` (canonical, hreflang, OG/Twitter). Add the path to `LOCALIZED_PUBLIC_ROUTES` (sitemap) and, for a new top-level segment, to `LOCALIZED_PUBLIC_EXACT/PREFIXES` in `lib/routing.ts`. |
 | **Route classification / SEO** | `apps/web/src/lib/seo.ts`, `lib/routing.ts` | Single route inventory: public (EN-only), localized public, private (noindex). New private segment = `layout.tsx` with `PRIVATE_ROUTE_METADATA` + entry in `PRIVATE_ROUTE_PREFIXES`; login-only segments also in `AUTH_REQUIRED_PREFIXES` (middleware redirects to `/login?next=`). Enforced by `__tests__/seo-routes.test.ts`. |

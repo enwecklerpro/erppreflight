@@ -33,6 +33,7 @@ import { planFullPreflight, type PreflightPlan } from './orchestration/preflight
 import type { EngineAssignmentInput } from './analysis-executor';
 import { buildAnalysisInputs, currentKnowledgeSnapshotId, recordAnalysisError } from './analysis-inputs';
 import type { AnalysisInputs } from '@erppreflight/schemas';
+import { ApiBaselinesService } from '../api-baselines/api-baselines.service';
 
 /** Source analysis of a rerun, as loaded (tenant-scoped) by AnalysisLifecycleService. */
 export interface RerunSource {
@@ -49,6 +50,8 @@ export interface RerunSource {
   orchestration?: Record<string, unknown>;
   problemStatement?: string | null;
   routingId?: string | null;
+  /** API_CHANGE_GUARD: stored baseline the source run compared against (analyses.orchestration.apiBaseline). */
+  apiBaselineId?: string | null;
 }
 
 /**
@@ -80,6 +83,11 @@ export const TriggerAnalysisSchema = z
     problemStatement: z.string().trim().min(1).max(4000).optional(),
     /** Problem Router decision this run follows (advisory link, tenant-checked). */
     routingId: z.string().uuid().optional(),
+    /**
+     * API_CHANGE_GUARD: stored baseline to compare against (project-scoped). Default: the project's
+     * active baseline (when one exists).
+     */
+    apiBaselineId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -99,7 +107,9 @@ export class JobsService {
     @Optional()
     private readonly storage?: S3StorageService,
     @Optional()
-    private readonly profiler?: ArtifactProfilerService
+    private readonly profiler?: ArtifactProfilerService,
+    @Optional()
+    private readonly apiBaselines?: ApiBaselinesService
   ) {
     this.analysisUrl =
       this.config.get<string>('ANALYSIS_SERVICE_URL') ||
@@ -139,6 +149,19 @@ export class JobsService {
     const projectRelease = TargetReleaseEnum.safeParse(projectRes.rows[0].target_release);
     const targetRelease: TargetRelease =
       dto.targetRelease ?? (projectRelease.success ? projectRelease.data : 'S4H_2023');
+
+    if (dto.apiBaselineId) {
+      if (!dto.engineTypes.includes('API_CHANGE_GUARD')) {
+        throw new BadRequestException({
+          code: 'API_BASELINE_REQUIRES_API_CHANGE_GUARD',
+          message: 'apiBaselineId can only be used when API_CHANGE_GUARD is one of the selected engines.',
+        });
+      }
+      if (!this.apiBaselines) {
+        throw new BadRequestException({ code: 'API_BASELINES_UNAVAILABLE', message: 'API baselines are not available.' });
+      }
+      await this.apiBaselines.assertSelectable(organizationId, dto.projectId, dto.apiBaselineId);
+    }
 
     return { dto, files, targetRelease };
   }
@@ -230,6 +253,7 @@ export class JobsService {
       problemStatement: dto.problemStatement,
       routingId: dto.routingId,
       assignmentMode: dto.assignmentMode ?? 'CROSS',
+      apiBaselineId: dto.apiBaselineId,
     });
   }
 
@@ -272,6 +296,8 @@ export class JobsService {
       assignmentMode: source.assignmentMode,
       rerunOfAnalysisId: source.id,
       trigger: 'RERUN',
+      // Identical inputs: API_CHANGE_GUARD compares against the stored baseline the source run used.
+      apiBaselineId: source.apiBaselineId ?? undefined,
     });
   }
 
@@ -406,6 +432,7 @@ export class JobsService {
     assignmentMode?: AnalysisInputs['assignmentMode'];
     rerunOfAnalysisId?: string;
     trigger?: AnalysisInputs['trigger'];
+    apiBaselineId?: string;
   }) {
     const { organizationId, userId, projectId, engineTypes, targetRelease, files } = args;
     const analysisId = uuidv4();
@@ -479,6 +506,7 @@ export class JobsService {
     if (args.assignments) jobPayload.assignments = args.assignments;
     if (args.stages) jobPayload.stages = args.stages;
     if (args.kind !== 'STANDARD') jobPayload.kind = args.kind;
+    if (args.apiBaselineId) jobPayload.apiBaselineId = args.apiBaselineId;
 
     if (this.analysisQueue) {
       await this.analysisQueue.add('analyze', jobPayload, {
@@ -502,7 +530,7 @@ export class JobsService {
         targetRelease,
         files,
         effectiveConfig,
-        { assignments: args.assignments, stages: args.stages, kind: args.kind }
+        { assignments: args.assignments, stages: args.stages, kind: args.kind, apiBaselineId: args.apiBaselineId ?? null }
       ).catch((err) => {
         this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
       });
@@ -532,9 +560,17 @@ export class JobsService {
     targetRelease: TargetRelease,
     files: AnalysisJobFile[],
     configuration?: Record<string, unknown>,
-    orchestration: { assignments?: EngineAssignmentInput[]; stages?: EngineType[][]; kind?: 'STANDARD' | 'FULL_PREFLIGHT' } = {}
+    orchestration: {
+      assignments?: EngineAssignmentInput[];
+      stages?: EngineType[][];
+      kind?: 'STANDARD' | 'FULL_PREFLIGHT';
+      apiBaselineId?: string | null;
+    } = {}
   ) {
-    const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger);
+    const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger, undefined, undefined, {
+      baselines: this.apiBaselines,
+      streamThresholdBytes: Number(this.config.get('ANALYSIS_STREAM_THRESHOLD_MB') ?? 8) * 1024 * 1024,
+    });
     try {
       return await executor.run({
         analysisId,

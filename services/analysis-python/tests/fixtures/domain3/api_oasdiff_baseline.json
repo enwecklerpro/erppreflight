@@ -1,0 +1,158 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Sales Order Integration API",
+    "version": "1.4.0"
+  },
+  "security": [
+    {
+      "oauth2": ["salesorder.read"]
+    }
+  ],
+  "paths": {
+    "/salesOrders": {
+      "get": {
+        "operationId": "listSalesOrders",
+        "parameters": [
+          {
+            "name": "companyCode",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["OPEN", "IN_PROCESS", "COMPLETED", "BLOCKED"] }
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "salesOrg",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales order list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "salesOrder": { "type": "string" },
+                      "soldToParty": { "type": "string" },
+                      "netAmount": { "type": "number" },
+                      "currency": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "No sales order" }
+        }
+      },
+      "post": {
+        "operationId": "createSalesOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+            }
+          }
+        },
+        "security": [
+          {
+            "oauth2": ["salesorder.write"]
+          }
+        ]
+      }
+    },
+    "/salesOrders/{salesOrder}": {
+      "get": {
+        "operationId": "getSalesOrder",
+        "parameters": [
+          { "name": "salesOrder", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sales order",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SalesOrder" } }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancelSalesOrder",
+        "parameters": [
+          { "name": "salesOrder", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "Cancelled" }
+        }
+      }
+    },
+    "/salesOrders/{salesOrder}/items": {
+      "get": {
+        "operationId": "listItems",
+        "parameters": [
+          { "name": "salesOrder", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Items" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://auth.example.invalid/oauth/token",
+            "scopes": { "salesorder.read": "read", "salesorder.write": "write" }
+          }
+        }
+      },
+      "basicAuth": { "type": "http", "scheme": "basic" }
+    },
+    "schemas": {
+      "SalesOrder": {
+        "type": "object",
+        "required": ["salesOrder"],
+        "properties": {
+          "salesOrder": { "type": "string", "maxLength": 10 },
+          "soldToParty": { "type": "string", "maxLength": 10 },
+          "requestedDeliveryDate": { "type": "string", "format": "date" },
+          "paymentTerms": { "type": "string" },
+          "incoterms": { "type": "string", "enum": ["EXW", "FCA", "DAP", "DDP"] }
+        }
+      }
+    }
+  }
+}

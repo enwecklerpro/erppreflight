@@ -34,7 +34,8 @@
     "smoke:tenant-admin": "node scripts/e2e-tenant-admin-smoke.cjs",
     "smoke:admin-governance": "node scripts/e2e-admin-governance-smoke.cjs",
     "test:e2e:a11y": "playwright test -c playwright.live.config.ts tests/e2e/accessibility.live.spec.ts",
-    "typecheck:e2e": "tsc -p tests/e2e/tsconfig.json"
+    "typecheck:e2e": "tsc -p tests/e2e/tsconfig.json",
+    "smoke:engines": "node scripts/e2e-engines-smoke.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

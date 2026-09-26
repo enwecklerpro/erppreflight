@@ -58,6 +58,7 @@ import { ProjectContextForm } from '@/components/projects/project-context-form';
 import { LaunchedRunLink, RunHistoryRowExtras } from '@/components/analysis-run/run-links';
 import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { useErrorText, useFmt, useLabel, useT } from '@/i18n/client';
+import { ApiBaselineSelector, ApiBaselinesPanel } from '@/components/analysis/api-baselines-panel';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
@@ -81,6 +82,8 @@ export default function ProjectWorkspacePage() {
   ]);
   const [launchMessage, setLaunchMessage] = useState<string | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  // API Change Guard: '' = the project's active stored baseline, otherwise an explicit baseline id.
+  const [apiBaselineId, setApiBaselineId] = useState<string>('');
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
@@ -217,6 +220,7 @@ export default function ProjectWorkspacePage() {
         engineTypes: selectedEngines,
         targetRelease: project?.targetRelease ?? undefined,
         fileIds: selectedFileIds,
+        ...(apiBaselineId && selectedEngines.includes('API_CHANGE_GUARD') ? { apiBaselineId } : {}),
       }),
     onSuccess: (data) => {
       setActiveAnalysisId(data.analysisId);
@@ -1053,6 +1057,9 @@ export default function ProjectWorkspacePage() {
               </div>
             )}
           </div>
+
+          {/* API Change Guard stored baselines */}
+          <ApiBaselinesPanel projectId={projectId} files={cleanFiles} />
         </div>
       )}
 
@@ -1386,6 +1393,10 @@ export default function ProjectWorkspacePage() {
               })}
             </div>
           </div>
+
+          {selectedEngines.includes('API_CHANGE_GUARD') && (
+            <ApiBaselineSelector projectId={projectId} value={apiBaselineId} onChange={setApiBaselineId} />
+          )}
 
           <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
             {(cleanFiles.length === 0 || selectedFileIds.length === 0 || selectedEngines.length === 0) && (

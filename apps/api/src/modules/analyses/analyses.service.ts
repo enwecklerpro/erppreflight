@@ -236,6 +236,8 @@ export class AnalysesService {
       plan: orchestration.plan ?? null,
       summary: orchestration.summary ?? null,
       calls: Array.isArray(orchestration.calls) ? orchestration.calls : [],
+      /** API_CHANGE_GUARD: stored baseline the run compared against (id, name, version, sha256, selection). */
+      apiBaseline: orchestration.apiBaseline ?? null,
     };
   }
 
