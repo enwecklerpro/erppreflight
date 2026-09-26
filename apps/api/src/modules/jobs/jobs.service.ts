@@ -26,6 +26,10 @@ import {
   resolveArtifactType,
 } from './analysis-executor';
 import { mapEvidenceRow } from '../findings/evidence.mapper';
+import { AnalysisProgressTracker } from './analysis-progress';
+import { ArtifactProfilerService } from './orchestration/artifact-profiler.service';
+import { planFullPreflight, type PreflightPlan } from './orchestration/preflight-planner';
+import type { EngineAssignmentInput } from './analysis-executor';
 
 /**
  * Public request contract for POST /analyses and POST /jobs/analyze.
@@ -45,6 +49,17 @@ export const TriggerAnalysisSchema = z
       .optional(),
     fileIds: z.array(z.string().uuid()).min(1).max(100),
     configuration: z.record(z.unknown()).optional(),
+    /**
+     * CROSS (default, original behaviour): every engine on every file.
+     * AUTO: the preflight planner assigns files to engines by declared input
+     * contract + content signals and pairs multi-file inputs (XDP + data XML,
+     * API baseline + candidate); engines without a match fall back to CROSS.
+     */
+    assignmentMode: z.enum(['CROSS', 'AUTO']).optional(),
+    /** Natural-language problem the run answers (Analyze page). */
+    problemStatement: z.string().trim().min(1).max(4000).optional(),
+    /** Problem Router decision this run follows (advisory link, tenant-checked). */
+    routingId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -62,7 +77,9 @@ export class JobsService {
     @InjectQueue('analysis-queue')
     private readonly analysisQueue?: Queue,
     @Optional()
-    private readonly storage?: S3StorageService
+    private readonly storage?: S3StorageService,
+    @Optional()
+    private readonly profiler?: ArtifactProfilerService
   ) {
     this.analysisUrl =
       this.config.get<string>('ANALYSIS_SERVICE_URL') ||
@@ -152,36 +169,219 @@ export class JobsService {
 
   async triggerAnalysis(organizationId: string, userId: string, body: unknown) {
     const { dto, files, targetRelease } = await this.resolveTrigger(organizationId, body);
+
+    let orchestration: { assignments?: EngineAssignmentInput[]; stages?: EngineType[][]; plan?: PreflightPlan } = {};
+    if (dto.assignmentMode === 'AUTO') {
+      orchestration = await this.autoAssign(organizationId, dto.projectId, dto.engineTypes, files);
+    }
+    if (dto.routingId) {
+      const routing = await this.db.query(
+        `SELECT id FROM problem_routings WHERE id = $1 AND organization_id = $2`,
+        [dto.routingId, organizationId],
+        { tenantId: organizationId }
+      );
+      if (!routing.rows?.length) {
+        throw new NotFoundException(`Routing '${dto.routingId}' not found`);
+      }
+    }
+
+    return this.enqueueAnalysis({
+      organizationId,
+      userId,
+      projectId: dto.projectId,
+      engineTypes: dto.engineTypes,
+      targetRelease,
+      files,
+      requestedConfiguration: dto.configuration,
+      kind: 'STANDARD',
+      assignments: orchestration.assignments,
+      stages: orchestration.stages,
+      orchestration: orchestration.plan ? { plan: orchestration.plan } : undefined,
+      problemStatement: dto.problemStatement,
+      routingId: dto.routingId,
+    });
+  }
+
+  /**
+   * AUTO assignment for an explicit engine + file selection: planner assignments
+   * where a contract + content signal matches, CROSS for selected engines the
+   * planner could not feed (the engine then reports its own input diagnostics).
+   */
+  private async autoAssign(
+    organizationId: string,
+    projectId: string,
+    engineTypes: EngineType[],
+    files: AnalysisJobFile[]
+  ): Promise<{ assignments?: EngineAssignmentInput[]; stages?: EngineType[][]; plan?: PreflightPlan }> {
+    if (!this.profiler) return {};
+    const profile = await this.profiler.profileProjectArtifacts(
+      organizationId,
+      projectId,
+      files.map((f) => f.fileId)
+    );
+    const plan = planFullPreflight(profile.artifacts, {}, engineTypes);
+    const assignments: EngineAssignmentInput[] = plan.assignments.map((a) => ({
+      engine: a.engine,
+      fileId: a.fileId,
+      companions: a.companions,
+    }));
+    for (const engine of engineTypes) {
+      if (assignments.some((a) => a.engine === engine)) continue;
+      for (const f of files) assignments.push({ engine, fileId: f.fileId, companions: [] });
+    }
+    return { assignments, plan };
+  }
+
+  /**
+   * Full Project Preflight (Part 01 §1.6, Part 05 §5.6): profiles every CLEAN
+   * artifact of the project, plans engines from declared input contracts + content
+   * signals + project context, and queues one orchestrated analysis whose engines
+   * run in dependency stages (parallel inside a stage). The correlation pass runs
+   * in the worker (stage MATCHING_EVIDENCE).
+   */
+  async startFullPreflight(
+    organizationId: string,
+    userId: string,
+    projectId: string,
+    options: { targetRelease?: TargetRelease; engines?: EngineType[] } = {}
+  ) {
+    const projectRes = await this.db.query(
+      `SELECT id, target_release, source_erp, target_product, deployment_type, modules
+         FROM projects WHERE id = $1 AND organization_id = $2`,
+      [projectId, organizationId],
+      { tenantId: organizationId }
+    );
+    const project = projectRes.rows?.[0];
+    if (!project) {
+      throw new NotFoundException(`Project '${projectId}' not found`);
+    }
+    if (!this.profiler) {
+      throw new BadRequestException({ code: 'ORCHESTRATOR_UNAVAILABLE', message: 'Artifact profiler is not available.' });
+    }
+    const profile = await this.profiler.profileProjectArtifacts(organizationId, projectId);
+    const modules = Array.isArray(project.modules)
+      ? project.modules
+      : typeof project.modules === 'string'
+      ? safeJson(project.modules)
+      : [];
+    const plan = planFullPreflight(
+      profile.artifacts,
+      {
+        sourceErp: project.source_erp,
+        targetProduct: project.target_product,
+        deploymentType: project.deployment_type,
+        modules: Array.isArray(modules) ? modules : [],
+      },
+      options.engines
+    );
+    plan.unassigned.push(...profile.skipped);
+
+    if (plan.assignments.length === 0) {
+      throw new BadRequestException({
+        code: 'NO_ANALYSABLE_ARTIFACTS',
+        message:
+          profile.files.length === 0 && profile.skipped.length === 0
+            ? 'The project has no CLEAN artifacts. Upload SAP exports and wait for the quarantine scan first.'
+            : 'None of the project artifacts matches an engine input contract with a specific content signal.',
+        unassigned: plan.unassigned,
+        missingInputs: plan.missingInputs,
+      });
+    }
+
+    const referenced = new Set<string>();
+    for (const a of plan.assignments) {
+      referenced.add(a.fileId);
+      for (const c of a.companions) referenced.add(c.fileId);
+    }
+    const files = profile.files.filter((f) => referenced.has(f.fileId));
+    const projectRelease = TargetReleaseEnum.safeParse(project.target_release);
+    const targetRelease: TargetRelease =
+      options.targetRelease ?? (projectRelease.success ? projectRelease.data : 'S4H_2023');
+
+    const queued = await this.enqueueAnalysis({
+      organizationId,
+      userId,
+      projectId,
+      engineTypes: plan.engines,
+      targetRelease,
+      files,
+      requestedConfiguration: undefined,
+      kind: 'FULL_PREFLIGHT',
+      assignments: plan.assignments.map((a) => ({ engine: a.engine, fileId: a.fileId, companions: a.companions })),
+      stages: plan.stages,
+      orchestration: { plan },
+    });
+    return { ...queued, kind: 'FULL_PREFLIGHT' as const, plan };
+  }
+
+  /** Creates the QUEUED analysis row, records UPLOAD_VALIDATED and dispatches the job. */
+  private async enqueueAnalysis(args: {
+    organizationId: string;
+    userId: string;
+    projectId: string;
+    engineTypes: EngineType[];
+    targetRelease: TargetRelease;
+    files: AnalysisJobFile[];
+    requestedConfiguration?: Record<string, unknown>;
+    kind: 'STANDARD' | 'FULL_PREFLIGHT';
+    assignments?: EngineAssignmentInput[];
+    stages?: EngineType[][];
+    orchestration?: Record<string, unknown>;
+    problemStatement?: string;
+    routingId?: string;
+  }) {
+    const { organizationId, userId, projectId, engineTypes, targetRelease, files } = args;
     const analysisId = uuidv4();
 
     // 1. Create analysis record with status QUEUED
     await this.db.query(
       `INSERT INTO analyses (id, organization_id, project_id, status, engine_types, target_release, triggered_by)
        VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)`,
-      [
-        analysisId,
-        organizationId,
-        dto.projectId,
-        JSON.stringify(dto.engineTypes),
-        targetRelease,
-        userId,
-      ],
+      [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
       { tenantId: organizationId }
     );
+    if (args.kind !== 'STANDARD' || args.orchestration || args.problemStatement || args.routingId) {
+      await this.db.query(
+        `UPDATE analyses
+            SET kind = $1, orchestration = $2::jsonb, problem_statement = $3, routing_id = $4
+          WHERE id = $5 AND organization_id = $6`,
+        [
+          args.kind,
+          JSON.stringify(args.orchestration ?? {}),
+          args.problemStatement ?? null,
+          args.routingId ?? null,
+          analysisId,
+          organizationId,
+        ],
+        { tenantId: organizationId }
+      );
+    }
 
-    const effectiveConfig = await applyDataPolicy(this.db, organizationId, dto.configuration);
+    // Stage 1 of the progress stepper: every artifact was resolved as a CLEAN,
+    // tenant-owned upload of this project (Part 03 §3.8 "Upload validated").
+    const progress = new AnalysisProgressTracker(this.db, organizationId, analysisId, this.logger);
+    await progress.complete('UPLOAD_VALIDATED', {
+      files: files.length,
+      engines: engineTypes.length,
+      kind: args.kind,
+    });
+
+    const effectiveConfig = await applyDataPolicy(this.db, organizationId, args.requestedConfiguration);
 
     // 2. Dispatch job to BullMQ analysis queue
-    const jobPayload = {
+    const jobPayload: Record<string, unknown> = {
       analysisId,
       organizationId,
-      projectId: dto.projectId,
+      projectId,
       userId,
-      engineTypes: dto.engineTypes,
+      engineTypes,
       targetRelease,
       files,
       configuration: effectiveConfig,
     };
+    if (args.assignments) jobPayload.assignments = args.assignments;
+    if (args.stages) jobPayload.stages = args.stages;
+    if (args.kind !== 'STANDARD') jobPayload.kind = args.kind;
 
     if (this.analysisQueue) {
       await this.analysisQueue.add('analyze', jobPayload, {
@@ -198,11 +398,12 @@ export class JobsService {
       this.runEngines(
         analysisId,
         organizationId,
-        dto.projectId,
-        dto.engineTypes,
+        projectId,
+        engineTypes,
         targetRelease,
         files,
-        effectiveConfig
+        effectiveConfig,
+        { assignments: args.assignments, stages: args.stages, kind: args.kind }
       ).catch((err) => {
         this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
       });
@@ -212,7 +413,7 @@ export class JobsService {
     return {
       analysisId,
       status: 'QUEUED',
-      engineTypes: dto.engineTypes,
+      engineTypes,
       targetRelease,
     };
   }
@@ -229,7 +430,8 @@ export class JobsService {
     engineTypes: EngineType[],
     targetRelease: TargetRelease,
     files: AnalysisJobFile[],
-    configuration?: Record<string, unknown>
+    configuration?: Record<string, unknown>,
+    orchestration: { assignments?: EngineAssignmentInput[]; stages?: EngineType[][]; kind?: 'STANDARD' | 'FULL_PREFLIGHT' } = {}
   ) {
     const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger);
     try {
@@ -241,6 +443,7 @@ export class JobsService {
         targetRelease,
         files,
         configuration,
+        ...orchestration,
       });
     } catch (err: any) {
       await this.db

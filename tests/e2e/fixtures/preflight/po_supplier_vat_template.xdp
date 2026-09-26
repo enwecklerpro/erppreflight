@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+    <template>
+        <subform name="PurchaseOrderForm" dataRef="$.PurchaseOrder">
+            <field name="PurchaseOrderNumber">
+                <bind match="dataRef" ref="$.Header.PurchaseOrder"/>
+            </field>
+            <field name="SupplierVat">
+                <bind match="dataRef" ref="$.Header.YY1_SUPPLIER_VAT"/>
+            </field>
+        </subform>
+    </template>
+</xdp:xdp>

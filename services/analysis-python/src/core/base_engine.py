@@ -1,3 +1,5 @@
+import hashlib
+import json
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
@@ -72,6 +74,17 @@ class BaseEngine(ABC):
         catalog.update(self.finding_codes)
         return catalog
 
+    def rule_version(self, code: str) -> Optional[str]:
+        """Version of one declared rule: engine version + digest of its catalog entry (Part 04 §4.10).
+
+        Changes whenever the rule's title, default severity, category or remediation text changes, or the
+        engine version is bumped, so persisted findings record exactly which rule definition produced them."""
+        spec = self.get_rule_catalog().get(code)
+        if spec is None:
+            return None
+        canonical = json.dumps(spec.as_dict(), sort_keys=True, separators=(",", ":"))
+        return f"{self.version}#{hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:16]}"
+
     def get_metadata(self) -> Dict[str, Any]:
         return {
             "engine_type": self.engine_type.value,
@@ -143,7 +156,7 @@ class BaseEngine(ABC):
         """Full admin-visibility entry: metadata, rule inventory (with remediation) and input contract."""
         entry = self.get_metadata()
         catalog = self.get_rule_catalog()
-        entry["rules"] = [catalog[c].as_dict() for c in sorted(catalog)]
+        entry["rules"] = [{**catalog[c].as_dict(), "version": self.rule_version(c)} for c in sorted(catalog)]
         entry["input_validation_rule_codes"] = sorted(set(catalog) - set(self.finding_codes))
         entry["input_contract"] = self.input_contract.describe() if self.input_contract else None
         entry["knowledge_sources"] = [k.as_dict() for k in self.knowledge_sources]

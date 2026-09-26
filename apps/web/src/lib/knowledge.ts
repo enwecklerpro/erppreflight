@@ -20,6 +20,12 @@ export const KnowledgeSummarySchema = z.object({
   publishedAt: z.string().nullable(),
   updatedAt: z.string(),
   version: z.number().int(),
+  /** Content workflow (Part 02 §2.13): UPDATE_REQUIRED articles stay public but are flagged and noindex. */
+  status: z.enum(['PUBLISHED', 'UPDATE_REQUIRED']).optional(),
+  provenance: z.enum(['OFFICIAL_SAP_DOCUMENTATION', 'OFFICIAL_SAP_REPOSITORY', 'CURATED_RULE', 'EDITORIAL']).optional(),
+  technicalReviewedAt: z.string().nullable().optional(),
+  seoReviewedAt: z.string().nullable().optional(),
+  updateRequiredReason: z.string().nullable().optional(),
 });
 
 export const KnowledgeArticleSchema = KnowledgeSummarySchema.extend({

@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto, UpdateProjectDto, SetBaselineDto } from './dto/project.dto';
@@ -67,6 +68,22 @@ export class ProjectsController {
     @Body() dto: UpdateProjectDto
   ) {
     return this.projectsService.update(tenantId, id, dto);
+  }
+
+  /** Project mode context: source/target, release, deployment, countries, modules (Part 01 §1.5). */
+  @Put(':id/context')
+  @Audited({
+    action: 'project.context_updated',
+    targetType: 'PROJECT',
+    targetId: ({ params }) => params.id,
+    payload: ({ body }) => ({ fields: Object.keys(body ?? {}).slice(0, 20) }),
+  })
+  async updateContext(
+    @CurrentTenant() tenantId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown
+  ) {
+    return this.projectsService.updateContext(tenantId, id, body);
   }
 
   @Delete(':id')

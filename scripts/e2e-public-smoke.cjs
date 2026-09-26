@@ -135,7 +135,13 @@ function assert(cond, msg) {
   });
 
   await step('12 sitemap and robots', async () => {
-    const sitemap = await (await page.request.get(WEB + '/sitemap.xml')).text();
+    // /sitemap.xml is a sitemap index split by content type; read every child sitemap.
+    const index = await (await page.request.get(WEB + '/sitemap.xml')).text();
+    assert(/<sitemapindex/.test(index), 'sitemap.xml is not a sitemap index');
+    let sitemap = '';
+    for (const [, loc] of index.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+      sitemap += await (await page.request.get(loc.replace(/^https?:\/\/[^/]+/, WEB))).text();
+    }
     for (const needle of ['/en/pricing', '/de/pricing', '/de/solutions/integration', '/en/knowledge/change-pointers-bd52', 'hreflang="de"']) {
       assert(sitemap.includes(needle), `sitemap lacks ${needle}`);
     }

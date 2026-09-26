@@ -1,5 +1,8 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
 import { appEn } from './app/en';
+import { analyzeEn } from './analyze.en';
+import { publicToolsEn } from './public-tools.en';
+import { findingLifecycleEn } from './finding-lifecycle.en';
 
 /**
  * English dictionary — the reference key set. `de.ts` is typed as `Messages`,
@@ -48,6 +51,7 @@ export const en = {
     settings: 'Settings',
     admin: 'Admin',
     analyze: 'Analyze',
+    reports: 'Reports',
     billing: 'Billing',
     audit: 'Audit log',
     retention: 'Data retention',
@@ -530,6 +534,10 @@ export const en = {
     home: 'Go to the homepage',
     knowledge: 'Browse the knowledge base',
   },
+  ...analyzeEn,
+  /** Free tools, programmatic SEO pages and documentation chrome (./public-tools.en.ts). */
+  publicTools: publicToolsEn,
+  findingLifecycle: findingLifecycleEn,
 };
 
 export type Messages = typeof en;

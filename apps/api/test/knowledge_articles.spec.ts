@@ -5,7 +5,9 @@ import { KnowledgeArticlesService } from '../src/modules/knowledge/knowledge-art
 import { PublicKnowledgeController } from '../src/modules/knowledge/public-knowledge.controller';
 import {
   CreateKnowledgeArticleSchema,
+  KnowledgeTransitionSchema,
   UpdateKnowledgeArticleSchema,
+  canTransition,
 } from '../src/modules/knowledge/dto/knowledge-article.dto';
 
 const SOLUTION_SLUGS = [
@@ -109,7 +111,7 @@ describe('KnowledgeArticlesService', () => {
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ slug: 'x-y', locale: 'de', version: 2, reviewedAt: '2026-09-26T00:00:00.000Z' });
     const select = statements.find((s) => s.sql.includes('FROM knowledge_articles'))!;
-    expect(select.sql).toContain("status = 'PUBLISHED'");
+    expect(select.sql).toContain("status IN ('PUBLISHED', 'UPDATE_REQUIRED')");
     expect(select.params).toEqual(['de']);
     expect(statements.some((s) => s.sql.includes('SET LOCAL ROLE "erppreflight_app"'))).toBe(true);
   });
@@ -147,7 +149,7 @@ describe('KnowledgeArticlesService', () => {
 
   it('update bumps the version and appends an immutable revision', async () => {
     const current = {
-      id: 'id1', slug: 'a-b', locale: 'en', version: 3, status: 'DRAFT', title: 'Old title', summary: 's',
+      id: 'id1', slug: 'a-b', locale: 'en', version: 3, status: 'SEO_REVIEW', title: 'Old title', summary: 's',
       body_markdown: 'b', related_engine_types: [], target_releases: [], sources: [], reviewed_at: null,
       published_at: null, created_at: new Date(), updated_at: new Date(),
     };
@@ -162,6 +164,59 @@ describe('KnowledgeArticlesService', () => {
     const rev = statements.find((s) => s.sql.includes('INSERT INTO knowledge_article_revisions'))!;
     expect(rev.params[1]).toBe(4);
     expect(rev.params[10]).toBe('user-1');
+    expect(rev.params[13]).toBe('SEO_REVIEW->PUBLISHED');
+  });
+});
+
+describe('content workflow (Part 02 §2.13)', () => {
+  const row = (status: string) => ({
+    id: 'id1', slug: 'a-b', locale: 'en', version: 1, status, title: 't', summary: 's', body_markdown: 'b',
+    related_engine_types: [], target_releases: [], sources: [], reviewed_at: null, published_at: null,
+    created_at: new Date(), updated_at: new Date(), provenance: 'EDITORIAL',
+  });
+  function svcFor(status: string) {
+    const { db, statements } = makeDb((sql, params) => {
+      if (sql.includes('FOR UPDATE')) return { rows: [row(status)] };
+      if (sql.includes('UPDATE knowledge_articles')) return { rows: [{ ...row(params[1]), version: 2 }] };
+      return { rows: [] };
+    });
+    return { svc: new KnowledgeArticlesService(db), statements };
+  }
+
+  it('walks draft → technical review → SEO review → published, recording each gate', async () => {
+    const t = svcFor('TECHNICAL_REVIEW');
+    const res = await t.svc.transition('id1', { to: 'SEO_REVIEW' }, '00000000-0000-4000-8000-00000000000a');
+    expect(res.status).toBe('SEO_REVIEW');
+    const upd = t.statements.find((s) => s.sql.includes('UPDATE knowledge_articles'))!;
+    expect(upd.params[5]).toBe(true); // technical gate passed
+    expect(upd.params[7]).toBe(false);
+    const s = svcFor('SEO_REVIEW');
+    await s.svc.transition('id1', { to: 'PUBLISHED' }, null);
+    expect(s.statements.find((x) => x.sql.includes('UPDATE knowledge_articles'))!.params[7]).toBe(true);
+  });
+
+  it('rejects shortcuts and requires a reason for UPDATE_REQUIRED', async () => {
+    await expect(svcFor('DRAFT').svc.transition('id1', { to: 'PUBLISHED' }, null)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svcFor('TECHNICAL_REVIEW').svc.transition('id1', { to: 'PUBLISHED' }, null)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svcFor('ARCHIVED').svc.transition('id1', { to: 'DRAFT' }, null)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svcFor('PUBLISHED').svc.transition('id1', { to: 'UPDATE_REQUIRED' }, null)).rejects.toBeInstanceOf(BadRequestException);
+    const ok = svcFor('PUBLISHED');
+    const res = await ok.svc.transition('id1', { to: 'UPDATE_REQUIRED', reason: 'SAP changed the API in 2025 FPS01' }, null);
+    expect(res.status).toBe('UPDATE_REQUIRED');
+    expect(ok.statements.find((x) => x.sql.includes('UPDATE knowledge_articles'))!.params[8]).toBe('SAP changed the API in 2025 FPS01');
+    // PATCH with a status change goes through the same transition table.
+    await expect(svcFor('DRAFT').svc.update('id1', { status: 'PUBLISHED' } as any, null)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('new articles must start as drafts', async () => {
+    const { db } = makeDb(() => ({ rows: [] }));
+    await expect(
+      new KnowledgeArticlesService(db).create({ status: 'PUBLISHED' } as any, null)
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(KnowledgeTransitionSchema.safeParse({ to: 'UPDATE_REQUIRED' }).success).toBe(false);
+    expect(KnowledgeTransitionSchema.safeParse({ to: 'SEO_REVIEW' }).success).toBe(true);
+    expect(canTransition('SEO_REVIEW', 'PUBLISHED')).toBe(true);
+    expect(canTransition('DRAFT', 'SEO_REVIEW')).toBe(false);
   });
 });
 

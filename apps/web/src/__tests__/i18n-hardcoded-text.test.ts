@@ -29,6 +29,8 @@ const EXCLUDED = [
   /^app\/integrations\//,
   /^components\/findings\//,
   /^components\/integrations\//,
+  /^components\/analysis\//, // analysis launcher workstream (analyze.* dictionaries)
+  /^components\/tools\//, // public free tools (public-tools.* dictionaries)
   /^components\/evidence-inspector\.tsx$/,
   /^components\/public\//,
 ];

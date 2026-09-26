@@ -18,6 +18,7 @@ import { ExportModule } from './modules/export/export.module';
 import { EnginesModule } from './modules/engines/engines.module';
 import { FindingsModule } from './modules/findings/findings.module';
 import { AnalysesModule } from './modules/analyses/analyses.module';
+import { ProblemRouterModule } from './modules/router/router.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -52,6 +53,7 @@ import { AccountModule } from './modules/account/account.module';
 import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
 import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PublicToolsModule } from './modules/public-tools/public-tools.module';
 
 @Module({
   imports: [
@@ -80,6 +82,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     EnginesModule,
     FindingsModule,
     AnalysesModule,
+    ProblemRouterModule,
     DashboardModule,
     OrganizationsModule,
     AdminModule,
@@ -113,6 +116,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     KnowledgeGraphModule,
     ReleaseIntelligenceModule,
     NotificationsModule,
+    PublicToolsModule,
   ],
 })
 export class AppModule implements NestModule {

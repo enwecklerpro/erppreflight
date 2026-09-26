@@ -13,6 +13,7 @@ import {
   AnalysisExecutor,
   AnalysisRunResult,
   AnalysisJobFile,
+  EngineAssignmentInput,
   applyDataPolicy,
   resolveArtifactType,
 } from './analysis-executor';
@@ -30,6 +31,10 @@ export interface AnalysisJobData {
   /** Server-resolved CLEAN artifacts (tenant + project verified at trigger time). */
   files?: AnalysisJobFile[];
   configuration?: Record<string, unknown>;
+  /** Orchestrated runs (Full Project Preflight / AUTO assignment): see AnalysisRunInput. */
+  assignments?: EngineAssignmentInput[];
+  stages?: EngineType[][];
+  kind?: 'STANDARD' | 'FULL_PREFLIGHT';
   /** @deprecated legacy payloads enqueued before fileIds became mandatory */
   artifactS3Key?: string | null;
   /** @deprecated */
@@ -182,6 +187,9 @@ export class AnalysisProcessor extends WorkerHost {
         legacyRawContent: data.rawContent ?? null,
         legacyArtifactS3Key: data.artifactS3Key ?? null,
         legacyArtifactType: data.artifactType,
+        assignments: data.assignments,
+        stages: data.stages,
+        kind: data.kind,
       });
       await this.emitOutcome(data, result);
     } catch (err: any) {

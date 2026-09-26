@@ -125,6 +125,12 @@ export interface FindingsQueryParams {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** Finding lifecycle filters (comma-separated statuses; assignee me|unassigned|uuid; due overdue|due_soon|no_due_date). */
+  status?: string;
+  assignee?: string;
+  due?: string;
+  /** Only the latest detection per finding lifecycle. */
+  latest?: boolean;
 }
 
 export interface DashboardSummaryData {
@@ -209,6 +215,10 @@ export async function fetchFindings(params?: FindingsQueryParams): Promise<Findi
   if (params?.search) searchParams.set('search', params.search);
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.assignee) searchParams.set('assignee', params.assignee);
+  if (params?.due) searchParams.set('due', params.due);
+  if (params?.latest) searchParams.set('latest', 'true');
 
   const qs = searchParams.toString();
   const res = await customInstance<Partial<FindingsPage> | Finding[] | undefined>(

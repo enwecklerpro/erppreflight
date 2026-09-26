@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -18,7 +19,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { KnowledgeArticlesService } from './knowledge-articles.service';
 import {
   CreateKnowledgeArticleSchema,
+  KNOWLEDGE_TRANSITIONS,
   KnowledgeLocaleSchema,
+  KnowledgeTransitionSchema,
   UpdateKnowledgeArticleSchema,
 } from './dto/knowledge-article.dto';
 
@@ -42,6 +45,12 @@ export class AdminKnowledgeController {
       return this.articles.adminList(parsed.data);
     }
     return this.articles.adminList();
+  }
+
+  @Get('workflow')
+  @ApiOperation({ summary: 'Content workflow: statuses and allowed transitions (Part 02 §2.13)' })
+  workflow() {
+    return { transitions: KNOWLEDGE_TRANSITIONS, publicStatuses: ['PUBLISHED', 'UPDATE_REQUIRED'] };
   }
 
   @Get(':id')
@@ -71,6 +80,19 @@ export class AdminKnowledgeController {
     const parsed = UpdateKnowledgeArticleSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(zodMessage(parsed.error));
     return this.articles.update(id, parsed.data, userId ?? null);
+  }
+
+  @Post(':id/transition')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Move an article through draft → technical review → SEO review → published → update required → deprecated' })
+  async transition(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
+    @CurrentUser('id') userId?: string
+  ) {
+    const parsed = KnowledgeTransitionSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(zodMessage(parsed.error));
+    return this.articles.transition(id, parsed.data, userId ?? null);
   }
 
   @Delete(':id')
