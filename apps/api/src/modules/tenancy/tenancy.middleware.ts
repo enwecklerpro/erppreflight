@@ -1,6 +1,8 @@
 import {
   Injectable,
   NestMiddleware,
+  Optional,
+  Logger,
   BadRequestException,
   ForbiddenException,
   UnauthorizedException,
@@ -12,6 +14,8 @@ import { TenancyContext } from '@erppreflight/tenancy';
 import { validate as isValidUuid } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { cookieExtractor } from '../auth/strategies/jwt.strategy';
+import { AuditService } from '../audit/audit.service';
+import { DelegatedAccess, resolveDelegatedRole } from '../partners/partners.service';
 import * as crypto from 'node:crypto';
 
 interface VerifiedTenant {
@@ -19,7 +23,11 @@ interface VerifiedTenant {
   userId?: string;
   tenantRole?: string;
   systemRole?: string;
+  delegated?: DelegatedAccess;
 }
+
+/** Audit / last-used bookkeeping for delegated (partner) access at most once per grant+user per window. */
+const DELEGATION_AUDIT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Resolves the active tenant for a request and establishes the
@@ -38,10 +46,13 @@ interface VerifiedTenant {
 @Injectable()
 export class TenancyMiddleware implements NestMiddleware {
   private readonly jwt = new JwtService({});
+  private readonly logger = new Logger(TenancyMiddleware.name);
+  private readonly delegationSeen = new Map<string, number>();
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    @Optional() private readonly audit?: AuditService
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
@@ -61,6 +72,9 @@ export class TenancyMiddleware implements NestMiddleware {
     const anyReq = req as any;
     anyReq.tenantId = verified.tenantId;
     anyReq.tenantRole = verified.tenantRole;
+    if (verified.delegated) {
+      anyReq.delegatedAccess = verified.delegated;
+    }
 
     TenancyContext.run(
       {
@@ -118,7 +132,20 @@ export class TenancyMiddleware implements NestMiddleware {
     }
 
     if (!row.member_role && row.system_role !== 'SUPER_ADMIN') {
-      throw new ForbiddenException('Access denied: You are not an active member of this tenant');
+      // Partner mode (C §61): customer-granted, unexpired delegated access for members
+      // of the partner organization. Same verified path, no bypass; RLS still applies.
+      const delegated = await resolveDelegatedRole(this.db, requestedTenantId, userId);
+      if (!delegated) {
+        throw new ForbiddenException('Access denied: You are not an active member of this tenant');
+      }
+      await this.recordDelegatedUse(requestedTenantId, userId, delegated);
+      return {
+        tenantId: requestedTenantId,
+        userId,
+        tenantRole: delegated.tenantRole,
+        systemRole: row.system_role,
+        delegated,
+      };
     }
 
     return {
@@ -127,6 +154,33 @@ export class TenancyMiddleware implements NestMiddleware {
       tenantRole: row.member_role || undefined,
       systemRole: row.system_role,
     };
+  }
+
+  private async recordDelegatedUse(tenantId: string, userId: string, delegated: DelegatedAccess): Promise<void> {
+    const key = `${delegated.grantId}:${userId}`;
+    const now = Date.now();
+    const last = this.delegationSeen.get(key);
+    if (last && now - last < DELEGATION_AUDIT_WINDOW_MS) return;
+    this.delegationSeen.set(key, now);
+    if (this.delegationSeen.size > 10_000) this.delegationSeen.clear();
+    try {
+      await this.db.query(
+        `UPDATE partner_access_grants SET last_used_at = NOW() WHERE organization_id = $1 AND id = $2`,
+        [tenantId, delegated.grantId],
+        { tenantId }
+      );
+      await this.audit?.recordEvent({
+        organizationId: tenantId,
+        action: 'partner.delegated_access_used',
+        resourceType: 'ORGANIZATION',
+        resourceId: delegated.partnerOrganizationId,
+        actorType: 'HUMAN',
+        actorId: userId,
+        payload: { grantId: delegated.grantId, accessRole: delegated.accessRole, tenantRole: delegated.tenantRole },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not record delegated access use: ${err?.message}`);
+    }
   }
 
   private async resolveApiKeyTenant(

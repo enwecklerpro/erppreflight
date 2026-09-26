@@ -1,11 +1,13 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EngineType, TargetRelease, ArtifactType } from '@erppreflight/schemas';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
 import {
   AnalysisExecutor,
   AnalysisJobFile,
@@ -50,7 +52,9 @@ export class AnalysisProcessor extends WorkerHost {
   constructor(
     private readonly db: DatabaseService,
     private readonly storageService: S3StorageService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly telemetry?: TelemetryService
   ) {
     super();
     this.analysisUrl =
@@ -60,7 +64,8 @@ export class AnalysisProcessor extends WorkerHost {
       this.db,
       this.storageService,
       this.analysisUrl,
-      this.logger
+      this.logger,
+      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms)
     );
   }
 
@@ -80,7 +85,7 @@ export class AnalysisProcessor extends WorkerHost {
     );
 
     try {
-      await this.executor.run({
+      const result = await this.executor.run({
         analysisId,
         organizationId,
         projectId,
@@ -92,8 +97,16 @@ export class AnalysisProcessor extends WorkerHost {
         legacyArtifactS3Key: data.artifactS3Key ?? null,
         legacyArtifactType: data.artifactType,
       });
+      await this.emitCompletionEvents(data, result.finalStatus, result.totalFindings, result.engineOutcomes);
     } catch (err: any) {
       this.logger.error(`Analysis job ${analysisId} failed: ${err?.message ?? err}`);
+      this.telemetry?.incrementAnalyses('FAILED');
+      await this.recordEvent(organizationId, 'analysis.failed', analysisId, {
+        analysisId,
+        projectId,
+        engineTypes,
+        error: 'Analysis could not be executed',
+      });
       await this.db
         .query(
           `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
@@ -103,6 +116,62 @@ export class AnalysisProcessor extends WorkerHost {
         .catch(() => {});
       // Rethrow so BullMQ records the failure and applies its retry policy.
       throw err;
+    }
+  }
+
+  private async recordEvent(organizationId: string, eventType: string, aggregateId: string, payload: Record<string, unknown>) {
+    if (!this.outbox) return;
+    try {
+      await this.outbox.recordEvent(organizationId, eventType, 'ANALYSIS', aggregateId, payload);
+    } catch (err: any) {
+      this.logger.warn(`Could not record ${eventType} outbox event: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Domain events for webhooks / automation (C §48): analysis.completed or
+   * analysis.failed, plus finding.critical when BLOCKER/CRITICAL findings exist.
+   */
+  private async emitCompletionEvents(
+    data: AnalysisJobData,
+    finalStatus: string,
+    totalFindings: number,
+    engineOutcomes: Record<string, string>
+  ) {
+    const { analysisId, organizationId, projectId } = data;
+    this.telemetry?.incrementAnalyses(finalStatus as any);
+    const eventType = finalStatus === 'FAILED' ? 'analysis.failed' : 'analysis.completed';
+    await this.recordEvent(organizationId, eventType, analysisId, {
+      analysisId,
+      projectId,
+      status: finalStatus,
+      totalFindings,
+      engineOutcomes,
+    });
+    if (finalStatus === 'FAILED') return;
+    try {
+      const res = await this.db.query(
+        `SELECT severity, COUNT(*)::int AS n FROM findings
+          WHERE organization_id = $1 AND analysis_id = $2 GROUP BY severity`,
+        [organizationId, analysisId],
+        { tenantId: organizationId }
+      );
+      const bySeverity: Record<string, number> = {};
+      for (const r of res.rows ?? []) {
+        bySeverity[r.severity] = Number(r.n);
+        this.telemetry?.incrementFindings(String(r.severity));
+      }
+      const critical = (bySeverity.BLOCKER ?? 0) + (bySeverity.CRITICAL ?? 0);
+      if (critical > 0) {
+        await this.recordEvent(organizationId, 'finding.critical', analysisId, {
+          analysisId,
+          projectId,
+          criticalFindings: critical,
+          bySeverity,
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not evaluate critical findings for ${analysisId}: ${err?.message}`);
     }
   }
 

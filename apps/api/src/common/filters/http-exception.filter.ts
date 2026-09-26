@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { getErrorReporter } from '../../observability/error-reporter';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -49,6 +50,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${request.method}] ${request.url} - Error: ${message}`,
         exception instanceof Error ? exception.stack : undefined
       );
+      // Error reporting adapter (Sentry when SENTRY_DSN is set, no-op otherwise).
+      void getErrorReporter()
+        .captureException(exception, {
+          method: request.method,
+          path: request.route?.path ? `${request.baseUrl || ''}${request.route.path}` : request.path,
+          statusCode: status,
+          requestId: (request as any).requestId,
+          tenantId: (request as any).tenantId,
+        })
+        .catch(() => undefined);
     }
 
     response.status(status).json(errorPayload);

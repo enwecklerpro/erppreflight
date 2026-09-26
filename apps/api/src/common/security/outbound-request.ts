@@ -35,7 +35,19 @@ export interface OutboundPolicy {
    * link-local, metadata endpoints and this stack's own service names stay blocked.
    */
   allowPrivateNetworks?: boolean;
+  /**
+   * Allow loopback destinations. Honoured ONLY when NODE_ENV === 'test' (integration
+   * tests against local test-double servers); ignored in every other environment.
+   */
+  allowLoopbackInTests?: boolean;
 }
+
+function loopbackAllowed(policy: OutboundPolicy): boolean {
+  return policy.allowLoopbackInTests === true && process.env.NODE_ENV === 'test';
+}
+
+const LOOPBACK_V4 = new net.BlockList();
+LOOPBACK_V4.addSubnet('127.0.0.0', 8, 'ipv4');
 
 const ALWAYS_BLOCKED_V4 = [
   ['0.0.0.0', 8],
@@ -127,6 +139,9 @@ export function checkIpAddress(address: string, policy: OutboundPolicy = {}): st
   const blocked = family === 4 ? alwaysBlockedV4 : alwaysBlockedV6;
   const privateList = family === 4 ? privateV4 : privateV6;
   const type = family === 4 ? 'ipv4' : 'ipv6';
+  if (loopbackAllowed(policy) && (address === '::1' || (family === 4 && LOOPBACK_V4.check(address, 'ipv4')))) {
+    return null;
+  }
   if (address === '255.255.255.255' || blocked.check(address, type)) {
     return `reserved/loopback/link-local address ${address}`;
   }
@@ -173,6 +188,9 @@ export function assertOutboundUrlSyntax(rawUrl: string, policy: OutboundPolicy =
     return url;
   }
 
+  if (host === 'localhost' && loopbackAllowed(policy)) {
+    return url;
+  }
   if (
     BLOCKED_HOSTNAMES.has(host) ||
     host.startsWith('erppreflight-') ||
@@ -335,4 +353,119 @@ export async function safeOutboundRequest(
   const policy = options.policy || {};
   const url = await validateOutboundUrl(rawUrl, policy);
   return requestImpl(url, { ...options, policy });
+}
+
+export interface OutboundFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | Buffer;
+  timeoutMs?: number;
+  /** Maximum response body size; larger bodies abort with OutboundResponseTooLargeError. */
+  maxResponseBytes?: number;
+  policy?: OutboundPolicy;
+}
+
+export interface OutboundFetchResponse {
+  status: number;
+  statusText: string;
+  headers: http.IncomingHttpHeaders;
+  body: Buffer;
+  text(): string;
+  json<T = any>(): T;
+}
+
+export class OutboundResponseTooLargeError extends Error {
+  constructor(readonly limit: number) {
+    super(`Response body exceeded ${limit} bytes`);
+    this.name = 'OutboundResponseTooLargeError';
+  }
+}
+
+type FetchImpl = (url: URL, options: OutboundFetchOptions) => Promise<OutboundFetchResponse>;
+
+function buildFetchResponse(
+  status: number,
+  statusText: string,
+  headers: http.IncomingHttpHeaders,
+  body: Buffer
+): OutboundFetchResponse {
+  return {
+    status,
+    statusText,
+    headers,
+    body,
+    text: () => body.toString('utf8'),
+    json: <T = any>() => JSON.parse(body.toString('utf8')) as T,
+  };
+}
+
+const defaultFetchImpl: FetchImpl = (url, options) =>
+  new Promise<OutboundFetchResponse>((resolve, reject) => {
+    const policy = options.policy || {};
+    const limit = options.maxResponseBytes ?? 5 * 1024 * 1024;
+    const client = url.protocol === 'https:' ? https : http;
+    const headers: Record<string, string> = { ...(options.headers || {}) };
+    if (options.body !== undefined && !Object.keys(headers).some((h) => h.toLowerCase() === 'content-length')) {
+      headers['Content-Length'] = String(Buffer.byteLength(options.body));
+    }
+    const req = client.request(
+      url,
+      {
+        method: options.method || 'GET',
+        headers,
+        lookup: pinnedLookup(policy),
+        timeout: options.timeoutMs ?? 10_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let received = 0;
+        res.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > limit) {
+            res.destroy(new OutboundResponseTooLargeError(limit));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on('error', (err) => reject(err));
+        res.on('end', () => {
+          resolve(
+            buildFetchResponse(res.statusCode || 0, res.statusMessage || '', res.headers, Buffer.concat(chunks))
+          );
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy(Object.assign(new Error('Request timed out'), { name: 'AbortError' }));
+    });
+    req.on('error', (err) => reject(err));
+    if (options.body !== undefined) {
+      req.write(options.body);
+    }
+    req.end();
+  });
+
+let fetchImpl: FetchImpl = defaultFetchImpl;
+
+/** Test hook: replace the body-returning transport. Returns a restore function. */
+export function __setOutboundFetchForTests(fn: FetchImpl): () => void {
+  const previous = fetchImpl;
+  fetchImpl = fn;
+  return () => {
+    fetchImpl = previous;
+  };
+}
+
+/**
+ * SSRF-checked HTTP request that returns the (size-bounded) response body.
+ * Same destination policy as safeOutboundRequest: DNS-validated, re-checked at
+ * connect time (rebinding-safe), redirects never followed.
+ */
+export async function safeOutboundFetch(
+  rawUrl: string,
+  options: OutboundFetchOptions = {}
+): Promise<OutboundFetchResponse> {
+  const policy = options.policy || {};
+  const url = await validateOutboundUrl(rawUrl, policy);
+  return fetchImpl(url, { ...options, policy });
 }

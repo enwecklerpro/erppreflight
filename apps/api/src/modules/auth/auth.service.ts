@@ -215,6 +215,50 @@ export class AuthService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Issues the same session JWT as password login for a principal that was
+   * authenticated by another mechanism (enterprise SSO, see modules/sso). The
+   * user must be ACTIVE and a member of the organization; nothing else about
+   * the session differs from a password login.
+   */
+  async issueSessionForMembership(userId: string, organizationId: string) {
+    const res = await this.db.query(
+      `SELECT u.id, u.email, u.full_name, u.system_role, u.status, m.role
+         FROM users u
+         JOIN organization_members m ON m.user_id = u.id AND m.organization_id = $2
+         JOIN organizations o ON o.id = m.organization_id AND o.status = 'ACTIVE'
+        WHERE u.id = $1`,
+      [userId, organizationId],
+      { bypassRls: true }
+    );
+    const row = res.rows[0];
+    if (!row) {
+      throw new UnauthorizedException('User is not a member of this organization');
+    }
+    if (row.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
+    }
+    const role = row.role || 'VIEWER';
+    const token = this.jwt.sign({
+      sub: row.id,
+      email: row.email,
+      organizationId,
+      role,
+      systemRole: row.system_role,
+    });
+    return {
+      accessToken: token,
+      user: {
+        id: row.id,
+        email: row.email,
+        fullName: row.full_name,
+        organizationId,
+        role,
+        systemRole: row.system_role,
+      },
+    };
+  }
+
   async login(dto: LoginDto) {
     // Deterministic membership selection: the oldest membership in an ACTIVE organization.
     const userRes = await this.db.query(
