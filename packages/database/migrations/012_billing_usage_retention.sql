@@ -116,3 +116,79 @@ UPDATE audit_events e
 ALTER TABLE audit_events ENABLE TRIGGER trg_audit_events_immutable_guard;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_audit_events_org_chain_seq ON audit_events(organization_id, chain_seq);
+
+-- 6. Report types + tenant branding (spec 01 §1.9, C §19) ------------------------
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS report_type VARCHAR(40) NOT NULL DEFAULT 'TECHNICAL';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS report_branding JSONB NOT NULL DEFAULT '{}';
+
+-- 7. Centralized feature flags (C §63) --------------------------------------------
+--    Platform configuration (not tenant data): readable by the runtime role,
+--    writable only through the Super Admin API (platform connection).
+CREATE TABLE IF NOT EXISTS feature_flags (
+    key VARCHAR(100) PRIMARY KEY,
+    description TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    environments JSONB NOT NULL DEFAULT '[]',
+    plan_tiers JSONB NOT NULL DEFAULT '[]',
+    allow_organizations JSONB NOT NULL DEFAULT '[]',
+    deny_organizations JSONB NOT NULL DEFAULT '[]',
+    rollout_percentage INTEGER NOT NULL DEFAULT 100 CHECK (rollout_percentage BETWEEN 0 AND 100),
+    beta_only BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_feature_flag_key CHECK (key ~ '^[a-z0-9][a-z0-9_.-]{1,99}$')
+);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS beta_opt_in BOOLEAN NOT NULL DEFAULT FALSE;
+GRANT SELECT ON feature_flags TO erppreflight_app;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON feature_flags FROM erppreflight_app;
+
+-- 8. Support tickets and time-boxed support access (C §62, spec 10.14) -----------
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    subject VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    category VARCHAR(40) NOT NULL DEFAULT 'QUESTION',
+    status VARCHAR(30) NOT NULL DEFAULT 'OPEN',
+    project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+    analysis_id UUID REFERENCES analyses(id) ON DELETE SET NULL,
+    finding_id UUID REFERENCES findings(id) ON DELETE SET NULL,
+    correlation_id VARCHAR(100),
+    diagnostic JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_support_ticket_category CHECK (category IN ('QUESTION','INCORRECT_FINDING','BUG','BILLING','ACCESS')),
+    CONSTRAINT chk_support_ticket_status CHECK (status IN ('OPEN','IN_PROGRESS','WAITING_ON_CUSTOMER','RESOLVED','CLOSED'))
+);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_org ON support_tickets(organization_id, created_at DESC);
+ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_tickets FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_support_tickets ON support_tickets;
+CREATE POLICY tenant_isolation_support_tickets ON support_tickets
+    FOR ALL
+    USING (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+GRANT SELECT, INSERT, UPDATE ON support_tickets TO erppreflight_app;
+
+CREATE TABLE IF NOT EXISTS support_access_grants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reason TEXT NOT NULL,
+    ticket_id UUID REFERENCES support_tickets(id) ON DELETE SET NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_support_grant_window CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '7 days')
+);
+CREATE INDEX IF NOT EXISTS idx_support_grants_org ON support_access_grants(organization_id, expires_at DESC);
+ALTER TABLE support_access_grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_access_grants FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_support_access_grants ON support_access_grants;
+CREATE POLICY tenant_isolation_support_access_grants ON support_access_grants
+    FOR ALL
+    USING (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+    WITH CHECK (organization_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
+GRANT SELECT, INSERT, UPDATE ON support_access_grants TO erppreflight_app;

@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Put,
   Post,
   Body,
   Param,
@@ -16,6 +17,8 @@ import { TriggerExportDto } from '@erppreflight/schemas';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { Audited } from '../audit/audited.decorator';
 import { Metered } from '../usage/metered.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller()
 @UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
@@ -28,10 +31,11 @@ export class ExportController {
     action: 'report.generated',
     targetType: 'REPORT',
     targetId: ({ result }) => result?.reportId,
-    payload: ({ params, result }) => ({
+    payload: ({ params, result, body }) => ({
       projectId: params.projectId,
       analysisId: params.analysisId,
       format: result?.format ?? null,
+      reportType: body?.reportType ?? 'TECHNICAL',
       fileName: result?.fileName ?? null,
       checksumSha256: result?.checksumSha256 ?? null,
     }),
@@ -56,6 +60,25 @@ export class ExportController {
       dto,
       userId
     );
+  }
+
+  /** Tenant report branding (Professional plan and higher). */
+  @Get('reports/branding')
+  async getBranding(@CurrentTenant() tenantId: string) {
+    return this.exportService.getBranding(tenantId);
+  }
+
+  @Put('reports/branding')
+  @UseGuards(RolesGuard)
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
+  @Audited({
+    action: 'report.branding_updated',
+    targetType: 'ORGANIZATION',
+    targetId: ({ request }) => request.tenantId,
+    payload: ({ result }) => ({ fields: Object.keys(result ?? {}) }),
+  })
+  async updateBranding(@CurrentTenant() tenantId: string, @Body() body: unknown) {
+    return this.exportService.updateBranding(tenantId, body);
   }
 
   @Get('projects/:projectId/analyses/:analysisId/reports')

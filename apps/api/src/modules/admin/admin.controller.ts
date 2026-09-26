@@ -59,8 +59,12 @@ export class AdminController {
   }
 
   @Get('tenants/:organizationId')
-  async getTenant(@Param('organizationId', new ParseUUIDPipe()) organizationId: string) {
-    return this.adminService.getTenantDetail(organizationId);
+  async getTenant(
+    @Param('organizationId', new ParseUUIDPipe()) organizationId: string,
+    @Query('reason') reason: string | undefined,
+    @Req() req: any
+  ) {
+    return this.adminService.getTenantDetail(organizationId, { actor: actorOf(req), reason });
   }
 
   @Patch('tenants/:organizationId/limits')

@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { UsageService, currentPeriodStart } from '../usage/usage.service';
 import { EntitlementsService, resolvePlanState } from '../billing/entitlements.service';
 import { BillingService } from '../billing/billing.service';
+import { SupportService } from '../support/support.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMPTY_COUNTS = { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 };
@@ -34,7 +35,8 @@ export class AdminService {
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly usage?: UsageService,
     @Optional() private readonly entitlements?: EntitlementsService,
-    @Optional() private readonly billing?: BillingService
+    @Optional() private readonly billing?: BillingService,
+    @Optional() private readonly support?: SupportService
   ) {}
 
   private pythonUrl(): string {
@@ -277,8 +279,40 @@ export class AdminService {
     return res.rows ?? [];
   }
 
-  async getTenantDetail(organizationId: string) {
+  /**
+   * Support console read (10.14 / C §62). Access basis is either an active,
+   * tenant-issued support grant or an explicit break-glass reason; both are
+   * written (fail-closed) to the tenant's own audit ledger, so the customer
+   * sees every operator look-up.
+   */
+  async getTenantDetail(organizationId: string, access?: { actor: AdminActor; reason?: string }) {
     if (!UUID_RE.test(organizationId)) throw new BadRequestException('organizationId must be a UUID');
+    if (access) {
+      const grant = this.support ? await this.support.activeGrant(organizationId) : null;
+      const reason = (access.reason ?? '').trim();
+      if (!grant && reason.length < 5) {
+        throw new BadRequestException(
+          'No active support-access grant for this tenant: provide a break-glass reason (min. 5 characters).'
+        );
+      }
+      const exists = await this.db.query('SELECT 1 FROM organizations WHERE id = $1', [organizationId], { bypassRls: true });
+      if (exists.rows?.length && this.audit) {
+        await this.audit.recordEvent({
+          organizationId,
+          action: grant ? 'support.tenant_viewed' : 'support.tenant_viewed.break_glass',
+          resourceType: 'ORGANIZATION',
+          resourceId: organizationId,
+          payload: {
+            accessBasis: grant ? 'SUPPORT_GRANT' : 'BREAK_GLASS',
+            grantId: grant?.id ?? null,
+            reason: grant ? grant.reason : reason.slice(0, 500),
+            byEmail: access.actor.email ?? null,
+          },
+          actorType: 'HUMAN',
+          actorId: access.actor.id,
+        });
+      }
+    }
     const orgRes = await this.db.query(
       `SELECT id, name, slug, plan_tier, status, created_at, subscription_status, current_period_end,
               cancel_at_period_end, trial_tier, trial_started_at, trial_ends_at, limit_overrides,
@@ -327,7 +361,9 @@ export class AdminService {
     ]);
 
     const usage = this.entitlements ? await this.entitlements.getTenantUsage(organizationId) : null;
+    const activeGrant = this.support ? await this.support.activeGrant(organizationId) : null;
     return {
+      activeSupportGrant: activeGrant,
       organization: {
         id: org.id,
         name: org.name,

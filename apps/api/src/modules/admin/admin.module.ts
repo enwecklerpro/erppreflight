@@ -4,11 +4,13 @@ import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 import { DatabaseModule } from '../database/database.module';
 import { BillingModule } from '../billing/billing.module';
+import { SupportModule } from '../support/support.module';
 
 @Module({
   imports: [
     DatabaseModule,
     BillingModule,
+    SupportModule,
     BullModule.registerQueue({ name: 'analysis-queue' }, { name: 'maintenance-queue' }),
   ],
   controllers: [AdminController],
