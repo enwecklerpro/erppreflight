@@ -1,3 +1,4 @@
+import { BillingModule } from '../billing/billing.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { AuthModule } from '../auth/auth.module';
@@ -11,7 +12,7 @@ import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { BILLING_ACCOUNT_HOOK, NoSubscriptionStorageBillingHook } from './billing-account.hook';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, StorageModule],
+  imports: [DatabaseModule, AuthModule, StorageModule, BillingModule],
   controllers: [OrganizationsController, InvitationsController],
   providers: [
     OrganizationsService,

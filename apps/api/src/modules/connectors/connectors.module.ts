@@ -1,3 +1,4 @@
+import { BillingModule } from '../billing/billing.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { AuditModule } from '../audit/audit.module';
@@ -12,7 +13,7 @@ import { AgentAdminController, ConnectorsController } from './connectors.control
 import { AgentApiController } from './agent-api.controller';
 
 @Module({
-  imports: [DatabaseModule, AuditModule, IngestionModule, ApiKeysModule],
+  imports: [DatabaseModule, AuditModule, IngestionModule, ApiKeysModule, BillingModule],
   controllers: [ConnectorsController, AgentAdminController, AgentApiController],
   providers: [CredentialVault, IntegrationAuditService, ConnectorsService, WorkItemsService, AgentDevicesService],
   exports: [CredentialVault, IntegrationAuditService, ConnectorsService, WorkItemsService, AgentDevicesService],

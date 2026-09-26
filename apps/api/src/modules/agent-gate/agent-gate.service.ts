@@ -284,7 +284,10 @@ export class AgentGateService {
       .update(`${payload.proposalId}:${payload.proposalHash}:${payload.nonce}:${payload.expiresAt}`)
       .digest('hex');
 
-    if (payload.sig !== expectedSignature) {
+    // Constant-time comparison: a plain !== leaks how many leading hex characters matched.
+    const presented = Buffer.from(String(payload.sig ?? ''), 'utf8');
+    const expected = Buffer.from(expectedSignature, 'utf8');
+    if (presented.length !== expected.length || !crypto.timingSafeEqual(presented, expected)) {
       throw new BadRequestException('Execution token cryptographic signature mismatch');
     }
 

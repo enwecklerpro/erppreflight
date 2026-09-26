@@ -2,6 +2,8 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { UsageService } from '../usage/usage.service';
+import { EntitlementsService } from '../billing/entitlements.service';
+import { PlanLimitExceededException } from '../billing/plan-limit.exception';
 import {
   AiProviderType,
   AiRequestOptions,
@@ -24,7 +26,8 @@ export class AiGatewayService {
   constructor(
     @Optional() private readonly db?: DatabaseService,
     @Optional() private readonly config?: ConfigService,
-    @Optional() private readonly usage?: UsageService
+    @Optional() private readonly usage?: UsageService,
+    @Optional() private readonly entitlements?: EntitlementsService
   ) {
     this.initCircuitBreaker('ANTHROPIC');
     this.initCircuitBreaker('OPENAI');
@@ -60,6 +63,17 @@ export class AiGatewayService {
   }
 
   private async enforceTokenBudget(tenantId: string, estimatedTokens: number = 0): Promise<any | null> {
+    // Plan limit (spec 10.3/10.5): monthly AI tokens metered in usage_events across all instances.
+    if (this.entitlements) {
+      try {
+        await this.entitlements.checkEntitlement(tenantId, 'AI_TOKENS');
+      } catch (err: any) {
+        if (err instanceof PlanLimitExceededException) {
+          return { blocked: true, reason: 'PLAN_AI_TOKEN_LIMIT_REACHED', currentUsage: err.used, limit: err.limit };
+        }
+        this.logger.warn(`AI token entitlement check failed: ${err?.message ?? err}`);
+      }
+    }
     if (!this.db) return null;
     try {
       const res = await this.db.query(

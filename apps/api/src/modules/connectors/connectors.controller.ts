@@ -1,3 +1,4 @@
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import {
   Body,
   Controller,
@@ -70,6 +71,8 @@ export class ConnectorsController {
   }
 
   @Post('work-items')
+  @UseGuards(EntitlementGuard)
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @ZodBody(CreateWorkItemSchema)
   @Roles(...WORK_ITEM_ROLES)
   @ApiOperation({ summary: 'Create a work item from a finding (dryRun previews the payload; confirm=true required to write)' })
@@ -78,6 +81,8 @@ export class ConnectorsController {
   }
 
   @Post('work-items/sync')
+  @UseGuards(EntitlementGuard)
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @Roles(...WORK_ITEM_ROLES)
   @ApiOperation({ summary: 'Pull-sync status of all work items (optionally for one project)' })
   syncAll(@CurrentTenant() orgId: string, @Req() req: any, @Query('projectId') projectId?: string) {
@@ -85,6 +90,8 @@ export class ConnectorsController {
   }
 
   @Post('work-items/:workItemId/sync')
+  @UseGuards(EntitlementGuard)
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @Roles(...WORK_ITEM_ROLES)
   syncOne(@CurrentTenant() orgId: string, @Req() req: any, @Param('workItemId', new ParseUUIDPipe()) id: string) {
     return this.workItems.sync(orgId, req.user.id, id);

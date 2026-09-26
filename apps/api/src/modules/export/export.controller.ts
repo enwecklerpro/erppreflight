@@ -128,6 +128,7 @@ export class ExportController {
   }
 
   @Get('analyses/:analysisId/reproducibility-bundle')
+  @RequireEntitlement('AIR_GAPPED_EXPORT')
   @Audited({
     action: 'report.downloaded',
     targetType: 'ANALYSIS',
@@ -150,6 +151,7 @@ export class ExportController {
   }
 
   @Get('projects/:projectId/analyses/:analysisId/offline-html')
+  @RequireEntitlement('AIR_GAPPED_EXPORT')
   @Audited({
     action: 'report.downloaded',
     targetType: 'ANALYSIS',

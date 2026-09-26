@@ -1,3 +1,4 @@
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -12,7 +13,7 @@ const WRITE_ROLES = ['ORGANIZATION_OWNER', 'SECURITY_ADMIN', 'LEAD_ARCHITECT', '
 
 @ApiTags('Delivery Traceability & ALM Integration')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard, EntitlementGuard)
 @Controller('projects/:projectId/traceability')
 export class TraceabilityController {
   constructor(private readonly traceabilityService: TraceabilityService) {}
@@ -24,6 +25,7 @@ export class TraceabilityController {
   }
 
   @Post('requirements/import')
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @ZodBody(ImportRequirementsSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Import requirements from the mapped SAP Cloud ALM project' })
@@ -32,6 +34,7 @@ export class TraceabilityController {
   }
 
   @Post('nodes/:nodeId/finding')
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @ZodBody(LinkFindingSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Link (or unlink with null) a finding to a requirement node' })
@@ -46,6 +49,7 @@ export class TraceabilityController {
   }
 
   @Post('tasks')
+  @RequireEntitlement('CLOUD_ALM_SYNC')
   @ZodBody(CreateRemediationTaskSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Create a remediation task for a finding through a configured work item connector' })

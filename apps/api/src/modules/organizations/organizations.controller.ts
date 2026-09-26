@@ -1,3 +1,4 @@
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import {
   BadRequestException,
   Body,
@@ -191,7 +192,8 @@ export class OrganizationsController {
 
   @Post('invitations')
   @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
-  @UseGuards(VerifiedEmailGuard)
+  @UseGuards(VerifiedEmailGuard, EntitlementGuard)
+  @RequireEntitlement('ADD_TEAM_MEMBER')
   @DenyApiKeyAuth()
   async createInvitation(
     @CurrentTenant() tenantId: string,

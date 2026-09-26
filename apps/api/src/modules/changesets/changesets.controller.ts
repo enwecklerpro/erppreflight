@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ChangeSetsService } from './changesets.service';
 import { CreateChangeSetDto, ApproveChangeSetDto } from './dto/changeset.dto';
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 
 @ApiTags('ChangeSets & What-If Simulation')
 @ApiBearerAuth()
@@ -23,6 +24,8 @@ export class ChangeSetsController {
   constructor(private readonly changeSetsService: ChangeSetsService) {}
 
   @Post()
+  @UseGuards(EntitlementGuard)
+  @RequireEntitlement('WHAT_IF_SIMULATION')
   @ApiOperation({ summary: 'Create a new ChangeSet proposed change' })
   async create(
     @Req() req: any,

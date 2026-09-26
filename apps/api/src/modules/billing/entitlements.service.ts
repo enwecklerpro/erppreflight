@@ -288,6 +288,9 @@ export class EntitlementsService {
         canUseAgentGate: state.limits.features.agentGate,
         canUseAirGappedExport: state.limits.features.airGappedExport,
         canSyncCloudAlm: state.limits.features.cloudAlmSync,
+        canAddTeamMember: withinLimit(teamMembersCount, limits.teamMembers),
+        canUseAiTokens: withinLimit(aiTokensThisMonth, limits.aiTokensPerMonth),
+        canUseWhatIfSimulation: state.limits.features.whatIfSimulation,
       },
     };
   }
@@ -350,6 +353,20 @@ export class EntitlementsService {
         if (!usage.quotaStatus.canSyncCloudAlm) {
           throw new ForbiddenException(
             `SAP Cloud ALM & Jira traceability requires plan tier 'PROFESSIONAL' or higher. Current tier: '${usage.effectiveTier}'.`
+          );
+        }
+        break;
+      case 'ADD_TEAM_MEMBER':
+        if (!usage.quotaStatus.canAddTeamMember) throw this.quotaError(usage, 'teamMembers', usage.teamMembersCount);
+        break;
+      case 'AI_TOKENS':
+        if (!usage.quotaStatus.canUseAiTokens)
+          throw this.quotaError(usage, 'aiTokensPerMonth', usage.aiTokensThisMonth);
+        break;
+      case 'WHAT_IF_SIMULATION':
+        if (!usage.quotaStatus.canUseWhatIfSimulation) {
+          throw new ForbiddenException(
+            `What-If change simulation is not included in plan tier '${usage.effectiveTier}'. Upgrade your plan in Settings → Billing.`
           );
         }
         break;

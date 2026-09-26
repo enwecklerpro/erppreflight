@@ -111,6 +111,47 @@ describe('EntitlementsService (plan quota enforcement)', () => {
     ).resolves.not.toThrow();
   });
 
+  it('enforces the team member limit (402) when inviting beyond the plan', async () => {
+    const atLimit = new EntitlementsService(
+      routedDb({ org: { plan_tier: 'FREE' }, members: PLAN_CATALOG.FREE.limits.teamMembers }),
+      usageStub(),
+      noTrial
+    );
+    await expect(atLimit.checkEntitlement(tenantId, 'ADD_TEAM_MEMBER')).rejects.toMatchObject({
+      limitKey: 'teamMembers',
+      used: PLAN_CATALOG.FREE.limits.teamMembers,
+    });
+    await expect(
+      new EntitlementsService(routedDb({ org: { plan_tier: 'FREE' }, members: 1 }), usageStub(), noTrial).checkEntitlement(
+        tenantId,
+        'ADD_TEAM_MEMBER'
+      )
+    ).resolves.not.toThrow();
+  });
+
+  it('enforces the monthly AI token limit from the usage ledger', async () => {
+    const svc = new EntitlementsService(
+      routedDb({ org: { plan_tier: 'PROFESSIONAL', limit_overrides: { aiTokensPerMonth: 1000 } } }),
+      usageStub({ AI_TOKENS: 1000 }),
+      noTrial
+    );
+    await expect(svc.checkEntitlement(tenantId, 'AI_TOKENS')).rejects.toMatchObject({ limitKey: 'aiTokensPerMonth', used: 1000 });
+  });
+
+  it('gates plan features: Cloud ALM sync, air-gapped export and What-If simulation', async () => {
+    const free = new EntitlementsService(routedDb({ org: { plan_tier: 'FREE' } }), usageStub(), noTrial);
+    await expect(free.checkEntitlement(tenantId, 'CLOUD_ALM_SYNC')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(free.checkEntitlement(tenantId, 'AIR_GAPPED_EXPORT')).rejects.toBeInstanceOf(ForbiddenException);
+    const expectWhatIf = PLAN_CATALOG.FREE.features.whatIfSimulation
+      ? expect(free.checkEntitlement(tenantId, 'WHAT_IF_SIMULATION')).resolves.not.toThrow()
+      : expect(free.checkEntitlement(tenantId, 'WHAT_IF_SIMULATION')).rejects.toBeInstanceOf(ForbiddenException);
+    await expectWhatIf;
+    const pro = new EntitlementsService(routedDb({ org: { plan_tier: 'PROFESSIONAL' } }), usageStub(), noTrial);
+    if (PLAN_CATALOG.PROFESSIONAL.features.cloudAlmSync) {
+      await expect(pro.checkEntitlement(tenantId, 'CLOUD_ALM_SYNC')).resolves.not.toThrow();
+    }
+  });
+
   it('starts the trial anchored at organization creation and audits it', async () => {
     const created = new Date(Date.now() - 2 * 86_400_000).toISOString();
     const trialEnds = new Date(Date.parse(created) + 14 * 86_400_000).toISOString();

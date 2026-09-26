@@ -61,6 +61,9 @@ export interface TenantUsage {
     canUseAgentGate: boolean;
     canUseAirGappedExport: boolean;
     canSyncCloudAlm: boolean;
+    canAddTeamMember: boolean;
+    canUseAiTokens: boolean;
+    canUseWhatIfSimulation: boolean;
   };
 }
 
@@ -72,4 +75,7 @@ export type EntitlementFeature =
   | 'EXPORT_REPORT'
   | 'AGENT_GATE'
   | 'AIR_GAPPED_EXPORT'
-  | 'CLOUD_ALM_SYNC';
+  | 'CLOUD_ALM_SYNC'
+  | 'ADD_TEAM_MEMBER'
+  | 'AI_TOKENS'
+  | 'WHAT_IF_SIMULATION';
