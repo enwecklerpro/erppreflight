@@ -1,0 +1,49 @@
+# ERP Preflight — code owners (spec C §65, KNOWN_LIMITATIONS O8)
+#
+# GitHub requests a review from the listed owner for every pull request that touches a
+# matching path; with "Require review from Code Owners" enabled on `main`
+# (.github/BRANCH_PROTECTION.md) the PR cannot merge without it. The last matching pattern
+# wins, so the specific security-critical paths below are listed after the catch-all.
+# Add teams (@org/team) here when the organisation has more than one maintainer.
+
+# Default: everything
+*                                               @enwecklerpro
+
+# Tenant isolation, authentication and authorization
+/apps/api/src/modules/auth/                     @enwecklerpro
+/apps/api/src/common/                           @enwecklerpro
+/packages/tenancy/                              @enwecklerpro
+/packages/auth/                                 @enwecklerpro
+
+# Database schema, RLS policies and migrations (forward-only, run against production)
+/packages/database/                             @enwecklerpro
+/scripts/ci-migration-check.sh                  @enwecklerpro
+
+# Ingestion security (magic bytes, archive limits, ClamAV, redaction) and parsers
+/apps/api/src/modules/ingestion/                @enwecklerpro
+/services/analysis-python/src/parsers/          @enwecklerpro
+/services/analysis-python/src/platform/         @enwecklerpro
+
+# Deterministic engines and their golden fixtures (AGENTS.md Axiom 2)
+/services/analysis-python/src/engines/          @enwecklerpro
+/services/analysis-python/tests/fixtures/       @enwecklerpro
+/ENGINE_CATALOG.md                              @enwecklerpro
+
+# Supply chain, CI/CD and deployment
+/.github/                                       @enwecklerpro
+/infra/                                         @enwecklerpro
+/docker-compose.coolify.yml                     @enwecklerpro
+/.env.coolify.example                           @enwecklerpro
+/pnpm-lock.yaml                                 @enwecklerpro
+/renovate.json                                  @enwecklerpro
+/.trivyignore                                   @enwecklerpro
+/.gitleaks.toml                                 @enwecklerpro
+/scripts/backup.sh                              @enwecklerpro
+/scripts/restore.sh                             @enwecklerpro
+/scripts/check-*.mjs                            @enwecklerpro
+
+# Binding governance documents
+/AGENTS.md                                      @enwecklerpro
+/ARCHITECTURE_DECISIONS.md                      @enwecklerpro
+/SECURITY_REVIEW.md                             @enwecklerpro
+/.agents/skills/                                @enwecklerpro
