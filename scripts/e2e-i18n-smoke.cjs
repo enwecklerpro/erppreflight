@@ -99,7 +99,7 @@ const DENY = EN_DENYLIST.map((p) => [p, wordRegex(p)]);
     { path: `/projects/${projectId}/objects`, name: 'project-objects' },
     { path: `/projects/${projectId}/simulation`, name: 'project-simulation' },
     { path: `/projects/${projectId}/traceability`, name: 'project-traceability' },
-    { path: '/inspector', name: 'inspector' },
+    { path: '/inspector', name: 'inspector', partial: true }, // hosts the findings grid (findings workstream)
     { path: '/templates', name: 'templates' },
     { path: '/artifacts', name: 'artifacts' },
     { path: '/landscapes', name: 'landscapes' },
@@ -123,6 +123,8 @@ const DENY = EN_DENYLIST.map((p) => [p, wordRegex(p)]);
     { path: '/trust', name: 'trust' },
     { path: '/demo', name: 'demo' },
     { path: '/feedback', name: 'feedback' },
+    { path: '/changelog', name: 'changelog' },
+    { path: '/procurement', name: 'procurement' },
   ];
 
   const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
