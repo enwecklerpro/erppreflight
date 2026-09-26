@@ -41,7 +41,6 @@ export const envSchema = z.object({
   ADMIN_BOOTSTRAP_PASSWORD: z.string().optional(),
   METRICS_TOKEN: z.string().optional(),
   ENABLE_SWAGGER: booleanFlag,
-  REDIS_DB: z.coerce.number().int().min(0).max(15).optional(),
   // Account lifecycle / e-mail (see modules/mail and .env.coolify.example)
   APP_PUBLIC_URL: z.string().optional(),
   MAIL_TRANSPORT: z.string().optional(),
