@@ -42,7 +42,7 @@ export function OrganizationSwitcher({ homeOrganizationId }: { homeOrganizationI
       <Building2 className="size-3.5 text-muted-foreground" aria-hidden="true" />
       <span className="sr-only">{t('app.shell.org.active')}</span>
       <select
-        className="h-8 max-w-[11rem] truncate rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="h-8 max-w-[7rem] sm:max-w-[11rem] truncate rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         value={active?.id || ''}
         disabled={switching}
         aria-busy={switching}

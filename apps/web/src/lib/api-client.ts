@@ -669,8 +669,20 @@ export interface ReleaseMatrixEntry {
   verifiedFixtures: number;
 }
 
-export async function fetchReleaseMatrix(): Promise<ReleaseMatrixEntry[]> {
-  return customInstance<ReleaseMatrixEntry[]>('/knowledge/matrix');
+export interface ReleaseMatrixResponse {
+  /** LIVE = reported by the analysis service; STATIC_FALLBACK = catalogue shipped with the API. */
+  source: string;
+  matrix: ReleaseMatrixEntry[];
+}
+
+export async function fetchReleaseMatrix(): Promise<ReleaseMatrixResponse> {
+  const data = await customInstance<unknown>('/knowledge/matrix');
+  const obj = (data && typeof data === 'object' ? data : {}) as { source?: unknown; matrix?: unknown };
+  const list = Array.isArray(data) ? data : Array.isArray(obj.matrix) ? obj.matrix : [];
+  const matrix = (list as Partial<ReleaseMatrixEntry>[]).filter(
+    (e): e is ReleaseMatrixEntry => !!e && typeof e.engineId === 'string' && typeof e.engineName === 'string'
+  ).map((e) => ({ ...e, supportedFormats: Array.isArray(e.supportedFormats) ? e.supportedFormats : [] }));
+  return { source: typeof obj.source === 'string' ? obj.source : 'LIVE', matrix };
 }
 
 // API Keys

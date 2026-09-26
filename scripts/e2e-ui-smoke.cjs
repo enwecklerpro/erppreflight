@@ -48,14 +48,14 @@ let failures = 0;
     await page.goto(WEB + '/signup');
     await page.getByPlaceholder('Acme Global Industries').fill(`UI Org ${R}`);
     await page.getByPlaceholder('Jane Doe').fill('Ui Tester');
-    await page.getByPlaceholder('architect@enterprise.com').fill(`ui${R}@e2e.local`);
+    await page.getByLabel(/Work Email/).fill(`ui${R}@e2e.local`);
     const pw = page.getByPlaceholder('••••••••••••');
     await pw.nth(0).fill('UiTesterPass!2026'); await pw.nth(1).fill('UiTesterPass!2026');
     await page.locator('button[type=submit]').click();
     await page.waitForURL(/\/(projects|onboarding)/, { timeout: 15000 });
   });
   await step('01b verify e-mail from the verification link', async () => {
-    await page.getByText(/Verify your e-mail address/).first().waitFor({ timeout: 15000 });
+    await page.getByText(/Verify your e-?mail address/).first().waitFor({ timeout: 15000 });
     const link = await mailLink(`ui${R}@e2e.local`, 'EMAIL_VERIFICATION');
     await page.goto(link);
     await page.getByText('E-mail verified').first().waitFor({ timeout: 15000 });

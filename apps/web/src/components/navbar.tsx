@@ -131,13 +131,13 @@ export function Navbar() {
 
   return (
     <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Link href={homeHref} className="flex items-center space-x-3" aria-label={t('common.brand')}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+        <div className="flex items-center min-w-0">
+          <Link href={homeHref} className="flex items-center gap-3 shrink-0" aria-label={t('common.brand')}>
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" />
             </div>
-            <span className="text-lg sm:text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
+            <span className="hidden sm:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               {t('common.brand')}
             </span>
           </Link>
@@ -169,7 +169,7 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="flex items-center space-x-3 text-xs">
+        <div className="flex items-center gap-1.5 sm:gap-3 text-xs min-w-0">
           <NavMoreMenu
             label={t('nav.more')}
             menuLabel={t('nav.secondary')}
@@ -201,7 +201,7 @@ export function Navbar() {
           <LanguageSwitcher />
 
           {currentUser ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-3">
               <NotificationsBell />
               <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
               <div className="hidden xl:flex flex-col items-end">
@@ -230,14 +230,14 @@ export function Navbar() {
             <div className="flex items-center gap-2">
               <Link
                 href="/login"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-muted font-medium transition-colors"
+                className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg border border-border text-foreground hover:bg-muted font-medium transition-colors"
               >
                 <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>{t('nav.login')}</span>
               </Link>
               <Link
                 href="/signup"
-                className="inline-flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-sm"
+                className="hidden sm:inline-flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-sm"
               >
                 <span>{t('nav.signup')}</span>
               </Link>

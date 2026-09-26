@@ -1,0 +1,27 @@
+/** Release matrix: which engines support which SAP releases. */
+export const matrix = {
+  eyebrow: 'Release coverage',
+  title: 'SAP release compatibility matrix',
+  intro: 'Which preflight engine supports which SAP product, edition and release, with the input formats it accepts and its verification status.',
+  staticSource: 'The analysis service is not reachable; the release catalogue shipped with the platform is shown.',
+  searchPlaceholder: 'Search engine or release…',
+  searchLabel: 'Search the release matrix',
+  domainsLabel: 'Filter by domain',
+  tableLabel: 'Engine release compatibility',
+  colEngine: 'Engine',
+  colDomain: 'Domain',
+  colRelease: 'Supported SAP releases',
+  colFormats: 'Input formats',
+  colStatus: 'Verification status',
+  colFixtures: 'Golden fixtures',
+  fixtures: '{count, plural, one {# fixture} other {# fixtures}}',
+  loading: 'Loading the release matrix…',
+  loadFailed: 'The release matrix could not be loaded.',
+  empty: 'No engine matches the current filter.',
+  status: {
+    SUPPORTED_VERIFIED: 'Verified',
+    SUPPORTED_BETA: 'Beta',
+    PARTIAL: 'Partial',
+    FILE_MODE_ONLY: 'File upload only',
+  },
+};

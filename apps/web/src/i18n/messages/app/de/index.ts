@@ -20,6 +20,8 @@ import { audit } from './audit';
 import { retention } from './retention';
 import { support } from './support';
 import { admin } from './admin';
+import { agentGate } from './agentGate';
+import { matrix } from './matrix';
 
 export const appDe: AppMessages = {
   ui,
@@ -42,4 +44,6 @@ export const appDe: AppMessages = {
   retention,
   support,
   admin,
+  agentGate,
+  matrix,
 };

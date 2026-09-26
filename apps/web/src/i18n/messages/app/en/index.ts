@@ -21,6 +21,8 @@ import { audit } from './audit';
 import { retention } from './retention';
 import { support } from './support';
 import { admin } from './admin';
+import { agentGate } from './agentGate';
+import { matrix } from './matrix';
 
 export const appEn = {
   ui,
@@ -43,6 +45,8 @@ export const appEn = {
   retention,
   support,
   admin,
+  agentGate,
+  matrix,
 };
 
 export type AppMessages = typeof appEn;

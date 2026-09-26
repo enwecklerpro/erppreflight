@@ -2,144 +2,144 @@
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CheckCircle2,
-  Search,
-  Filter,
-  Layers,
-  ShieldCheck,
-  ExternalLink,
-  Cpu,
-} from 'lucide-react';
-import { fetchReleaseMatrix, ReleaseMatrixEntry } from '@/lib/api-client';
+import { AlertTriangle, CheckCircle2, CircleDashed, Search, ShieldCheck } from 'lucide-react';
+import { fetchReleaseMatrix } from '@/lib/api-client';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
+import { ErrorState } from '@/components/commercial/states';
+import { useLabel, useT } from "@/i18n/client";
 
 export default function ReleaseMatrixPage() {
-  const { data: matrix = [], isLoading: loading } = useQuery({
-    queryKey: ['matrix'],
-    queryFn: fetchReleaseMatrix,
-  });
+  const t = useT();
+  const label = useLabel();
+  const domainLabel = useEngineDomainLabel();
+  const query = useQuery({ queryKey: ['matrix'], queryFn: fetchReleaseMatrix });
+  const matrix = query.data?.matrix ?? [];
   const [search, setSearch] = useState('');
   const [selectedDomain, setSelectedDomain] = useState('ALL');
 
   const domains = ['ALL', ...Array.from(new Set(matrix.map((m) => m.domain)))];
-
-  const filtered = matrix.filter((item) => {
-    const matchesDomain = selectedDomain === 'ALL' || item.domain === selectedDomain;
-    const matchesSearch =
-      item.engineName.toLowerCase().includes(search.toLowerCase()) ||
-      item.engineId.toLowerCase().includes(search.toLowerCase()) ||
-      item.targetRelease.toLowerCase().includes(search.toLowerCase());
-    return matchesDomain && matchesSearch;
-  });
+  const q = search.toLowerCase();
+  const filtered = matrix.filter(
+    (item) =>
+      (selectedDomain === 'ALL' || item.domain === selectedDomain) &&
+      (item.engineName.toLowerCase().includes(q) || item.engineId.toLowerCase().includes(q) || item.targetRelease.toLowerCase().includes(q))
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Banner */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3 border border-emerald-500/20">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Part 17 Release Governance
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Canonical SAP Release Compatibility Matrix
-          </h1>
-          <p className="mt-2 text-sm text-slate-400 max-w-2xl mx-auto">
-            Definitive verified coverage across all 19 preflight engines against SAP S/4HANA (2020..2025), S/4HANA Cloud (2408..2608), and ECC 6.0 EHP8.
-          </p>
+    <div className="space-y-6">
+      <div className="text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-3 border border-primary/20">
+          <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+          {t('app.matrix.eyebrow')}
         </div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">{t('app.matrix.title')}</h1>
+        <p className="mt-2 text-sm text-muted-foreground max-w-2xl mx-auto">{t('app.matrix.intro')}</p>
+      </div>
 
-        {/* Filter Controls */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search engine or release..."
-              className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-            />
-          </div>
+      {query.data?.source === 'STATIC_FALLBACK' && (
+        <p role="status" className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5" aria-hidden="true" />
+          {t('app.matrix.staticSource')}
+        </p>
+      )}
 
-          <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0">
-            {domains.map((dom) => (
-              <button
-                key={dom}
-                onClick={() => setSelectedDomain(dom)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  selectedDomain === dom
-                    ? 'bg-emerald-500 text-slate-950 font-bold'
-                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                }`}
-              >
-                {dom}
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="relative w-full lg:w-80">
+          <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('app.matrix.searchPlaceholder')}
+            aria-label={t('app.matrix.searchLabel')}
+            className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
         </div>
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('app.matrix.domainsLabel')}>
+          {domains.map((dom) => (
+            <button
+              key={dom}
+              type="button"
+              aria-pressed={selectedDomain === dom}
+              onClick={() => setSelectedDomain(dom)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                selectedDomain === dom ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground border border-border'
+              }`}
+            >
+              {dom === 'ALL' ? t('app.engineMatrix.domain.ALL') : domainLabel(dom)}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {/* Matrix Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
+      {query.isError ? (
+        <ErrorState title={t('app.matrix.loadFailed')} error={query.error} onRetry={() => query.refetch()} />
+      ) : (
+        <div className="bg-card border border-border rounded-xl overflow-x-auto shadow-sm">
+          <table className="w-full text-left text-sm border-collapse min-w-[860px]" aria-label={t('app.matrix.tableLabel')}>
+            <thead className="bg-muted/60 text-xs text-muted-foreground font-semibold uppercase tracking-wide border-b border-border">
               <tr>
-                <th className="p-3.5">Canonical Engine</th>
-                <th className="p-3.5">Domain</th>
-                <th className="p-3.5">Target SAP Release Scope</th>
-                <th className="p-3.5">Supported Formats</th>
-                <th className="p-3.5">Verification Status</th>
-                <th className="p-3.5 text-right">Golden Fixtures</th>
+                <th scope="col" className="p-3">{t('app.matrix.colEngine')}</th>
+                <th scope="col" className="p-3">{t('app.matrix.colDomain')}</th>
+                <th scope="col" className="p-3">{t('app.matrix.colRelease')}</th>
+                <th scope="col" className="p-3">{t('app.matrix.colFormats')}</th>
+                <th scope="col" className="p-3">{t('app.matrix.colStatus')}</th>
+                <th scope="col" className="p-3 text-right">{t('app.matrix.colFixtures')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-slate-300">
-              {loading ? (
+            <tbody className="divide-y divide-border">
+              {query.isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-500">
-                    Loading verified compatibility matrix...
-                  </td>
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">{t('app.matrix.loading')}</td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">{t('app.matrix.empty')}</td>
                 </tr>
               ) : (
-                filtered.map((item) => (
-                  <tr key={item.engineId} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="p-3.5">
-                      <div className="font-bold text-white text-sm">{item.engineName}</div>
-                      <div className="font-mono text-slate-500 text-[11px]">{item.engineId}</div>
-                    </td>
-                    <td className="p-3.5 text-slate-300 font-medium">{item.domain}</td>
-                    <td className="p-3.5">
-                      <span className="font-mono text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
-                        {item.targetRelease}
-                      </span>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="flex flex-wrap gap-1">
-                        {item.supportedFormats.map((fmt) => (
-                          <span
-                            key={fmt}
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700"
-                          >
-                            {fmt}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-3.5">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[11px] font-bold border border-emerald-500/20">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        SUPPORTED_VERIFIED
-                      </span>
-                    </td>
-                    <td className="p-3.5 text-right font-mono font-bold text-white">
-                      {item.verifiedFixtures} fixtures
-                    </td>
-                  </tr>
-                ))
+                filtered.map((item) => {
+                  const verified = item.status === 'SUPPORTED_VERIFIED';
+                  const StatusIcon = verified ? CheckCircle2 : CircleDashed;
+                  return (
+                    <tr key={item.engineId} className="hover:bg-muted/40 transition-colors align-top">
+                      <td className="p-3">
+                        <div className="font-bold text-foreground">{item.engineName}</div>
+                        <div className="font-mono text-muted-foreground text-xs">{item.engineId}</div>
+                      </td>
+                      <td className="p-3 text-muted-foreground">{domainLabel(item.domain)}</td>
+                      <td className="p-3">
+                        <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded border border-border">{item.targetRelease}</span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-1">
+                          {item.supportedFormats.map((f) => (
+                            <span key={f} className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                            verified ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                          }`}
+                        >
+                          <StatusIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                          {label('app.matrix.status', item.status)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                        {t('app.matrix.fixtures', { count: item.verifiedFixtures ?? 0 })}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
     </div>
   );
 }
