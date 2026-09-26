@@ -139,7 +139,7 @@ export function Navbar() {
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
+            <span className="hidden sm:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               ERP Preflight
             </span>
           </Link>
@@ -171,7 +171,7 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="flex items-center space-x-3 text-xs">
+        <div className="flex items-center space-x-2 sm:space-x-3 text-xs">
           <NavMoreMenu
             label={t('nav.more')}
             menuLabel={t('nav.secondary')}
@@ -203,7 +203,7 @@ export function Navbar() {
           <LanguageSwitcher />
 
           {currentUser ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <NotificationsBell />
               <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
               <div className="hidden xl:flex flex-col items-end">

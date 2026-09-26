@@ -16,6 +16,7 @@ import { isTracingConfigured } from '../../src/observability/tracing';
 import { TenancyContext } from '@erppreflight/tenancy';
 import { zodToOpenApi } from '../../src/common/openapi/zod-openapi';
 import { CreateConnectorSchema } from '../../src/modules/connectors/connectors.service';
+import { JwtStrategy } from '../../src/modules/auth/strategies/jwt.strategy';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const doubles = require('../doubles/doubles.cjs');
@@ -147,5 +148,33 @@ describe('Tracing & OpenAPI helpers', () => {
     expect(s.properties.type.enum).toContain('SAP_CLOUD_ALM');
     expect(s.properties.accessMode.default).toBe('READ_ONLY');
     expect(s.additionalProperties).toBe(false);
+  });
+});
+
+describe('JwtStrategy — partner delegated access (C §61)', () => {
+  const USER = '11111111-1111-4111-8111-111111111111';
+  const PARTNER_ORG = '22222222-2222-4222-8222-222222222222';
+  const CUSTOMER_ORG = '33333333-3333-4333-8333-333333333333';
+  const SESSION = '44444444-4444-4444-8444-444444444444';
+  const secret = (k: string) => (k === 'JWT_SECRET' ? 'x'.repeat(64) : undefined);
+  const config: any = { get: secret, getOrThrow: secret };
+  const future = new Date(Date.now() + 3600_000);
+  // Not a member of the customer org: member_role is null for CUSTOMER_ORG.
+  const row = { status: 'ACTIVE', system_role: 'USER', token_version: 0, session_id: SESSION, expires_at: future, member_role: null };
+  const make = () => new JwtStrategy(config, { query: async () => ({ rows: [row] }) } as any, { touch: () => undefined } as any);
+  const payload: any = { sub: USER, organizationId: PARTNER_ORG, email: 'p@example.com', role: 'ORGANIZATION_OWNER', tv: 0, jti: SESSION };
+
+  it('accepts a grant verified by TenancyMiddleware for exactly the requested tenant, with the delegated role', async () => {
+    const req = { tenantId: CUSTOMER_ORG, delegatedAccess: { tenantRole: 'MIGRATION_CONSULTANT', expiresAt: future } };
+    const user = await make().validate(req, payload);
+    expect(user).toMatchObject({ organizationId: CUSTOMER_ORG, role: 'MIGRATION_CONSULTANT', systemRole: 'USER' });
+  });
+
+  it('rejects non-members without a verified grant, with an expired grant, or for another tenant', async () => {
+    await expect(make().validate({ tenantId: CUSTOMER_ORG }, payload)).rejects.toThrow(/membership/);
+    const expired = { tenantRole: 'VIEWER', expiresAt: new Date(Date.now() - 1000) };
+    await expect(make().validate({ tenantId: CUSTOMER_ORG, delegatedAccess: expired }, payload)).rejects.toThrow(/membership/);
+    const other = { tenantRole: 'VIEWER', expiresAt: future };
+    await expect(make().validate({ delegatedAccess: other }, payload)).rejects.toThrow(/membership/);
   });
 });

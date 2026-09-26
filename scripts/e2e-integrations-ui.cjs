@@ -36,6 +36,22 @@ async function api(method, p, token, body) {
   const password = 'UiIntegrations!2026';
   const reg = await api('POST', '/auth/register', null, { email, password, fullName: 'Ingrid Integrations', organizationName: `Integrations UI ${R}` });
   const token = reg.accessToken;
+  // Analyses require a verified e-mail: follow the link from the dev mailbox (API with MAIL_TRANSPORT=dev).
+  let verified = false;
+  for (let i = 0; i < 20 && !verified; i++) {
+    const res = await fetch(`${A}/dev/mail/messages?to=${encodeURIComponent(email)}&limit=10`, {
+      headers: { 'X-Dev-Mailbox-Token': process.env.MAIL_DEV_OUTBOX_TOKEN || '' },
+    });
+    if (res.status !== 200) throw new Error(`dev mailbox unavailable (${res.status}); set MAIL_DEV_OUTBOX_TOKEN`);
+    const link = ((await res.json()).items || []).filter((m) => m.template === 'EMAIL_VERIFICATION').flatMap((m) => m.links || [])[0];
+    if (link) {
+      const v = await api('POST', '/auth/verify-email', null, { token: new URL(link).searchParams.get('token') });
+      verified = v.verified === true;
+    } else {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  if (!verified) throw new Error('e-mail verification failed');
   const project = await api('POST', '/projects', token, { name: `S/4 Upgrade ${R}`, targetRelease: 'S4H_2023' });
   const form = new FormData();
   form.append('file', new Blob([fs.readFileSync(path.join(ROOT, 'tests/fixtures/known_bad_billing_opd.xml'))]), 'known_bad_billing_opd.xml');
@@ -84,13 +100,15 @@ async function api(method, p, token, body) {
     await page.getByLabel(/Work Email/i).fill(email);
     await page.getByLabel(/^Password/i).fill(password);
     await page.locator('button[type=submit]').click();
-    await page.waitForURL(/\/projects/, { timeout: 20000 });
+    await page.waitForURL(/\/(projects|dashboard)/, { timeout: 20000 });
   });
 
   await step('02 integrations connectors tab', async () => {
     await page.goto(`${WEB}/integrations`);
     await page.getByText('Cloud ALM – S/4 program').waitFor({ timeout: 15000 });
+    await page.getByTestId('nav-more').click();
     await page.getByRole('link', { name: 'Integrations' }).first().waitFor();
+    await page.keyboard.press('Escape');
   });
 
   await step('03 test Cloud ALM connection shows capability handshake', async () => {

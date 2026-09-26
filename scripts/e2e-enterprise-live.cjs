@@ -70,7 +70,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function register(label) {
   const email = `${label}.${R}@e2e-enterprise.test`;
   const r = await call('POST', '/auth/register', { body: { email, password: 'EnterprisePass!2026', fullName: `${label} ${R}`, organizationName: `${label} Org ${R}` } });
+  if (!r.json?.accessToken) throw new Error(`register ${label} failed: ${r.status} ${r.text.slice(0, 200)}`);
+  await verifyEmail(email);
   return { email, token: r.json.accessToken, orgId: r.json.user.organizationId, userId: r.json.user.id };
+}
+
+/** Completes e-mail verification through the dev mailbox (API with MAIL_TRANSPORT=dev). */
+async function verifyEmail(email) {
+  const headers = { 'X-Dev-Mailbox-Token': process.env.MAIL_DEV_OUTBOX_TOKEN || '' };
+  for (let i = 0; i < 20; i++) {
+    const res = await fetch(`${A}/dev/mail/messages?to=${encodeURIComponent(email)}&limit=10`, { headers });
+    if (res.status !== 200) throw new Error(`dev mailbox unavailable (${res.status}); run the API with MAIL_TRANSPORT=dev and pass MAIL_DEV_OUTBOX_TOKEN`);
+    const items = (await res.json()).items || [];
+    const link = items.filter((m) => m.template === 'EMAIL_VERIFICATION').flatMap((m) => m.links || [])[0];
+    if (link) {
+      const token = new URL(link).searchParams.get('token');
+      const v = await call('POST', '/auth/verify-email', { body: { token } });
+      if (v.json?.verified !== true) throw new Error(`verify ${email} failed: ${v.status}`);
+      return;
+    }
+    await sleep(250);
+  }
+  throw new Error(`no verification e-mail for ${email}`);
 }
 
 async function pg(sql, params = []) {
@@ -289,6 +310,15 @@ async function pg(sql, params = []) {
   check('OIDC code+PKCE login issues the regular session JWT (JIT user, VIEWER)', me.status === 200 && me.json.user.organizationId === alice.orgId && me.json.user.role === 'VIEWER', done.split('#')[0]);
   const viewerWrite = await call('POST', '/connectors', { token: ssoToken, body: { type: 'FILE', name: 'x' } });
   check('JIT-provisioned VIEWER is still bound by RolesGuard', viewerWrite.status === 403);
+  const [ssoSession] = await pg(
+    `SELECT s.auth_method, u.email_verified_at IS NOT NULL AS verified FROM user_sessions s JOIN users u ON u.id = s.user_id
+      WHERE u.email = $1 ORDER BY s.created_at DESC LIMIT 1`,
+    [ssoUser]
+  );
+  check('SSO login registers a server-side session (auth_method SSO) and marks the IdP-verified e-mail verified', ssoSession?.auth_method === 'SSO' && ssoSession?.verified === true);
+  await call('POST', '/auth/logout', { token: ssoToken });
+  const afterLogout = await call('GET', '/auth/me', { token: ssoToken });
+  check('logging out revokes the SSO session like any password session', afterLogout.status === 401);
   await fetch(`${D.oidc.issuer}/__control/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ssoUser, tamper: 'nonce' }) });
   const bad = await doLogin();
   check('ID token with a wrong nonce is rejected', /sso_error=SSO_LOGIN_FAILED/.test(bad));

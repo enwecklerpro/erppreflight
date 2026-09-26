@@ -517,10 +517,17 @@ export class SsoService {
       userId = uuidv4();
       // SSO-only account: the password hash is not an Argon2 hash, so password login is impossible.
       await this.db.query(
-        `INSERT INTO users (id, email, password_hash, full_name, system_role, status) VALUES ($1,$2,$3,$4,'USER','ACTIVE')`,
+        `INSERT INTO users (id, email, password_hash, full_name, system_role, status, email_verified_at)
+         VALUES ($1,$2,$3,$4,'USER','ACTIVE',NOW())`,
         [userId, email, '!sso-only', fullName],
         { bypassRls: true }
       );
+    } else {
+      // The IdP asserted email_verified for an address on a DNS-verified domain of this
+      // organization: that proves mailbox ownership as strongly as the e-mail link does.
+      await this.db.query(`UPDATE users SET email_verified_at = NOW() WHERE id = $1 AND email_verified_at IS NULL`, [userId], {
+        bypassRls: true,
+      });
     }
     const member = await this.db.query(`SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`, [organizationId, userId], {
       tenantId: organizationId,
