@@ -108,6 +108,16 @@ export function SiteFooter({ locale }: { locale: Locale }) {
               </Link>
             </li>
             <li>
+              <Link className="hover:text-foreground" href={lp('/legal/subprocessors')}>
+                {t('footer.subprocessors')}
+              </Link>
+            </li>
+            <li>
+              <Link className="hover:text-foreground" href={lp('/legal/dpa')}>
+                {t('footer.dpa')}
+              </Link>
+            </li>
+            <li>
               <CookieSettingsButton label={t('footer.cookieSettings')} />
             </li>
           </ul>

@@ -85,7 +85,7 @@ When a document is saved without the expected output, the cause is usually one o
 - Verify that referenced form templates, email templates and output types exist in the target system.
 - Treat decision table content as transportable configuration: review which transport carries which change.
 
-ERP Preflight's OPD Guard parses exported BRFplus/decision table content and reports missing steps, unmatched combinations and dangling references with the exact artifact location as evidence. See [Output & Extensibility](/solutions/output-extensibility) for the related engines.`,
+ERP Preflight's OPD Guard parses exported BRFplus/decision table content and reports missing steps, unmatched combinations and dangling references with the exact artifact location as evidence. See [Output & Extensibility](/en/solutions/output-extensibility) for the related engines.`,
       },
       de: {
         title: 'So funktioniert die Ausgabeparameterfindung mit BRFplus in SAP S/4HANA',
@@ -162,7 +162,7 @@ SAP has since refined this guidance into more granular clean core levels. Always
 3. Prioritise objects with direct table mutations and modifications.
 4. Plan successors: released CDS views, released APIs or extension points.
 
-ERP Preflight's Clean Core Object Guard classifies custom code and its dependencies deterministically and records each finding with file, line and hash evidence. See [Migration & Clean Core](/solutions/migration-clean-core).`,
+ERP Preflight's Clean Core Object Guard classifies custom code and its dependencies deterministically and records each finding with file, line and hash evidence. See [Migration & Clean Core](/en/solutions/migration-clean-core).`,
       },
       de: {
         title: 'Clean-Core-Erweiterbarkeit erklärt: Stufen, freigegebene APIs und klassische Modifikationen',
@@ -238,7 +238,7 @@ For this chain to work, several settings must fit together:
 3. Check activation (BD61, BD50) and the distribution model in the same system.
 4. Verify that pointers are processed: job scheduling and processing status.
 
-ERP Preflight's Change Pointer Coverage Auditor compares required fields with exported change pointer configuration and reports uncovered fields with evidence. See [Integration](/solutions/integration).`,
+ERP Preflight's Change Pointer Coverage Auditor compares required fields with exported change pointer configuration and reports uncovered fields with evidence. See [Integration](/en/solutions/integration).`,
       },
       de: {
         title: 'Änderungszeiger und BD52: warum Stammdatenänderungen nicht verteilt werden',
@@ -312,7 +312,7 @@ Dependencies typically arise when:
 
 Software collections in cloud landscapes have the same problem at another level: an exported collection must contain everything its items depend on.
 
-ERP Preflight's Transport Dependency Analyzer builds this dependency graph from exported transport data and reports missing predecessors and order conflicts with evidence. See [Release & Transport](/solutions/release-transport).`,
+ERP Preflight's Transport Dependency Analyzer builds this dependency graph from exported transport data and reports missing predecessors and order conflicts with evidence. See [Release & Transport](/en/solutions/release-transport).`,
       },
       de: {
         title: 'Transportabhängigkeiten: warum Importe fehlschlagen oder in falscher Reihenfolge die Produktion stören',
@@ -379,7 +379,7 @@ HTTP **403 Forbidden** means the request reached the server and the user was aut
 4. Verify that the ICF service is active in every system of the landscape.
 5. Fix the role design, not the individual user, so the fix is transportable.
 
-ERP Preflight's Fiori 403 Root-Cause Doctor correlates role exports, service definitions and trace data to name the missing link with evidence. See [Operations](/solutions/operations).`,
+ERP Preflight's Fiori 403 Root-Cause Doctor correlates role exports, service definitions and trace data to name the missing link with evidence. See [Operations](/en/solutions/operations).`,
       },
       de: {
         title: 'Fehlersuche bei HTTP 403 Forbidden in SAP-Fiori-Apps',
@@ -445,7 +445,7 @@ Typical usages are:
 3. Check the business scenarios that copy the field between contexts.
 4. Confirm that form templates and APIs actually reference the field.
 
-ERP Preflight's Custom Field Flow Doctor reconstructs this lineage from exported extension metadata and reports the exact step where the field is lost. See [Output & Extensibility](/solutions/output-extensibility).`,
+ERP Preflight's Custom Field Flow Doctor reconstructs this lineage from exported extension metadata and reports the exact step where the field is lost. See [Output & Extensibility](/en/solutions/output-extensibility).`,
       },
       de: {
         title: 'Zusatzfelder mit Key-User-Erweiterbarkeit: warum ein Feld nicht in App, Formular oder API erscheint',
@@ -513,7 +513,7 @@ An SAP Business Workflow instance consists of steps. Each step creates a **work 
 
 Test agent rules with realistic organisational data, monitor work items in error status, and keep event linkages and workflow customizing aligned across the landscape.
 
-ERP Preflight's Workflow Stuck Explainer analyses exported work item and configuration data and explains the blocking cause with evidence. See [Operations](/solutions/operations).`,
+ERP Preflight's Workflow Stuck Explainer analyses exported work item and configuration data and explains the blocking cause with evidence. See [Operations](/en/solutions/operations).`,
       },
       de: {
         title: 'Warum Workitems im SAP Business Workflow hängen bleiben und wie Sie die Ursache finden',

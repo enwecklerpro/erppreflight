@@ -47,7 +47,7 @@ export default function ExecutiveDashboard() {
       <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl p-6 sm:p-8 shadow-md">
         <div className="max-w-3xl">
           <span className="text-xs uppercase font-bold tracking-wider text-blue-300">
-            Astra Ultra Preflight Platform
+            Executive dashboard
           </span>
           <h1 className="text-2xl sm:text-3xl font-extrabold mt-1">
             Executive Clean Core & Preflight Intelligence

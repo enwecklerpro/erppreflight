@@ -11,7 +11,13 @@ import {
   Plug,
   CheckCircle2,
   AlertTriangle,
+  Upload,
+  Cable,
+  BookOpen,
+  FileText,
+  Sparkles,
 } from 'lucide-react';
+import { fetchKnowledgeListSafe } from '../../lib/knowledge';
 import { getMessages, getT } from '../../i18n/translate';
 import { localizePath } from '../../lib/routing';
 import { SOLUTION_SLUGS, TOTAL_ENGINE_COUNT, enginesForSolution } from '../../lib/solutions';
@@ -40,6 +46,8 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
   const lp = (p: string) => localizePath(locale, p);
   const plans = getPublicPlans();
   const prices = plans.map((p) => p.priceEurMonthly).filter((p): p is number => p !== null);
+  // Optional teaser: the homepage renders fully even if the knowledge API is down.
+  const articles = await fetchKnowledgeListSafe(locale);
 
   const structuredData = [
     {
@@ -89,7 +97,7 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
             href="/signup"
             className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
           >
-            {t('common.runPreflight')}
+            {t('common.startFree')}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
           <Link
@@ -147,6 +155,20 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
             );
           })}
         </ol>
+      </section>
+
+      {/* File-first & connectors */}
+      <section className="grid gap-5 md:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-6">
+          <Upload className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h2 className="mt-3 text-lg font-bold">{t('home.fileFirstTitle')}</h2>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{t('home.fileFirstBody')}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <Cable className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h2 className="mt-3 text-lg font-bold">{t('home.connectorsTitle')}</h2>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{t('home.connectorsBody')}</p>
+        </div>
       </section>
 
       {/* 3. Solution areas */}
@@ -247,6 +269,50 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
           {t('footer.docs')}
           <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
+      </section>
+
+      {/* Knowledge, docs & demo */}
+      <section className="grid gap-5 lg:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-6 lg:col-span-2">
+          <BookOpen className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h2 className="mt-3 text-lg font-bold">{t('home.knowledgeTitle')}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t('home.knowledgeBody')}</p>
+          {articles && articles.length > 0 && (
+            <ul className="mt-4 space-y-2 text-sm">
+              {articles.slice(0, 4).map((a) => (
+                <li key={a.slug}>
+                  <Link href={lp(`/knowledge/${a.slug}`)} className="text-foreground hover:text-primary underline-offset-2 hover:underline">
+                    {a.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link href={lp('/knowledge')} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+            {t('home.knowledgeCta')}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        </div>
+        <div className="grid gap-5">
+          <div className="rounded-xl border border-border bg-card p-6">
+            <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
+            <h2 className="mt-3 text-lg font-bold">{t('home.docsTitle')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t('home.docsBody')}</p>
+            <Link href="/docs" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+              {t('footer.docs')}
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-6">
+            <Sparkles className="h-5 w-5 text-primary" aria-hidden="true" />
+            <h2 className="mt-3 text-lg font-bold">{t('home.demoTitle')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t('home.demoBody')}</p>
+            <Link href="/demo" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+              {t('common.exploreFreeTools')}
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </div>
+        </div>
       </section>
 
       {/* 9. Pricing */}

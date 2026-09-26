@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Check, Minus } from 'lucide-react';
-import { LOCALE_TAGS, type Locale } from '../../../i18n/config';
-import { getMessages, getT, type TFunction } from '../../../i18n/translate';
+import type { Locale } from '../../../i18n/config';
+import { getFormat, getMessages, getT, type TFunction } from '../../../i18n/translate';
 import { getPublicPlans, type PublicPlan } from '../../../lib/plans';
 import { localizedUrl, publicPageMetadata } from '../../../lib/seo';
 import { JsonLd, breadcrumbJsonLd } from '../../../components/public/json-ld';
@@ -22,15 +22,15 @@ export async function generateMetadata({ params }: { params: LocaleParams }): Pr
 function formatPrice(plan: PublicPlan, locale: Locale, t: TFunction): string {
   if (plan.priceEurMonthly === null) return t('common.contactSales');
   if (plan.priceEurMonthly === 0) return t('pricing.free');
-  return new Intl.NumberFormat(LOCALE_TAGS[locale], {
+  return getFormat(locale).number(plan.priceEurMonthly, {
     style: 'currency',
     currency: 'EUR',
     maximumFractionDigits: 0,
-  }).format(plan.priceEurMonthly);
+  });
 }
 
 function formatLimit(value: number, locale: Locale, t: TFunction): string {
-  return value < 0 ? t('pricing.unlimited') : new Intl.NumberFormat(LOCALE_TAGS[locale]).format(value);
+  return value < 0 ? t('pricing.unlimited') : getFormat(locale).number(value);
 }
 
 function Feature({ enabled, label, t }: { enabled: boolean; label: string; t: TFunction }) {

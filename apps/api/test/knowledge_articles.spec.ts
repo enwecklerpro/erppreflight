@@ -71,7 +71,7 @@ describe('knowledge seed content', () => {
     for (const a of KNOWLEDGE_SEED) {
       expect(a.relatedEngineTypes.length).toBeGreaterThan(0);
       for (const e of a.relatedEngineTypes) expect(CANONICAL_ENGINE_IDS).toContain(e);
-      const en = a.translations.en.body.match(/\]\(\/solutions\/([a-z-]+)\)/);
+      const en = a.translations.en.body.match(/\]\(\/en\/solutions\/([a-z-]+)\)/);
       const de = a.translations.de.body.match(/\]\(\/de\/solutions\/([a-z-]+)\)/);
       expect(en && SOLUTION_SLUGS.includes(en[1]), `${a.slug} EN solution link`).toBe(true);
       expect(de && SOLUTION_SLUGS.includes(de[1]), `${a.slug} DE solution link`).toBe(true);

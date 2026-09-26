@@ -48,10 +48,10 @@ describe('SEO route inventory', () => {
     for (const route of PUBLIC_INDEXABLE_ROUTES) expect(publicRouteExists(route), route).toBe(true);
     for (const route of LOCALIZED_PUBLIC_ROUTES) expect(localizedRouteExists(route), route).toBe(true);
     const urls = entries.map((e) => e.url);
-    expect(urls).toContain('https://erppreflight.com');
+    expect(urls).toContain('https://erppreflight.com/en');
     expect(urls).toContain('https://erppreflight.com/de');
     expect(urls).toContain('https://erppreflight.com/de/pricing');
-    for (const bad of ['/lab', '/trust-center', '/projects', '/dashboard', '/en/pricing']) {
+    for (const bad of ['/lab', '/trust-center', '/projects', '/dashboard', 'erppreflight.com/pricing']) {
       expect(urls.some((u) => u.endsWith(bad))).toBe(false);
     }
   });
@@ -69,7 +69,7 @@ describe('SEO route inventory', () => {
     const article = entries.find((e) => e.url === 'https://erppreflight.com/de/knowledge/change-pointers-bd52');
     expect(article).toBeDefined();
     expect(article!.alternates?.languages).toMatchObject({
-      en: 'https://erppreflight.com/knowledge/change-pointers-bd52',
+      en: 'https://erppreflight.com/en/knowledge/change-pointers-bd52',
       de: 'https://erppreflight.com/de/knowledge/change-pointers-bd52',
     });
   });
@@ -121,9 +121,9 @@ describe('SEO route inventory', () => {
     const md = publicPageMetadata({ locale: 'de', path: '/pricing', title: 'Preise', description: 'd' });
     expect(md.alternates?.canonical).toBe('https://erppreflight.com/de/pricing');
     expect(md.alternates?.languages).toEqual({
-      en: 'https://erppreflight.com/pricing',
+      en: 'https://erppreflight.com/en/pricing',
       de: 'https://erppreflight.com/de/pricing',
-      'x-default': 'https://erppreflight.com/pricing',
+      'x-default': 'https://erppreflight.com/en/pricing',
     });
     expect(md.openGraph).toMatchObject({ locale: 'de_DE', url: 'https://erppreflight.com/de/pricing' });
     expect(hreflangAlternates('/knowledge/x', ['de'])).toEqual({ de: 'https://erppreflight.com/de/knowledge/x' });

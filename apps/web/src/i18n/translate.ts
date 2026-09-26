@@ -1,8 +1,12 @@
+import { createTranslator as createIntlTranslator, createFormatter } from 'next-intl';
 import { en, type Messages } from './messages/en';
 import { de } from './messages/de';
 import type { Locale } from './config';
 
 export type { Messages };
+
+/** Time zone used for all formatting so server and client output match. */
+export const I18N_TIME_ZONE = 'UTC';
 
 const DICTIONARIES: Record<Locale, Messages> = { en, de };
 
@@ -14,7 +18,7 @@ type StringLeaves<T, P extends string = ''> = {
       ? never
       : T[K] extends Record<string, string>
         ? string extends keyof T[K]
-          ? never // open records (e.g. engines) are accessed via `messages`
+          ? never // open records (e.g. engines) are read via getMessages()
           : StringLeaves<T[K], `${P}${K}.`>
         : StringLeaves<T[K], `${P}${K}.`>;
 }[keyof T & string];
@@ -23,37 +27,39 @@ export type MessageKey = StringLeaves<Messages>;
 export type TranslateVars = Record<string, string | number>;
 export type TFunction = (key: MessageKey, vars?: TranslateVars) => string;
 
+/** Typed dictionary for structured content (lists, FAQ entries, records). */
 export function getMessages(locale: Locale): Messages {
   return DICTIONARIES[locale] ?? en;
 }
 
-export function interpolate(template: string, vars?: TranslateVars): string {
-  if (!vars) return template;
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match
-  );
-}
-
-function lookup(messages: Messages, key: string): string | undefined {
-  let node: unknown = messages;
-  for (const part of key.split('.')) {
-    if (node && typeof node === 'object' && part in (node as Record<string, unknown>)) {
-      node = (node as Record<string, unknown>)[part];
-    } else {
-      return undefined;
-    }
-  }
-  return typeof node === 'string' ? node : undefined;
-}
-
 /**
- * Creates a typed translator. Missing keys (impossible for typed callers) fall
- * back to English and finally to the key itself, so the UI never renders blank.
+ * Typed translator backed by next-intl (ICU message syntax, e.g. `{count}`).
+ * Usable in server components, route handlers, metadata and tests:
+ * `const t = getT(locale); t('nav.pricing')`.
+ * Missing messages fall back to English, then to the key, so the UI never renders blank.
  */
-export function createTranslator(locale: Locale): TFunction {
-  const messages = getMessages(locale);
-  return (key, vars) => interpolate(lookup(messages, key) ?? lookup(en, key) ?? key, vars);
+export function getT(locale: Locale): TFunction {
+  const t = createIntlTranslator({
+    locale,
+    messages: getMessages(locale),
+    timeZone: I18N_TIME_ZONE,
+    onError: () => undefined,
+    getMessageFallback: ({ key, namespace }) => {
+      const full = namespace ? `${namespace}.${key}` : key;
+      const fallback = createIntlTranslator({ locale: 'en', messages: en, timeZone: I18N_TIME_ZONE, onError: () => undefined });
+      try {
+        return (fallback as unknown as (k: string) => string)(full);
+      } catch {
+        return full;
+      }
+    },
+  }) as unknown as (key: string, vars?: TranslateVars) => string;
+  return (key, vars) => t(key, vars);
 }
 
-/** Server/shared helper: `const t = getT(locale); t('nav.pricing')`. */
-export const getT = createTranslator;
+export const createTranslator = getT;
+
+/** Locale-aware date/number formatting (next-intl formatter). */
+export function getFormat(locale: Locale) {
+  return createFormatter({ locale, timeZone: I18N_TIME_ZONE });
+}

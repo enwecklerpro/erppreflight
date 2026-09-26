@@ -1,20 +1,12 @@
-import { cookies, headers } from 'next/headers';
-import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_HEADER, isLocale, type Locale } from './config';
+import { getLocale } from 'next-intl/server';
+import { toLocale, type Locale } from './config';
 
 /**
- * Locale of the current request for server components outside the `[locale]`
- * segment (root layout, not-found, app pages). Resolution order:
- * 1. header set by middleware (URL prefix for public pages, cookie for app pages);
- * 2. the `erp_locale` preference cookie;
- * 3. English.
+ * Locale of the current request for server components outside `app/[locale]`
+ * (root layout, not-found, app pages). Resolved by next-intl: URL segment on
+ * public pages, preference cookie on app pages (see i18n/request.ts).
  * Pages under `app/[locale]` should use their `params.locale` instead.
  */
 export async function getRequestLocale(): Promise<Locale> {
-  const h = await headers();
-  const fromHeader = h.get(LOCALE_HEADER);
-  if (isLocale(fromHeader)) return fromHeader;
-  const c = await cookies();
-  const fromCookie = c.get(LOCALE_COOKIE)?.value;
-  if (isLocale(fromCookie)) return fromCookie;
-  return DEFAULT_LOCALE;
+  return toLocale(await getLocale());
 }

@@ -11,7 +11,8 @@ export const de: Messages = {
     subheadline:
       'Prüfen Sie ERP-Ausgaben, Erweiterungen, Schnittstellen, Transporte, Migrationen und betriebliche Änderungen, bevor sie scheitern.',
     runPreflight: 'Preflight starten',
-    exploreFreeTools: 'Kostenlose Tools ansehen',
+    exploreFreeTools: 'Demo-Sandbox ausprobieren',
+    startFree: 'Kostenlos starten',
     learnMore: 'Mehr erfahren',
     contactSales: 'Vertrieb kontaktieren',
     backHome: 'Zur Startseite',
@@ -37,7 +38,10 @@ export const de: Messages = {
     landscapes: 'Landschaften',
     agentGate: 'Agent Gate',
     settings: 'Einstellungen',
-    admin: 'Admin Trust Center',
+    admin: 'Administration',
+    analyze: 'Analysieren',
+    more: 'Mehr',
+    secondary: 'Weitere Bereiche',
     solutions: 'Lösungen',
     pricing: 'Preise',
     knowledge: 'Wissen',
@@ -67,6 +71,8 @@ export const de: Messages = {
     status: 'Systemstatus',
     changelog: 'Änderungsprotokoll',
     docs: 'Dokumentation',
+    subprocessors: 'Unterauftragsverarbeiter',
+    dpa: 'Auftragsverarbeitungsvertrag',
     disclaimer:
       'SAP, S/4HANA und andere hier genannte SAP-Produkte und -Dienstleistungen sind Marken oder eingetragene Marken der SAP SE (oder eines SAP-Konzernunternehmens) in Deutschland und anderen Ländern. ERP Preflight ist ein unabhängiges Produkt und steht in keiner Verbindung zur SAP SE; es wird von der SAP SE weder unterstützt noch gesponsert.',
     rights: 'Alle Rechte vorbehalten.',
@@ -130,6 +136,19 @@ export const de: Messages = {
     integrationsTitle: 'Offene Schnittstellen',
     integrationsBody:
       'Nutzen Sie die Ergebnisse dort, wo Ihr Team bereits arbeitet: eine dokumentierte REST-API mit OpenAPI-Beschreibung, Webhooks, ein Model-Context-Protocol-Server (MCP) für KI-Agenten und Berichtsexporte.',
+    fileFirstTitle: 'File-first: Starten Sie mit den Exporten, die Sie schon haben',
+    fileFirstBody:
+      'Jede Analyse läuft auf exportierten Artefakten — Konfigurations- und Entscheidungstabellenexporte, ABAP-Quellen, ATC- und Readiness-Check-Ergebnisse, Transportdaten, Protokolle. Für die ersten Befunde sind weder Systemzugriff noch Installation nötig.',
+    connectorsTitle: 'Konnektoren, wo sie helfen',
+    connectorsBody:
+      'Befunde lassen sich mit Delivery-Tools wie Jira und SAP Cloud ALM synchronisieren. Direkte lesende Systemkonnektoren und ein lokaler Agent für private Bereitstellungen sind in Planung; bis dahin ist der Upload der unterstützte Weg.',
+    knowledgeTitle: 'Aus der Wissensdatenbank',
+    knowledgeBody: 'Fachlich geprüfte Erklärungen zu den SAP-Themen hinter typischen Änderungsfehlern.',
+    knowledgeCta: 'Wissensdatenbank öffnen',
+    docsTitle: 'Dokumentation',
+    docsBody: 'Engine-Referenz, Belegmodell, API- und MCP-Integration.',
+    demoTitle: 'Auf Beispieldaten ansehen',
+    demoBody: 'Die Demo-Sandbox legt in Ihrem Workspace ein synthetisches Beispielprojekt an, in dem Sie Befunde und Belege erkunden können.',
     pricingTitle: 'Pläne für Einzelprojekte und ganze Landschaften',
     pricingBody:
       'Starten Sie mit einer kostenlosen Sandbox und wechseln Sie in einen Plan, wenn Ihr Programm mehr Projekte und Analysen braucht.',
@@ -411,7 +430,7 @@ export const de: Messages = {
         },
         {
           heading: 'Auftragsverarbeiter',
-          body: 'Hosting- und Speicheranbieter verarbeiten Daten in unserem Auftrag auf Grundlage von Auftragsverarbeitungsverträgen. Die aktuelle Liste ist im Trust Center veröffentlicht.',
+          body: 'Hosting- und Speicheranbieter verarbeiten Daten in unserem Auftrag auf Grundlage von Auftragsverarbeitungsverträgen. Die aktuelle Liste ist auf der Seite der Unterauftragsverarbeiter veröffentlicht.',
         },
         {
           heading: 'Speicherdauer',
@@ -471,6 +490,32 @@ export const de: Messages = {
         { name: 'erppreflight_token, erppreflight_tenant_id', purpose: 'Browserspeicher für das API-Sitzungstoken und die aktive Organisation.', duration: 'Bis zur Abmeldung' },
       ],
       manage: 'Auswahl ändern',
+    },
+    subprocessors: {
+      title: 'Unterauftragsverarbeiter',
+      metaDescription: 'Dienstleister, die im Auftrag des Betreibers von ERP Preflight Kundendaten verarbeiten.',
+      intro: 'Der Betreiber setzt zur Erbringung des Dienstes die folgenden Unterauftragsverarbeiter ein.',
+      name: 'Unterauftragsverarbeiter',
+      purpose: 'Zweck',
+      region: 'Standort',
+      notConfigured:
+        'Der Betreiber dieser Installation hat seine Liste der Unterauftragsverarbeiter noch nicht veröffentlicht (NEXT_PUBLIC_LEGAL_SUBPROCESSORS). Die aktuelle Liste erhalten Sie beim Betreiber.',
+    },
+    dpa: {
+      title: 'Auftragsverarbeitungsvertrag',
+      metaDescription: 'Auftragsverarbeitungsvertrag (Art. 28 DSGVO) für ERP Preflight anfordern.',
+      intro:
+        'Geschäftskunden, die Artefakte mit personenbezogenen Daten hochladen, benötigen einen Auftragsverarbeitungsvertrag nach Art. 28 DSGVO. Der Betreiber stellt ihn auf Anfrage bereit.',
+      includesTitle: 'Der Vertrag regelt',
+      includes: [
+        'Gegenstand, Dauer, Art und Zweck der Verarbeitung',
+        'Kategorien von Daten und betroffenen Personen',
+        'Technische und organisatorische Maßnahmen',
+        'Einsatz von Unterauftragsverarbeitern',
+        'Unterstützung bei Betroffenenanfragen und Löschung zum Vertragsende',
+      ],
+      requestCta: 'Auftragsverarbeitungsvertrag anfordern',
+      emailSubject: 'Anfrage Auftragsverarbeitungsvertrag',
     },
   },
   cookieConsent: {

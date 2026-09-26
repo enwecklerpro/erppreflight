@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { en } from '../i18n/messages/en';
 import { de } from '../i18n/messages/de';
-import { createTranslator, interpolate } from '../i18n/translate';
+import { createTranslator, getFormat } from '../i18n/translate';
 import { CANONICAL_ENGINES } from '../lib/api-client';
 import { SOLUTION_SLUGS } from '../lib/solutions';
 
@@ -68,7 +68,20 @@ describe('translator', () => {
     expect(createTranslator('de')('common.engineCount', { count: 19 })).toBe('19 Analyse-Engines');
   });
 
-  it('leaves unknown placeholders untouched', () => {
-    expect(interpolate('a {x} {y}', { x: 1 })).toBe('a 1 {y}');
+  it('formats numbers and dates per locale via next-intl', () => {
+    expect(getFormat('de').number(1490)).toBe('1.490');
+    expect(getFormat('en').number(1490)).toBe('1,490');
+    expect(getFormat('de').dateTime(new Date('2026-09-26T00:00:00Z'), { dateStyle: 'long' })).toBe('26. September 2026');
+  });
+
+  it('every message is valid ICU syntax (renders without throwing)', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const t = createTranslator(locale);
+      for (const key of Object.keys(flatten(locale === 'en' ? en : de))) {
+        if (key.includes('[') || key.startsWith('engines.')) continue;
+        expect(() => t(key as never, { count: 1, language: 'x' }), `${locale} ${key}`).not.toThrow();
+        expect(t(key as never, { count: 1, language: 'x' }), `${locale} ${key}`).not.toBe(key);
+      }
+    }
   });
 });

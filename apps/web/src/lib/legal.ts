@@ -17,6 +17,8 @@ export interface LegalOperator {
   email: string | null;
   phone: string | null;
   responsiblePerson: string | null;
+  /** Operator-maintained subprocessor list (NEXT_PUBLIC_LEGAL_SUBPROCESSORS). */
+  subprocessors: { name: string; purpose: string; region: string }[];
   configured: boolean;
 }
 
@@ -29,7 +31,18 @@ export const LEGAL_ENV_KEYS = {
   email: 'EMAIL',
   phone: 'PHONE',
   responsiblePerson: 'RESPONSIBLE_PERSON',
+  /** Entries separated by "|", fields by ";": "Name;Purpose;Region|Name;Purpose;Region" */
+  subprocessors: 'SUBPROCESSORS',
 } as const;
+
+function parseSubprocessors(raw: string | null): LegalOperator['subprocessors'] {
+  if (!raw) return [];
+  return raw
+    .split('|')
+    .map((entry) => entry.split(';').map((f) => f.trim()))
+    .filter((f) => f[0])
+    .map(([name, purpose = '', region = '']) => ({ name, purpose, region }));
+}
 
 function readEnv(suffix: string, env: Record<string, string | undefined>): string | null {
   const key = ['NEXT_PUBLIC_LEGAL', suffix].join('_');
@@ -57,6 +70,7 @@ export function readLegalOperator(env: Record<string, string | undefined> = proc
     email,
     phone: readEnv(LEGAL_ENV_KEYS.phone, env),
     responsiblePerson: readEnv(LEGAL_ENV_KEYS.responsiblePerson, env),
+    subprocessors: parseSubprocessors(readEnv(LEGAL_ENV_KEYS.subprocessors, env)),
     configured: Boolean(companyName && address.length > 0 && email),
   };
 }

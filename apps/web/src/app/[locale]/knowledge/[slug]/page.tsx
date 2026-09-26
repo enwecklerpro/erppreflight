@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertCircle, ArrowRight, CalendarCheck, ExternalLink, Info } from 'lucide-react';
-import { LOCALE_TAGS, type Locale } from '../../../../i18n/config';
-import { getMessages, getT } from '../../../../i18n/translate';
+import type { Locale } from '../../../../i18n/config';
+import { getFormat, getMessages, getT } from '../../../../i18n/translate';
 import { localizePath } from '../../../../lib/routing';
 import { getAppBaseUrl, localizedUrl, publicPageMetadata } from '../../../../lib/seo';
 import { engineName, solutionForEngine, type SolutionSlug } from '../../../../lib/solutions';
@@ -75,7 +75,7 @@ export default async function KnowledgeArticlePage({ params }: { params: Params 
 
   const article = result.article;
   const m = getMessages(locale);
-  const dateFormat = new Intl.DateTimeFormat(LOCALE_TAGS[locale], { dateStyle: 'long', timeZone: 'UTC' });
+  const format = getFormat(locale);
   const url = localizedUrl(locale, `/knowledge/${article.slug}`);
   const solutions = Array.from(
     new Set(article.relatedEngineTypes.map(solutionForEngine).filter((s): s is SolutionSlug => s !== null))
@@ -138,7 +138,7 @@ export default async function KnowledgeArticlePage({ params }: { params: Params 
               <CalendarCheck className="h-3.5 w-3.5" aria-hidden="true" />
               <dt>{t('common.lastReviewed')}:</dt>
               <dd>
-                <time dateTime={article.reviewedAt}>{dateFormat.format(new Date(article.reviewedAt))}</time>
+                <time dateTime={article.reviewedAt}>{format.dateTime(new Date(article.reviewedAt), { dateStyle: 'long' })}</time>
               </dd>
             </div>
           )}

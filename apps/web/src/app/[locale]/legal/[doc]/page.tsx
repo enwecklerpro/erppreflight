@@ -134,6 +134,63 @@ export default async function LegalPage({ params }: { params: Params }) {
           </section>
         ))}
 
+      {doc === 'subprocessors' && (
+        <>
+          <p className="text-sm text-muted-foreground leading-relaxed">{legal.subprocessors.intro}</p>
+          {operator.subprocessors.length === 0 ? (
+            <div role="status" data-testid="subprocessors-not-configured" className="flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800">
+              <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {legal.subprocessors.notConfigured}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th scope="col" className="p-3 font-semibold">{legal.subprocessors.name}</th>
+                    <th scope="col" className="p-3 font-semibold">{legal.subprocessors.purpose}</th>
+                    <th scope="col" className="p-3 font-semibold">{legal.subprocessors.region}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operator.subprocessors.map((s) => (
+                    <tr key={s.name} className="border-t border-border align-top">
+                      <td className="p-3 font-medium">{s.name}</td>
+                      <td className="p-3 text-muted-foreground">{s.purpose}</td>
+                      <td className="p-3 text-muted-foreground">{s.region}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {doc === 'dpa' && (
+        <>
+          <p className="text-sm text-muted-foreground leading-relaxed">{legal.dpa.intro}</p>
+          <section>
+            <h2 className="text-lg font-bold">{legal.dpa.includesTitle}</h2>
+            <ul className="mt-2 list-disc pl-6 space-y-1 text-sm text-muted-foreground">
+              {legal.dpa.includes.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+          {operator.configured && operator.email ? (
+            <a
+              href={`mailto:${operator.email}?subject=${encodeURIComponent(legal.dpa.emailSubject)}`}
+              className="inline-flex px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-blue-600"
+            >
+              {legal.dpa.requestCta}
+            </a>
+          ) : (
+            <OperatorDetails operator={operator} t={t} />
+          )}
+        </>
+      )}
+
       {doc === 'cookies' && (
         <>
           <p className="text-sm text-muted-foreground leading-relaxed">{legal.cookies.intro}</p>

@@ -1,14 +1,14 @@
-import { notFound } from 'next/navigation';
-import { LOCALES, isLocale } from '../../i18n/config';
+import { routing } from '../../i18n/routing';
+import { resolveLocale, type LocaleParams } from './locale-params';
 
 /**
- * Localized public website. English is served at the root (middleware rewrites
- * `/pricing` → `/en/pricing`), German under `/de`. Only the known locales exist.
+ * Localized public website (next-intl, `localePrefix: 'always'`):
+ * `/en/...` and `/de/...`. Only the configured locales exist.
  */
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return LOCALES.map((locale) => ({ locale }));
+  return routing.locales.map((locale) => ({ locale }));
 }
 
 export default async function LocaleLayout({
@@ -16,10 +16,9 @@ export default async function LocaleLayout({
   params,
 }: {
   children: React.ReactNode;
-  params: Promise<{ locale: string }>;
+  params: LocaleParams;
 }) {
-  const { locale } = await params;
-  if (!isLocale(locale)) notFound();
+  const locale = await resolveLocale(params);
   return (
     <div lang={locale} className="public-site">
       {children}

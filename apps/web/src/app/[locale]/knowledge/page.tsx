@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, AlertCircle, CalendarCheck } from 'lucide-react';
-import { LOCALE_TAGS } from '../../../i18n/config';
-import { getT } from '../../../i18n/translate';
+
+import { getFormat, getT } from '../../../i18n/translate';
 import { localizePath } from '../../../lib/routing';
 import { localizedUrl, publicPageMetadata } from '../../../lib/seo';
 import { engineName } from '../../../lib/solutions';
@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: { params: LocaleParams }): Pr
 export default async function KnowledgeIndexPage({ params }: { params: LocaleParams }) {
   const locale = await resolveLocale(params);
   const t = getT(locale);
-  const dateFormat = new Intl.DateTimeFormat(LOCALE_TAGS[locale], { dateStyle: 'medium', timeZone: 'UTC' });
+  const format = getFormat(locale);
 
   let articles: KnowledgeSummary[] | null = null;
   try {
@@ -80,7 +80,7 @@ export default async function KnowledgeIndexPage({ params }: { params: LocalePar
               {article.reviewedAt && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <CalendarCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('common.lastReviewed')}: <time dateTime={article.reviewedAt}>{dateFormat.format(new Date(article.reviewedAt))}</time>
+                  {t('common.lastReviewed')}: <time dateTime={article.reviewedAt}>{format.dateTime(new Date(article.reviewedAt), { dateStyle: 'medium' })}</time>
                 </p>
               )}
             </li>

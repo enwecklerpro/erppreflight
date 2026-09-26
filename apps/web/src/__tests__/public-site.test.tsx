@@ -14,23 +14,10 @@ import { SOLUTION_SLUGS, enginesForSolution, solutionForEngine } from '../lib/so
 const noCookies = () => false;
 
 describe('locale routing & navigation guard', () => {
-  it('rewrites unprefixed public pages to the English locale segment', () => {
-    expect(resolveRoute({ pathname: '/', hasCookie: noCookies })).toEqual({ action: 'rewrite', pathname: '/en', locale: 'en' });
-    expect(resolveRoute({ pathname: '/knowledge/change-pointers-bd52', hasCookie: noCookies })).toEqual({
-      action: 'rewrite',
-      pathname: '/en/knowledge/change-pointers-bd52',
-      locale: 'en',
-    });
-  });
-
-  it('serves /de pages directly and redirects /en to the canonical root URL', () => {
-    expect(resolveRoute({ pathname: '/de/pricing', hasCookie: noCookies })).toEqual({ action: 'next', locale: 'de' });
-    expect(resolveRoute({ pathname: '/en/pricing', search: '?a=1', hasCookie: noCookies })).toEqual({
-      action: 'redirect',
-      location: '/pricing?a=1',
-      status: 308,
-    });
-    expect(resolveRoute({ pathname: '/en', hasCookie: noCookies })).toMatchObject({ location: '/' });
+  it('delegates locale-prefixed and unprefixed public pages to next-intl', () => {
+    for (const pathname of ['/', '/pricing', '/knowledge/change-pointers-bd52', '/en', '/de/pricing', '/en/legal/imprint']) {
+      expect(resolveRoute({ pathname, hasCookie: noCookies }), pathname).toEqual({ action: 'intl' });
+    }
   });
 
   it('redirects anonymous visitors of private routes to /login with a return path', () => {
@@ -54,8 +41,9 @@ describe('locale routing & navigation guard', () => {
 
   it('builds localized paths and alternates', () => {
     expect(localizePath('de', '/')).toBe('/de');
-    expect(localizePath('en', '/pricing')).toBe('/pricing');
-    expect(alternatePaths('/de/solutions/integration')).toEqual({ en: '/solutions/integration', de: '/de/solutions/integration' });
+    expect(localizePath('en', '/pricing')).toBe('/en/pricing');
+    expect(alternatePaths('/de/solutions/integration')).toEqual({ en: '/en/solutions/integration', de: '/de/solutions/integration' });
+    expect(alternatePaths('/en')).toEqual({ en: '/en', de: '/de' });
   });
 });
 

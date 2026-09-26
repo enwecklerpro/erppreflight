@@ -4,13 +4,14 @@ import { DEFAULT_LOCALE, LOCALES, isLocale, type Locale } from '../i18n/config';
  * Pure routing rules shared by `src/middleware.ts` (edge) and server code.
  * Keep this module free of heavy imports: it runs in the middleware bundle.
  *
- * URL strategy (Part 02 §2.7): English public pages live at the root (`/pricing`),
- * German ones under `/de` (`/de/pricing`). Internally both render
- * `app/[locale]/...`; middleware rewrites the unprefixed English URL to `/en/...`.
- * `/en/...` URLs are permanently redirected to the unprefixed canonical URL.
+ * URL strategy (Part 02 §2.7): every public page is locale-prefixed
+ * (`/en/pricing`, `/de/pricing`) and rendered by `app/[locale]/...` via next-intl.
+ * Unprefixed public URLs are redirected by next-intl to the visitor's locale.
+ * Authenticated application routes stay unprefixed; their locale comes from the
+ * `erp_locale` preference cookie.
  */
 
-export const LEGAL_DOCS = ['imprint', 'privacy', 'terms', 'cookies'] as const;
+export const LEGAL_DOCS = ['imprint', 'privacy', 'terms', 'cookies', 'subprocessors', 'dpa'] as const;
 export type LegalDoc = (typeof LEGAL_DOCS)[number];
 
 /** Localized public pages: exact paths and path prefixes (subtrees). */
@@ -65,10 +66,9 @@ export function splitLocale(pathname: string): { locale: Locale | null; path: st
   return { locale: null, path: pathname };
 }
 
-/** Public URL path of a localized page, e.g. ('de', '/pricing') → '/de/pricing'. */
+/** Public URL path of a localized page, e.g. ('de', '/pricing') → '/de/pricing', ('en', '/') → '/en'. */
 export function localizePath(locale: Locale, path: string): string {
   const clean = path.startsWith('/') ? path : `/${path}`;
-  if (locale === DEFAULT_LOCALE) return clean;
   return clean === '/' ? `/${locale}` : `/${locale}${clean}`;
 }
 
@@ -79,8 +79,9 @@ export function alternatePaths(pathname: string): Record<Locale, string> {
 }
 
 export type RouteDecision =
+  /** Public (localized) page: handled by the next-intl middleware. */
+  | { action: 'intl' }
   | { action: 'redirect'; location: string; status: 307 | 308 }
-  | { action: 'rewrite'; pathname: string; locale: Locale }
   | { action: 'next'; locale: Locale };
 
 export interface RouteInput {
@@ -93,16 +94,10 @@ export interface RouteInput {
 export function resolveRoute({ pathname, search = '', hasCookie, preferredLocale }: RouteInput): RouteDecision {
   const { locale, path } = splitLocale(pathname);
 
-  if (locale === DEFAULT_LOCALE) {
-    // `/en/...` is not canonical: English lives at the root.
-    return { action: 'redirect', location: `${path}${search}`, status: 308 };
-  }
-  if (locale) {
-    // Non-default locale prefix: rendered directly by app/[locale].
-    return { action: 'next', locale };
-  }
-  if (isLocalizedPublicPath(path)) {
-    return { action: 'rewrite', pathname: path === '/' ? `/${DEFAULT_LOCALE}` : `/${DEFAULT_LOCALE}${path}`, locale: DEFAULT_LOCALE };
+  // Locale-prefixed URLs and unprefixed public pages belong to next-intl
+  // (renders /en|de/..., redirects /pricing → /{locale}/pricing).
+  if (locale || isLocalizedPublicPath(path)) {
+    return { action: 'intl' };
   }
 
   if (requiresAuth(path) && !hasCookie(API_SESSION_COOKIE) && !hasCookie(AUTH_HINT_COOKIE)) {

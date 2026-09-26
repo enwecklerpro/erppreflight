@@ -15,7 +15,8 @@ export const en = {
     subheadline:
       'Validate ERP outputs, extensions, integrations, transports, migrations and operational changes before they fail.',
     runPreflight: 'Run a Preflight',
-    exploreFreeTools: 'Explore free tools',
+    exploreFreeTools: 'Try the demo sandbox',
+    startFree: 'Start free',
     learnMore: 'Learn more',
     contactSales: 'Contact sales',
     backHome: 'Back to home',
@@ -41,7 +42,10 @@ export const en = {
     landscapes: 'Landscapes',
     agentGate: 'Agent Gate',
     settings: 'Settings',
-    admin: 'Admin Trust Center',
+    admin: 'Admin',
+    analyze: 'Analyze',
+    more: 'More',
+    secondary: 'More areas',
     solutions: 'Solutions',
     pricing: 'Pricing',
     knowledge: 'Knowledge',
@@ -71,6 +75,8 @@ export const en = {
     status: 'System status',
     changelog: 'Changelog',
     docs: 'Documentation',
+    subprocessors: 'Subprocessors',
+    dpa: 'Data processing agreement',
     disclaimer:
       'SAP, S/4HANA and other SAP products and services mentioned herein are trademarks or registered trademarks of SAP SE (or an SAP affiliate company) in Germany and other countries. ERP Preflight is an independent product and is not affiliated with, endorsed or sponsored by SAP SE.',
     rights: 'All rights reserved.',
@@ -134,6 +140,19 @@ export const en = {
     integrationsTitle: 'Open interfaces',
     integrationsBody:
       'Use the results where your team already works: a documented REST API with OpenAPI description, webhooks, a Model Context Protocol (MCP) server for AI agents and report exports.',
+    fileFirstTitle: 'File-first: start with the exports you already have',
+    fileFirstBody:
+      'Every analysis runs on exported artifacts — configuration and decision table exports, ABAP sources, ATC and readiness check results, transport data, logs. No system access and no installation are needed to get the first findings.',
+    connectorsTitle: 'Connectors where they help',
+    connectorsBody:
+      'Findings can be synchronised to delivery tools such as Jira and SAP Cloud ALM. Direct read-only system connectors and a local agent for private deployments are on the roadmap; until then, uploads remain the supported way in.',
+    knowledgeTitle: 'From the knowledge base',
+    knowledgeBody: 'Reviewed explanations of the SAP topics behind common change failures.',
+    knowledgeCta: 'Open the knowledge base',
+    docsTitle: 'Documentation',
+    docsBody: 'Engine reference, evidence model, API and MCP integration.',
+    demoTitle: 'See it on sample data',
+    demoBody: 'The demo sandbox provisions a synthetic sample project in your workspace so you can explore findings and evidence.',
     pricingTitle: 'Plans for single projects and whole landscapes',
     pricingBody: 'Start with a free sandbox and move to a plan when your programme needs more projects and analyses.',
     pricingCta: 'See pricing',
@@ -394,7 +413,7 @@ export const en = {
         },
         {
           heading: 'Processors',
-          body: 'Hosting and storage providers process data on our behalf under data processing agreements. The current list is published in the Trust Center.',
+          body: 'Hosting and storage providers process data on our behalf under data processing agreements. The current list is published on the subprocessors page.',
         },
         {
           heading: 'Retention',
@@ -454,6 +473,33 @@ export const en = {
         { name: 'erppreflight_token, erppreflight_tenant_id', purpose: 'Browser storage for the API session token and the active organization.', duration: 'Until sign-out' },
       ],
       manage: 'Change your choice',
+    },
+    subprocessors: {
+      title: 'Subprocessors',
+      metaDescription: 'Service providers that process customer data on behalf of the operator of ERP Preflight.',
+      intro:
+        'The operator engages the following subprocessors to provide the service.',
+      name: 'Subprocessor',
+      purpose: 'Purpose',
+      region: 'Location',
+      notConfigured:
+        'The operator of this installation has not published its subprocessor list yet (NEXT_PUBLIC_LEGAL_SUBPROCESSORS). Contact the operator for the current list.',
+    },
+    dpa: {
+      title: 'Data processing agreement',
+      metaDescription: 'Request a data processing agreement (Art. 28 GDPR) for ERP Preflight.',
+      intro:
+        'Business customers who upload artifacts containing personal data need a data processing agreement pursuant to Art. 28 GDPR. The operator provides it on request.',
+      includesTitle: 'The agreement covers',
+      includes: [
+        'Subject matter, duration, nature and purpose of the processing',
+        'Categories of data and data subjects',
+        'Technical and organisational measures',
+        'Use of subprocessors',
+        'Support with data subject requests and deletion at the end of the contract',
+      ],
+      requestCta: 'Request a data processing agreement',
+      emailSubject: 'Data processing agreement request',
     },
   },
   cookieConsent: {
