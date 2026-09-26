@@ -13,6 +13,7 @@
 #   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
 #   -> scripts/e2e-i18n-smoke.cjs (EN/DE app localization, no raw keys, 375 px layout)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
+#   -> scripts/e2e-admin-governance-smoke.cjs (Rule/AI/Knowledge/Source Sync Admin, publish gate, kill switch)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -65,6 +66,9 @@ mkdir -p "$ART/screenshots"
 # Test-only secrets: random per run unless the workflow provides them. Never production values.
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+# Bootstrap super admin for the platform governance smoke (throwaway per run).
+GOV_ADMIN_EMAIL="governance-admin@e2e.local"
+GOV_ADMIN_PASSWORD="$(openssl rand -hex 16)Aa1!"
 
 PIDS=()
 log() { echo "[live-e2e] $(date -u +%H:%M:%S) $*"; }
@@ -168,7 +172,8 @@ start_api() { # $1 = log file suffix
       JWT_SECRET="$JWT_SECRET" JWT_EXPIRES_IN=1h MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
       CORS_ORIGIN="http://localhost:$WEB_PORT" \
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
-      AUTH_RATE_LIMIT_SCALE=20
+      AUTH_RATE_LIMIT_SCALE=20 \
+      ADMIN_BOOTSTRAP_EMAIL="$GOV_ADMIN_EMAIL" ADMIN_BOOTSTRAP_PASSWORD="$GOV_ADMIN_PASSWORD"
     exec node dist/src/main.js
   ) > "$ART/api$1.log" 2>&1 &
   API_PID=$!
@@ -229,6 +234,11 @@ if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
     node scripts/e2e-tools-smoke.cjs "$ART/screenshots-tools" 2>&1 | tee "$ART/smoke-tools.log"
   TOOLS=${PIPESTATUS[0]}
 fi
+log "running platform governance smoke (scripts/e2e-admin-governance-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  SUPER_ADMIN_EMAIL="$GOV_ADMIN_EMAIL" SUPER_ADMIN_PASSWORD="$GOV_ADMIN_PASSWORD" \
+  node scripts/e2e-admin-governance-smoke.cjs "$ART/screenshots-governance" 2>&1 | tee "$ART/smoke-governance.log"
+GOVERNANCE=${PIPESTATUS[0]}
 # Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
 # of this stack and must not start its own web server.
 PW=0
@@ -244,8 +254,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N tools-smoke exit=$TOOLS governance-smoke exit=$GOVERNANCE playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$GOVERNANCE" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up
