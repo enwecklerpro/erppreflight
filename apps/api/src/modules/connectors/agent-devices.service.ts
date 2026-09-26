@@ -95,6 +95,20 @@ export const CreateJobSchema = z.discriminatedUnion('type', [
     .strict(),
 ]);
 
+export const UpdateDeviceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    updateChannel: z.enum(['stable', 'beta', 'pinned']).optional(),
+    egressPolicy: z
+      .object({
+        redactSecrets: z.literal(true).default(true),
+        uploadRawFiles: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const JobResultSchema = z
   .object({
     status: z.enum(['COMPLETED', 'FAILED', 'REJECTED']),
@@ -202,6 +216,28 @@ export class AgentDevicesService {
       tenantId: organizationId,
     });
     return res.rows.map((r: any) => this.mapDevice(r));
+  }
+
+  /** Data egress policy / update channel (Part 18.7). Redaction can never be switched off. */
+  async updateDevice(organizationId: string, actorId: string | null, id: string, body: unknown) {
+    const dto = parseBody(UpdateDeviceSchema, body);
+    const res = await this.db.query(
+      `UPDATE agent_devices SET name = COALESCE($3, name), update_channel = COALESCE($4, update_channel),
+              egress_policy = COALESCE($5, egress_policy)
+        WHERE organization_id = $1 AND id = $2 RETURNING *`,
+      [organizationId, id, dto.name ?? null, dto.updateChannel ?? null, dto.egressPolicy ? JSON.stringify(dto.egressPolicy) : null],
+      { tenantId: organizationId }
+    );
+    if (!res.rows[0]) throw new NotFoundException('Device not found');
+    await this.audit.record({
+      organizationId,
+      action: 'agent.device_policy_updated',
+      resourceType: 'AGENT_DEVICE',
+      resourceId: id,
+      actorId,
+      payload: { name: dto.name ?? null, updateChannel: dto.updateChannel ?? null, egressPolicy: dto.egressPolicy ?? null },
+    });
+    return this.mapDevice(res.rows[0]);
   }
 
   async revokeDevice(organizationId: string, actorId: string | null, id: string) {
@@ -496,7 +532,7 @@ export class AgentDevicesService {
             mimeType: 'application/octet-stream',
           } as any);
           const conf: any = await this.ingestion.confirmUpload(org, projectId, pre.fileId, buf);
-          ingested.push({ relativePath: a.relativePath, fileId: pre.fileId, status: conf?.quarantineStatus || 'PROCESSED' });
+          ingested.push({ relativePath: a.relativePath, fileId: pre.fileId, status: conf?.status || conf?.quarantineStatus || 'PROCESSED' });
         } catch (err: any) {
           ingested.push({ relativePath: a.relativePath, status: 'REJECTED', error: String(err?.response?.message || err?.message).slice(0, 200) });
         }

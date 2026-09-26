@@ -163,7 +163,7 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
 
   async setStatus(organizationId: string, id: string, status: 'ACTIVE' | 'DISABLED') {
     const res = await this.db.query(
-      `UPDATE webhooks SET status = $3, failure_count = CASE WHEN $3 = 'ACTIVE' THEN 0 ELSE failure_count END, updated_at = NOW()
+      `UPDATE webhooks SET status = $3::varchar, failure_count = CASE WHEN $3::varchar = 'ACTIVE' THEN 0 ELSE failure_count END, updated_at = NOW()
         WHERE organization_id = $1 AND id = $2 RETURNING id, status`,
       [organizationId, id, status]
     );
@@ -353,8 +353,8 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     const status = success ? 'SUCCEEDED' : attempts >= d.max_attempts ? 'DEAD' : 'FAILED';
     await this.db.query(
       `UPDATE webhook_deliveries
-          SET status = $3, attempts = $4, last_http_status = $5, last_error = $6, last_duration_ms = $7,
-              next_attempt_at = $8, delivered_at = CASE WHEN $3 = 'SUCCEEDED' THEN NOW() ELSE delivered_at END
+          SET status = $3::varchar, attempts = $4, last_http_status = $5, last_error = $6, last_duration_ms = $7,
+              next_attempt_at = $8, delivered_at = CASE WHEN $3::varchar = 'SUCCEEDED' THEN NOW() ELSE delivered_at END
         WHERE organization_id = $1 AND id = $2`,
       [organizationId, deliveryId, status, attempts, httpStatus ?? null, error ?? null, duration, new Date(Date.now() + retryDelayMs(attempts))],
       { tenantId: organizationId }

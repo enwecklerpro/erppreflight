@@ -5,7 +5,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
-import { TraceabilityService } from './traceability.service';
+import { CreateRemediationTaskSchema, ImportRequirementsSchema, LinkFindingSchema, TraceabilityService } from './traceability.service';
+import { ZodBody } from '../../common/openapi/zod-openapi';
 
 const WRITE_ROLES = ['ORGANIZATION_OWNER', 'SECURITY_ADMIN', 'LEAD_ARCHITECT', 'MIGRATION_CONSULTANT'] as const;
 
@@ -23,6 +24,7 @@ export class TraceabilityController {
   }
 
   @Post('requirements/import')
+  @ZodBody(ImportRequirementsSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Import requirements from the mapped SAP Cloud ALM project' })
   importRequirements(@CurrentTenant() orgId: string, @Req() req: any, @Param('projectId', new ParseUUIDPipe()) projectId: string, @Body() body: unknown) {
@@ -30,6 +32,7 @@ export class TraceabilityController {
   }
 
   @Post('nodes/:nodeId/finding')
+  @ZodBody(LinkFindingSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Link (or unlink with null) a finding to a requirement node' })
   linkFinding(
@@ -43,6 +46,7 @@ export class TraceabilityController {
   }
 
   @Post('tasks')
+  @ZodBody(CreateRemediationTaskSchema)
   @Roles(...WRITE_ROLES)
   @ApiOperation({ summary: 'Create a remediation task for a finding through a configured work item connector' })
   createTask(@CurrentTenant() orgId: string, @Req() req: any, @Param('projectId', new ParseUUIDPipe()) projectId: string, @Body() body: unknown) {

@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * ERP Preflight — Official Command Line Interface (CLI)
- * Part 14.6 Master Specification Compliance
+ * ERP Preflight — Command Line Interface (C §47, Part 14.6)
+ *
+ * Thin, dependency-free client of the public REST API. All analysis runs on the
+ * server with the deterministic engines; the CLI never evaluates rules locally.
+ * Authentication: organization API key (`X-Api-Key`), scope-limited.
+ * Every command supports `--json` for machine-readable output.
  */
 
 const fs = require('fs');
@@ -10,479 +14,411 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 
-const CONFIG_DIR = path.join(os.homedir(), '.erppreflight');
+const VERSION = '0.2.0';
+const CONFIG_DIR = process.env.ERP_PREFLIGHT_CONFIG_DIR || path.join(os.homedir(), '.erppreflight');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const DEFAULT_API_URL = process.env.ERP_PREFLIGHT_API_URL || 'http://localhost:3001/api/v1';
+const ENGINE_ALIASES = {
+  'clean-core': 'CLEAN_CORE_OBJECT_GUARD',
+  'api-diff': 'API_CHANGE_GUARD',
+  mfs: 'MFS_BLACKBOX',
+  opd: 'OPD_GUARD',
+  forms: 'FORM_DOCTOR',
+  transports: 'TRANSPORT_DEPENDENCY_ANALYZER',
+};
+const SEVERITY_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MEDIUM', 'MINOR', 'LOW', 'INFO'];
 
-function loadConfig() {
-  if (fs.existsSync(CONFIG_FILE)) {
-    try {
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-    } catch {
-      return {};
+class CliError extends Error {
+  constructor(message, exitCode = 1) {
+    super(message);
+    this.exitCode = exitCode;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// args & config
+// ---------------------------------------------------------------------------
+function parseArgs(argv) {
+  const positional = [];
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else if (a === '-h') {
+      flags.help = true;
+    } else {
+      positional.push(a);
     }
   }
-  return {};
+  return { positional, flags };
+}
+
+function loadConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
 }
 
 function saveConfig(cfg) {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  fs.chmodSync(CONFIG_FILE, 0o600);
 }
 
-async function apiRequest(endpoint, options = {}) {
-  const config = loadConfig();
-  const apiKey = process.env.ERP_PREFLIGHT_API_KEY || config.apiKey;
-
-  const url = `${config.apiUrl || DEFAULT_API_URL}${endpoint}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(apiKey ? { 'x-api-key': apiKey } : {}),
-    ...(options.headers || {}),
-  };
-
-  const res = await fetch(url, { ...options, headers });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`API Error [${res.status}]: ${errText}`);
-  }
-  return await res.json();
+function apiBase(flags) {
+  const raw = flags['api-url'] || process.env.ERP_PREFLIGHT_API_URL || loadConfig().apiUrl || 'http://localhost:3001';
+  const u = new URL(raw);
+  const base = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+  return base.endsWith('/api/v1') ? base : `${base}/api/v1`;
 }
 
-async function apiDownload(endpoint) {
-  const config = loadConfig();
-  const apiKey = process.env.ERP_PREFLIGHT_API_KEY || config.apiKey;
+function apiKey() {
+  return process.env.ERP_PREFLIGHT_API_KEY || loadConfig().apiKey;
+}
 
-  const url = `${config.apiUrl || DEFAULT_API_URL}${endpoint}`;
-  const headers = {
-    ...(apiKey ? { 'x-api-key': apiKey } : {}),
-  };
-
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`API Download Error [${res.status}]: ${errText}`);
+// ---------------------------------------------------------------------------
+// HTTP
+// ---------------------------------------------------------------------------
+async function request(flags, method, endpoint, { body, form, raw } = {}) {
+  const key = apiKey();
+  if (!key) throw new CliError('Not authenticated. Run: erp-preflight login --key <api_key> [--api-url <url>]', 2);
+  const headers = { 'X-Api-Key': key, Accept: raw ? '*/*' : 'application/json', 'User-Agent': `erp-preflight-cli/${VERSION}` };
+  let payload;
+  if (form) {
+    payload = form;
+  } else if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    payload = JSON.stringify(body);
   }
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  let res;
+  try {
+    res = await fetch(`${apiBase(flags)}${endpoint}`, { method, headers, body: payload, signal: AbortSignal.timeout(Number(flags['http-timeout'] || 60) * 1000) });
+  } catch (err) {
+    throw new CliError(`Cannot reach ${apiBase(flags)}: ${(err.cause && err.cause.code) || err.message}`);
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try {
+      const j = JSON.parse(text);
+      msg = Array.isArray(j.message) ? j.message.join('; ') : j.message || text;
+    } catch {
+      /* plain */
+    }
+    throw new CliError(`API ${method} ${endpoint} failed [HTTP ${res.status}]: ${String(msg).slice(0, 400)}`, res.status === 401 || res.status === 403 ? 2 : 1);
+  }
+  if (raw) return Buffer.from(await res.arrayBuffer());
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
+function out(flags, data, human) {
+  if (flags.quiet) return;
+  if (flags.json) {
+    process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+  } else {
+    human(data);
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------------------
+// commands
+// ---------------------------------------------------------------------------
+async function login(flags) {
+  const key = flags.key;
+  if (!key || key === true) throw new CliError('Usage: erp-preflight login --key <api_key> [--api-url <url>]', 2);
+  const cfg = loadConfig();
+  cfg.apiKey = key;
+  if (flags['api-url']) cfg.apiUrl = flags['api-url'];
+  // Verify the key before storing it.
+  process.env.ERP_PREFLIGHT_API_KEY = key;
+  const projects = await request({ ...flags, 'api-url': flags['api-url'] || cfg.apiUrl }, 'GET', '/projects');
+  saveConfig(cfg);
+  const count = Array.isArray(projects) ? projects.length : (projects.items || []).length;
+  out(flags, { authenticated: true, apiUrl: apiBase({ 'api-url': cfg.apiUrl }), projects: count }, () =>
+    console.log(`Authenticated against ${apiBase({ 'api-url': cfg.apiUrl })} (${count} project(s) visible). Config: ${CONFIG_FILE} (0600)`)
+  );
+}
+
+function projectsOf(res) {
+  return Array.isArray(res) ? res : res.items || res.data || [];
+}
+
+async function projectList(flags) {
+  const items = projectsOf(await request(flags, 'GET', '/projects'));
+  out(flags, items, (list) => {
+    if (!list.length) return console.log('No projects.');
+    console.table(list.map((p) => ({ id: p.id, name: p.name, targetRelease: p.targetRelease || p.target_release, createdAt: p.createdAt || p.created_at })));
+  });
+}
+
+async function projectCreate(flags) {
+  if (!flags.name || flags.name === true) throw new CliError('Usage: erp-preflight project create --name <name> [--release S4H_2023] [--description <text>]', 2);
+  const p = await request(flags, 'POST', '/projects', {
+    body: { name: flags.name, targetRelease: flags.release || 'S4H_2023', ...(flags.description ? { description: flags.description } : {}) },
+  });
+  out(flags, p, () => console.log(`Project created: ${p.id} (${p.name})`));
+}
+
+async function upload(flags, projectId, files) {
+  if (!projectId || !files.length) throw new CliError('Usage: erp-preflight upload <projectId> <file> [file...]', 2);
+  const results = [];
+  for (const f of files) {
+    const abs = path.resolve(f);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new CliError(`File not found: ${f}`, 2);
+    const buf = fs.readFileSync(abs);
+    const form = new FormData();
+    form.append('file', new Blob([buf]), path.basename(abs));
+    const r = await request(flags, 'POST', `/projects/${encodeURIComponent(projectId)}/files`, { form });
+    results.push({
+      file: f,
+      fileId: r.fileId || r.id,
+      status: r.status || r.quarantineStatus,
+      sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+      redactions: r.redactionsCount ?? 0,
+    });
+  }
+  out(flags, results, (rs) => {
+    for (const r of rs) console.log(`${r.status === 'CLEAN' ? 'CLEAN     ' : r.status.padEnd(10)} ${r.fileId}  ${r.file}  (${r.redactions} secret(s) redacted)`);
+  });
+  const bad = results.filter((r) => r.status !== 'CLEAN');
+  if (bad.length) throw new CliError(`${bad.length} file(s) were not accepted by the ingestion pipeline`, 1);
+  return results;
+}
+
+async function waitForAnalysis(flags, analysisId) {
+  const timeoutMs = Number(flags.timeout || 600) * 1000;
+  const started = Date.now();
+  let a;
+  while (Date.now() - started < timeoutMs) {
+    a = await request(flags, 'GET', `/analyses/${encodeURIComponent(analysisId)}`);
+    if (['COMPLETED', 'FAILED', 'PARTIAL'].includes(a.status)) return a;
+    if (!flags.json) process.stderr.write(`  status: ${a.status}\r`);
+    await sleep(2000);
+  }
+  throw new CliError(`Timed out after ${timeoutMs / 1000}s waiting for analysis ${analysisId} (last status ${a && a.status})`);
+}
+
+async function analyze(flags, projectId) {
+  if (!projectId) throw new CliError('Usage: erp-preflight analyze <projectId> --engines OPD_GUARD[,..] [--files id,..] [--wait]', 2);
+  const engines = String(flags.engines || '')
+    .split(',')
+    .map((e) => ENGINE_ALIASES[e.trim()] || e.trim().toUpperCase())
+    .filter(Boolean);
+  if (!engines.length) throw new CliError('--engines is required (e.g. --engines OPD_GUARD,CLEAN_CORE_OBJECT_GUARD)', 2);
+  let fileIds = flags.files && flags.files !== true ? String(flags.files).split(',').map((s) => s.trim()) : null;
+  if (!fileIds) {
+    const files = await request(flags, 'GET', `/projects/${encodeURIComponent(projectId)}/files`);
+    fileIds = projectsOf(files)
+      .filter((f) => (f.quarantineStatus || f.quarantine_status) === 'CLEAN')
+      .map((f) => f.id);
+    if (!fileIds.length) throw new CliError('The project has no CLEAN artifacts; upload files first', 1);
+  }
+  const started = await request(flags, 'POST', '/analyses', { body: { projectId, engineTypes: engines, fileIds, ...(flags.release ? { targetRelease: flags.release } : {}) } });
+  const analysisId = started.analysisId || started.id;
+  if (!flags.wait) {
+    out(flags, started, () => console.log(`Analysis queued: ${analysisId} (${started.status}). Use --wait or: erp-preflight findings --analysis ${analysisId}`));
+    return started;
+  }
+  const done = await waitForAnalysis(flags, analysisId);
+  const findings = await fetchFindings(flags, { analysisId, projectId });
+  const summary = summarize(findings);
+  out(flags, { analysisId, status: done.status, engines, files: fileIds.length, summary, findings }, () => {
+    console.log(`Analysis ${analysisId}: ${done.status} — ${findings.length} finding(s) ${JSON.stringify(summary)}`);
+    printFindings(findings);
+  });
+  gate(flags, findings, done.status);
+  return done;
+}
+
+/** Convenience flows named in the spec: analyze clean-core|api-diff|mfs <paths...> --project <id>. */
+async function analyzePaths(flags, alias, paths) {
+  const projectId = flags.project;
+  if (!projectId || projectId === true) throw new CliError(`Usage: erp-preflight analyze ${alias} <path...> --project <projectId> [--wait]`, 2);
+  const files = [];
+  for (const p of paths) {
+    const abs = path.resolve(p);
+    if (!fs.existsSync(abs)) throw new CliError(`Path not found: ${p}`, 2);
+    if (fs.statSync(abs).isDirectory()) {
+      const walk = (d) => {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          if (e.name === '.git' || e.name === 'node_modules') continue;
+          const full = path.join(d, e.name);
+          if (e.isDirectory()) walk(full);
+          else if (e.isFile() && /\.(abap|xml|json|yaml|yml|csv|edmx|wsdl|xdp)$/i.test(e.name)) files.push(full);
+        }
+      };
+      walk(abs);
+    } else files.push(abs);
+  }
+  if (!files.length) throw new CliError('No analysable files found', 1);
+  const uploaded = await upload({ ...flags, quiet: true }, projectId, files);
+  return analyze({ ...flags, engines: ENGINE_ALIASES[alias], files: uploaded.map((u) => u.fileId).join(',') }, projectId);
+}
+
+async function fetchFindings(flags, { analysisId, projectId }) {
+  if (analysisId) {
+    const r = await request(flags, 'GET', `/analyses/${encodeURIComponent(analysisId)}/findings`);
+    return projectsOf(r);
+  }
+  const all = [];
+  for (let page = 1; page <= 50; page++) {
+    const r = await request(flags, 'GET', `/findings?projectId=${encodeURIComponent(projectId)}&page=${page}&pageSize=100`);
+    const items = projectsOf(r);
+    all.push(...items);
+    if (items.length < 100) break;
+  }
+  return all;
+}
+
+function summarize(findings) {
+  const s = {};
+  for (const f of findings) s[f.severity] = (s[f.severity] || 0) + 1;
+  return s;
+}
+
+function printFindings(findings) {
+  if (!findings.length) return console.log('No findings.');
+  console.table(
+    findings.slice(0, 200).map((f) => {
+      const ev = (f.evidence || [])[0] || {};
+      return {
+        severity: f.severity,
+        rule: f.ruleId || f.code,
+        confidence: f.confidence,
+        title: String(f.title || '').slice(0, 60),
+        evidence: ev.artifactPath ? `${ev.artifactPath}:${ev.lineNumber ?? '?'}` : '',
+      };
+    })
+  );
+}
+
+/** CI quality gate: --fail-on BLOCKER,CRITICAL exits 3 when such findings exist. */
+function gate(flags, findings, status) {
+  if (status === 'FAILED') throw new CliError('Analysis FAILED', 1);
+  if (!flags['fail-on'] || flags['fail-on'] === true) return;
+  const levels = String(flags['fail-on']).toUpperCase().split(',').map((s) => s.trim());
+  const hits = findings.filter((f) => levels.includes(String(f.severity).toUpperCase()));
+  if (hits.length) throw new CliError(`Quality gate failed: ${hits.length} finding(s) at ${levels.join('/')}`, 3);
+}
+
+async function findingsCmd(flags, projectId) {
+  const analysisId = flags.analysis && flags.analysis !== true ? flags.analysis : null;
+  if (!analysisId && !projectId) throw new CliError('Usage: erp-preflight findings <projectId> | --analysis <analysisId> [--severity CRITICAL]', 2);
+  let findings = await fetchFindings(flags, { analysisId, projectId });
+  if (flags.severity && flags.severity !== true) {
+    const max = SEVERITY_ORDER.indexOf(String(flags.severity).toUpperCase());
+    findings = findings.filter((f) => SEVERITY_ORDER.indexOf(f.severity) <= max);
+  }
+  out(flags, findings, printFindings);
+  gate(flags, findings, 'COMPLETED');
+}
+
+async function reportExport(flags, projectId, analysisId) {
+  if (!projectId || !analysisId) throw new CliError('Usage: erp-preflight report export <projectId> <analysisId> --format PDF|JSON_BUNDLE|XLSX|CSV|HTML_OFFLINE [--out <file>]', 2);
+  const format = String(flags.format || 'PDF').toUpperCase();
+  const r = await request(flags, 'POST', `/projects/${encodeURIComponent(projectId)}/analyses/${encodeURIComponent(analysisId)}/export`, { body: { format } });
+  const buf = await request(flags, 'GET', `/reports/${encodeURIComponent(r.reportId)}/file`, { raw: true });
+  const outPath = path.resolve(flags.out && flags.out !== true ? flags.out : r.fileName || `erp-preflight-${analysisId}.${format.toLowerCase()}`);
+  fs.writeFileSync(outPath, buf);
+  const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+  out(flags, { reportId: r.reportId, format, path: outPath, bytes: buf.length, sha256 }, (d) => console.log(`Report ${d.format} saved: ${d.path} (${d.bytes} bytes, sha256 ${d.sha256})`));
+}
+
+async function reportDownload(flags, analysisId) {
+  if (!analysisId) throw new CliError('Usage: erp-preflight report download <analysisId> [--out <path>]', 2);
+  const buf = await request(flags, 'GET', `/analyses/${encodeURIComponent(analysisId)}/reproducibility-bundle`, { raw: true });
+  const outPath = path.resolve(flags.out && flags.out !== true ? flags.out : `erp-preflight-bundle-${analysisId}.zip`);
+  fs.writeFileSync(outPath, buf);
+  const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+  out(flags, { path: outPath, bytes: buf.length, sha256 }, (d) => console.log(`Reproducibility bundle saved: ${d.path} (${d.bytes} bytes, sha256 ${d.sha256})`));
+}
+
+async function status(flags) {
+  const origin = new URL(apiBase(flags)).origin;
+  let health;
+  try {
+    const res = await fetch(`${origin}/health/readiness`, { signal: AbortSignal.timeout(10_000) });
+    health = { httpStatus: res.status, body: await res.json().catch(() => null) };
+  } catch (err) {
+    throw new CliError(`API unreachable at ${origin}: ${(err.cause && err.cause.code) || err.message}`);
+  }
+  out(flags, { apiUrl: apiBase(flags), authenticated: Boolean(apiKey()), health }, (d) => {
+    console.log(`API: ${d.apiUrl}  readiness HTTP ${d.health.httpStatus}  ${d.authenticated ? 'API key configured' : 'not logged in'}`);
+  });
 }
 
 function printUsage() {
-  console.log(`
-ERP Preflight — Automated SAP Preflight Analysis CLI
-Part 14.6 Master Specification Compliance
+  console.log(`ERP Preflight CLI v${VERSION}
 
-USAGE:
-  erp-preflight <command> [subcommand] [options]
+USAGE: erp-preflight <command> [options]   (add --json for machine-readable output)
 
-COMMANDS:
-  login --key <api_key>                     Authenticate CLI with an organization API key
-  project list                              List all project workspaces for your organization
-  project create --name <name>              Create a new preflight project workspace
-  matrix                                    Display canonical SAP Release Compatibility Matrix
-  analyze clean-core <path>                 Scan local ABAP / CDS files for Clean Core violations
-  analyze api-diff <old.yaml> <new.yaml>    Compare API specs for breaking changes & contract drift
-  analyze mfs <telegrams.csv>               Analyze Material Flow System telegram logs for sequence anomalies
-  report download <analysis-id>             Download signed reproducibility bundle / assessment report
-  mcp                                       Start Model Context Protocol (MCP) server over stdio
-  status                                    Check live service health and worker status
-  version                                   Display CLI version
+  login --key <api_key> [--api-url <url>]            Verify and store an organization API key (config 0600)
+  status                                             API readiness and login state
+  project list                                       List projects
+  project create --name <n> [--release S4H_2023]     Create a project
+  upload <projectId> <file...>                       Upload artifacts (magic bytes, ClamAV, redaction on the server)
+  analyze <projectId> --engines E1,E2 [--files id,..] [--wait] [--timeout 600] [--fail-on BLOCKER,CRITICAL]
+                                                     Run deterministic engines on the project's CLEAN artifacts
+  analyze clean-core|api-diff|mfs <path...> --project <id> [--wait] [--fail-on ...]
+                                                     Upload local files and run the matching engine
+  findings <projectId> | --analysis <id> [--severity CRITICAL] [--fail-on ...]
+  report export <projectId> <analysisId> --format PDF|JSON_BUNDLE|XLSX|CSV|HTML_OFFLINE [--out file]
+  report download <analysisId> [--out file]          Reproducibility bundle
+  mcp                                                Start the MCP stdio server
+  version
 
-OPTIONS:
-  --help, -h                                Show this help message
-  --release <rel>                           Target SAP release (default: S4H_2023)
-  --out <path>                              Output file path for reports
-  --json                                    Output machine-readable JSON
-`);
-}
-
-// Simple deterministic parser for YAML/JSON API specifications
-function parseApiSpec(content, filePath) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    // Basic structured YAML extractor for OpenAPI/OData specifications
-    const lines = content.split(/\r?\n/);
-    const spec = { paths: {} };
-    let currentPath = null;
-    let currentMethod = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-
-      // Match path: "/api/v1/..."
-      const pathMatch = line.match(/^(\s{2}|\s{4})?(\/[^:]+):\s*$/);
-      if (pathMatch) {
-        currentPath = pathMatch[2].trim();
-        spec.paths[currentPath] = spec.paths[currentPath] || {};
-        currentMethod = null;
-        continue;
-      }
-
-      // Match HTTP method: "get:", "post:", "put:", "delete:"
-      const methodMatch = line.match(/^(\s{4}|\s{6})?(get|post|put|delete|patch):\s*$/i);
-      if (methodMatch && currentPath) {
-        currentMethod = methodMatch[2].toLowerCase();
-        spec.paths[currentPath][currentMethod] = { parameters: [], responses: {} };
-        continue;
-      }
-
-      // Match parameter name
-      const paramMatch = line.match(/name:\s*([a-zA-Z0-9_\-]+)/);
-      if (paramMatch && currentPath && currentMethod) {
-        const paramName = paramMatch[1];
-        const isRequired = /required:\s*true/i.test(lines.slice(i, i + 5).join(' '));
-        spec.paths[currentPath][currentMethod].parameters.push({
-          name: paramName,
-          required: isRequired,
-        });
-      }
-    }
-    return spec;
-  }
+Exit codes: 0 ok, 1 error, 2 usage/authentication, 3 quality gate failed (--fail-on).
+Environment: ERP_PREFLIGHT_API_URL, ERP_PREFLIGHT_API_KEY, ERP_PREFLIGHT_CONFIG_DIR`);
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0];
-
-  if (!command || command === '--help' || command === '-h') {
-    printUsage();
-    process.exit(0);
-  }
-
-  try {
-    switch (command) {
-      case 'login': {
-        const keyIdx = args.indexOf('--key');
-        const key = keyIdx !== -1 ? args[keyIdx + 1] : args[1];
-        if (!key) {
-          console.error('Error: Missing --key <api_key>');
-          process.exit(1);
-        }
-        const cfg = loadConfig();
-        cfg.apiKey = key;
-        saveConfig(cfg);
-        console.log('✓ Successfully authenticated with ERP Preflight API.');
-        break;
-      }
-
-      case 'project': {
-        const sub = args[1];
-        if (sub === 'list') {
-          console.log('Fetching projects from ERP Preflight...');
-          try {
-            const projects = await apiRequest('/projects');
-            console.table(
-              projects.map((p) => ({
-                ID: p.id,
-                Name: p.name,
-                TargetRelease: p.target_release || p.targetRelease,
-                CreatedAt: p.created_at || p.createdAt,
-              }))
-            );
-          } catch (err) {
-            console.error(err.message);
-          }
-        } else if (sub === 'create') {
-          const nameIdx = args.indexOf('--name');
-          const name = nameIdx !== -1 ? args[nameIdx + 1] : 'CLI Project Workspace';
-          const relIdx = args.indexOf('--release');
-          const release = relIdx !== -1 ? args[relIdx + 1] : 'S4H_2023';
-
-          const res = await apiRequest('/projects', {
-            method: 'POST',
-            body: JSON.stringify({ name, targetRelease: release }),
-          });
-          console.log(`✓ Project created: ${res.id} (${res.name})`);
-        } else {
-          console.log('Unknown project command. Usage: erp-preflight project [list|create]');
-        }
-        break;
-      }
-
-      case 'matrix': {
-        console.log('SAP Release Compatibility Matrix (Part 17 Release Governance):\n');
-        const matrix = await apiRequest('/knowledge/matrix');
-        console.table(
-          matrix.map((m) => ({
-            Engine: m.engineId,
-            Scope: m.targetRelease,
-            Status: m.status,
-            Fixtures: m.verifiedFixtures,
-          }))
-        );
-        break;
-      }
-
-      case 'status': {
-        const health = await apiRequest('/health/liveness');
-        console.log('ERP Preflight System Status:');
-        console.log(JSON.stringify(health, null, 2));
-        break;
-      }
-
-      case 'analyze': {
-        const engineType = args[1];
-
-        if (engineType === 'clean-core') {
-          const targetPath = args[2] || '.';
-          console.log(`Scanning '${targetPath}' for Clean Core Tier 1/2/3 violations...`);
-          if (!fs.existsSync(targetPath)) {
-            console.error(`Error: Target path '${targetPath}' does not exist.`);
-            process.exit(1);
-          }
-
-          const findings = [];
-          const files = fs.statSync(targetPath).isDirectory()
-            ? fs.readdirSync(targetPath).map((f) => path.join(targetPath, f))
-            : [targetPath];
-
-          for (const fullPath of files) {
-            if (fs.statSync(fullPath).isFile() && (fullPath.endsWith('.abap') || fullPath.endsWith('.txt') || fullPath.endsWith('.cds'))) {
-              const content = fs.readFileSync(fullPath, 'utf-8');
-              const fileName = path.basename(fullPath);
-
-              if (/UPDATE\s+bkpf/i.test(content) || /INSERT\s+INTO\s+bkpf/i.test(content)) {
-                findings.push({
-                  file: fileName,
-                  ruleId: 'CLEAN_CORE_TIER3_DIRECT_DB_MUTATION',
-                  severity: 'BLOCKER',
-                  snippet: 'Direct mutation into standard financial table BKPF',
-                  confidence: 'VERIFIED',
-                });
-              }
-              if (/CALL\s+FUNCTION\s+['"]RFC_READ_TABLE['"]/i.test(content)) {
-                findings.push({
-                  file: fileName,
-                  ruleId: 'CLEAN_CORE_TIER3_UNRELEASED_RFC',
-                  severity: 'CRITICAL',
-                  snippet: 'Invocation of obsolete/unreleased function module RFC_READ_TABLE',
-                  confidence: 'VERIFIED',
-                });
-              }
-            }
-          }
-
-          if (findings.length > 0) {
-            console.log(`\n❌ Preflight Gate Failed: ${findings.length} blocking Clean Core finding(s) detected:`);
-            console.table(findings);
-            process.exit(1);
-          } else {
-            console.log('\n✓ Clean Core Scan Passed: 0 blocking violations found.');
-            process.exit(0);
-          }
-        } else if (engineType === 'api-diff') {
-          const oldFile = args[2];
-          const newFile = args[3];
-
-          if (!oldFile || !newFile) {
-            console.error('Error: Usage: erp-preflight analyze api-diff <old.yaml> <new.yaml>');
-            process.exit(1);
-          }
-          if (!fs.existsSync(oldFile) || !fs.existsSync(newFile)) {
-            console.error('Error: Specified API specification files do not exist.');
-            process.exit(1);
-          }
-
-          console.log(`Comparing API Specifications for Breaking Contract Drift:`);
-          console.log(`  Baseline: ${oldFile}`);
-          console.log(`  Proposed: ${newFile}\n`);
-
-          const oldContent = fs.readFileSync(oldFile, 'utf-8');
-          const newContent = fs.readFileSync(newFile, 'utf-8');
-          const oldSpec = parseApiSpec(oldContent, oldFile);
-          const newSpec = parseApiSpec(newContent, newFile);
-
-          const diffFindings = [];
-
-          // 1. Check for dropped paths
-          const oldPaths = Object.keys(oldSpec.paths || {});
-          const newPaths = Object.keys(newSpec.paths || {});
-
-          for (const p of oldPaths) {
-            if (!newPaths.includes(p)) {
-              diffFindings.push({
-                ruleId: 'API_CONTRACT_PATH_REMOVED',
-                severity: 'BLOCKER',
-                endpoint: p,
-                reason: `Path '${p}' was removed in proposed API specification.`,
-                confidence: 'VERIFIED',
-              });
-            } else {
-              // Check dropped operations
-              const oldMethods = Object.keys(oldSpec.paths[p] || {});
-              const newMethods = Object.keys(newSpec.paths[p] || {});
-              for (const m of oldMethods) {
-                if (!newMethods.includes(m)) {
-                  diffFindings.push({
-                    ruleId: 'API_CONTRACT_OPERATION_DROPPED',
-                    severity: 'CRITICAL',
-                    endpoint: `${m.toUpperCase()} ${p}`,
-                    reason: `Operation '${m.toUpperCase()}' was dropped from path '${p}'.`,
-                    confidence: 'VERIFIED',
-                  });
-                }
-              }
-            }
-          }
-
-          // 2. Check for added required parameters in existing operations
-          for (const p of newPaths) {
-            if (oldPaths.includes(p)) {
-              const newOps = newSpec.paths[p] || {};
-              const oldOps = oldSpec.paths[p] || {};
-              for (const [m, op] of Object.entries(newOps)) {
-                if (oldOps[m] && op.parameters) {
-                  const oldParams = (oldOps[m].parameters || []).map((param) => param.name);
-                  for (const param of op.parameters) {
-                    if (param.required && !oldParams.includes(param.name)) {
-                      diffFindings.push({
-                        ruleId: 'API_BREAKING_REQUIRED_PARAM_ADDED',
-                        severity: 'BLOCKER',
-                        endpoint: `${m.toUpperCase()} ${p}`,
-                        reason: `New mandatory parameter '${param.name}' added without backward compatibility.`,
-                        confidence: 'VERIFIED',
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          if (diffFindings.length > 0) {
-            console.log(`❌ API Change Guard: ${diffFindings.length} breaking change(s) detected:`);
-            console.table(diffFindings);
-            process.exit(1);
-          } else {
-            console.log('✓ API Change Guard: Backward-compatible! 0 breaking changes detected.');
-            process.exit(0);
-          }
-        } else if (engineType === 'mfs') {
-          const csvFile = args[2];
-          if (!csvFile || !fs.existsSync(csvFile)) {
-            console.error('Error: Usage: erp-preflight analyze mfs <telegrams.csv>');
-            process.exit(1);
-          }
-
-          console.log(`Analyzing Material Flow System (MFS) telegram log: ${csvFile}...\n`);
-          const content = fs.readFileSync(csvFile, 'utf-8');
-          const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
-
-          const mfsFindings = [];
-          const plcSequences = new Map();
-          const seenTelegrams = new Set();
-
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
-            // format: timestamp, plc_id, sequence_no, telegram_type, status
-            const plcId = cols[1] || 'PLC_01';
-            const seq = parseInt(cols[2], 10);
-            const status = (cols[4] || cols[3] || '').toUpperCase();
-            const telegramKey = `${plcId}:${seq}`;
-
-            if (seenTelegrams.has(telegramKey)) {
-              mfsFindings.push({
-                ruleId: 'MFS_DUPLICATE_TELEGRAM_ID',
-                severity: 'MAJOR',
-                plc: plcId,
-                detail: `Duplicate telegram sequence #${seq} received for ${plcId}`,
-                confidence: 'VERIFIED',
-              });
-            } else {
-              seenTelegrams.add(telegramKey);
-            }
-
-            if (!isNaN(seq)) {
-              const lastSeq = plcSequences.get(plcId);
-              if (lastSeq !== undefined && seq > lastSeq + 1) {
-                mfsFindings.push({
-                  ruleId: 'MFS_TELEGRAM_SEQUENCE_ANOMALY',
-                  severity: 'CRITICAL',
-                  plc: plcId,
-                  detail: `Sequence jump detected on ${plcId}: expected #${lastSeq + 1}, received #${seq}`,
-                  confidence: 'VERIFIED',
-                });
-              }
-              plcSequences.set(plcId, seq);
-            }
-
-            if (['ERR', 'NACK', 'TIMEOUT', 'FAILED'].includes(status)) {
-              mfsFindings.push({
-                ruleId: 'MFS_COMMUNICATION_FAULT',
-                severity: 'BLOCKER',
-                plc: plcId,
-                detail: `Communication fault status '${status}' recorded at line ${i + 1}`,
-                confidence: 'VERIFIED',
-              });
-            }
-          }
-
-          if (mfsFindings.length > 0) {
-            console.log(`❌ MFS BlackBox Preflight: ${mfsFindings.length} anomaly finding(s) detected:`);
-            console.table(mfsFindings);
-            process.exit(1);
-          } else {
-            console.log(`✓ MFS BlackBox Preflight: 0 telegram sequence anomalies found (${lines.length - 1} records processed).`);
-            process.exit(0);
-          }
-        } else {
-          console.log(`Unknown engine '${engineType}'. Available engines: clean-core, api-diff, mfs`);
-          process.exit(1);
-        }
-        break;
-      }
-
-      case 'report': {
-        const sub = args[1];
-        if (sub === 'download') {
-          const analysisId = args[2];
-          if (!analysisId) {
-            console.error('Error: Missing analysis ID. Usage: erp-preflight report download <analysis-id> [--out <path>]');
-            process.exit(1);
-          }
-
-          const outIdx = args.indexOf('--out');
-          const outPath = outIdx !== -1 ? args[outIdx + 1] : `erp-preflight-bundle-${analysisId}.zip`;
-
-          console.log(`Downloading signed reproducibility bundle for analysis ${analysisId}...`);
-          const buffer = await apiDownload(`/analyses/${encodeURIComponent(analysisId)}/reproducibility-bundle`);
-          fs.writeFileSync(outPath, buffer);
-
-          const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-          console.log(`✓ Successfully downloaded reproducibility bundle:`);
-          console.log(`  Path:   ${path.resolve(outPath)}`);
-          console.log(`  Size:   ${buffer.length} bytes`);
-          console.log(`  SHA256: ${sha256}`);
-        } else {
-          console.log('Unknown report command. Usage: erp-preflight report download <analysis-id>');
-        }
-        break;
-      }
-
-      case 'mcp': {
-        require('./erp-preflight-mcp.js');
-        break;
-      }
-
-      case 'version': {
-        console.log('erp-preflight v0.1.0 (Astra Ultra Master Specification Part 14.6)');
-        break;
-      }
-
-      default:
-        console.log(`Unknown command '${command}'. Run 'erp-preflight --help' for usage.`);
-        process.exit(1);
-    }
-  } catch (err) {
-    console.error(`Error: ${err.message}`);
-    process.exit(1);
+  const { positional, flags } = parseArgs(process.argv.slice(2));
+  const [command, sub, ...rest] = positional;
+  if (!command || flags.help) return printUsage();
+  switch (command) {
+    case 'login':
+      return login(flags);
+    case 'status':
+      return status(flags);
+    case 'project':
+      if (sub === 'list') return projectList(flags);
+      if (sub === 'create') return projectCreate(flags);
+      throw new CliError('Usage: erp-preflight project list|create', 2);
+    case 'upload':
+      return upload(flags, sub, rest);
+    case 'analyze':
+      if (ENGINE_ALIASES[sub] && (flags.project || rest.length)) return analyzePaths(flags, sub, rest);
+      return analyze(flags, sub);
+    case 'findings':
+      return findingsCmd(flags, sub);
+    case 'report':
+      if (sub === 'export') return reportExport(flags, rest[0], rest[1]);
+      if (sub === 'download') return reportDownload(flags, rest[0]);
+      throw new CliError('Usage: erp-preflight report export|download ...', 2);
+    case 'mcp':
+      require('./erp-preflight-mcp.js');
+      return;
+    case 'version':
+      return console.log(`erp-preflight v${VERSION}`);
+    default:
+      printUsage();
+      throw new CliError(`Unknown command '${command}'`, 2);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(`Error: ${err.message}`);
+  process.exit(err.exitCode || 1);
+});

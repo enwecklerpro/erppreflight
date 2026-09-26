@@ -36,6 +36,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const correlationId =
       request.headers['x-correlation-id'] || 'no-correlation-id';
 
+    // Structured details attached to an HttpException (e.g. a permission diff) are
+    // passed through under `details`; statusCode/message/error keep their fixed slots.
+    let details: Record<string, unknown> | undefined;
+    if (status < 500 && typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      const { statusCode: _s, message: _m, error: _e, ...rest } = exceptionResponse as Record<string, unknown>;
+      if (Object.keys(rest).length > 0) details = rest;
+    }
+
     const errorPayload = {
       statusCode: status,
       timestamp: new Date().toISOString(),
@@ -43,6 +51,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       method: request.method,
       correlationId,
       message,
+      ...(details ? { details } : {}),
     };
 
     if (status >= 500) {

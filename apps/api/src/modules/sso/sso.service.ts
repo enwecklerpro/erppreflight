@@ -287,7 +287,7 @@ export class SsoService {
     let status = found ? 'VERIFIED' : 'FAILED';
     try {
       const upd = await this.db.query(
-        `UPDATE sso_domains SET status = $3, last_checked_at = NOW(), verified_at = CASE WHEN $3 = 'VERIFIED' THEN NOW() ELSE verified_at END
+        `UPDATE sso_domains SET status = $3::varchar, last_checked_at = NOW(), verified_at = CASE WHEN $3::varchar = 'VERIFIED' THEN NOW() ELSE verified_at END
           WHERE organization_id = $1 AND id = $2 RETURNING *`,
         [organizationId, id, status],
         { tenantId: organizationId }

@@ -21,7 +21,10 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
 import { ConnectorsService } from './connectors.service';
 import { WorkItemsService } from './work-items.service';
-import { AgentDevicesService } from './agent-devices.service';
+import { AgentDevicesService, CreateJobSchema, IssueEnrollmentTokenSchema, UpdateDeviceSchema } from './agent-devices.service';
+import { CreateConnectorSchema, GitIngestSchema, ProjectLinkSchema, UpdateConnectorSchema } from './connectors.service';
+import { CommentSchema, CreateWorkItemSchema, ResolveConflictSchema, UpdateWorkItemSchema } from './work-items.service';
+import { ZodBody } from '../../common/openapi/zod-openapi';
 
 const ADMIN_ROLES = ['ORGANIZATION_OWNER', 'SECURITY_ADMIN'] as const;
 const OPERATOR_ROLES = ['ORGANIZATION_OWNER', 'SECURITY_ADMIN', 'LEAD_ARCHITECT'] as const;
@@ -53,6 +56,7 @@ export class ConnectorsController {
 
   @Post()
   @Roles(...ADMIN_ROLES)
+  @ZodBody(CreateConnectorSchema)
   @ApiOperation({ summary: 'Create a connector instance (credentials are encrypted at rest with AES-256-GCM)' })
   create(@CurrentTenant() orgId: string, @Req() req: any, @Body() body: unknown) {
     return this.connectors.create(orgId, req.user.id, body);
@@ -66,6 +70,7 @@ export class ConnectorsController {
   }
 
   @Post('work-items')
+  @ZodBody(CreateWorkItemSchema)
   @Roles(...WORK_ITEM_ROLES)
   @ApiOperation({ summary: 'Create a work item from a finding (dryRun previews the payload; confirm=true required to write)' })
   createWorkItem(@CurrentTenant() orgId: string, @Req() req: any, @Body() body: unknown) {
@@ -86,6 +91,7 @@ export class ConnectorsController {
   }
 
   @Patch('work-items/:workItemId')
+  @ZodBody(UpdateWorkItemSchema)
   @Roles(...WORK_ITEM_ROLES)
   @ApiOperation({ summary: 'Explicitly push title/body/priority (refused with CONFLICT when the remote changed)' })
   updateWorkItem(@CurrentTenant() orgId: string, @Req() req: any, @Param('workItemId', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
@@ -93,12 +99,14 @@ export class ConnectorsController {
   }
 
   @Post('work-items/:workItemId/resolve-conflict')
+  @ZodBody(ResolveConflictSchema)
   @Roles(...WORK_ITEM_ROLES)
   resolveConflict(@CurrentTenant() orgId: string, @Req() req: any, @Param('workItemId', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     return this.workItems.resolveConflict(orgId, req.user.id, id, body);
   }
 
   @Post('work-items/:workItemId/comments')
+  @ZodBody(CommentSchema)
   @Roles(...WORK_ITEM_ROLES)
   comment(@CurrentTenant() orgId: string, @Req() req: any, @Param('workItemId', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     return this.workItems.comment(orgId, req.user.id, id, body);
@@ -112,6 +120,7 @@ export class ConnectorsController {
 
   @Patch(':id')
   @Roles(...ADMIN_ROLES)
+  @ZodBody(UpdateConnectorSchema)
   @ApiOperation({ summary: 'Update config / rotate credentials / change access mode (returns the permission diff)' })
   update(@CurrentTenant() orgId: string, @Req() req: any, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     return this.connectors.update(orgId, req.user.id, id, body);
@@ -165,6 +174,7 @@ export class ConnectorsController {
   }
 
   @Post(':id/git/ingest')
+  @ZodBody(GitIngestSchema)
   @Roles(...OPERATOR_ROLES)
   @ApiOperation({ summary: 'Ingest the ABAP sources of the branch into a project (full ingestion pipeline)' })
   gitIngest(@CurrentTenant() orgId: string, @Req() req: any, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
@@ -183,6 +193,7 @@ export class ConnectorsController {
   }
 
   @Post(':id/project-links')
+  @ZodBody(ProjectLinkSchema)
   @Roles(...OPERATOR_ROLES)
   upsertProjectLink(@CurrentTenant() orgId: string, @Req() req: any, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     return this.connectors.upsertProjectLink(orgId, req.user.id, id, body);
@@ -199,6 +210,7 @@ export class AgentAdminController {
   constructor(private readonly devices: AgentDevicesService) {}
 
   @Post('enrollment-tokens')
+  @ZodBody(IssueEnrollmentTokenSchema)
   @Roles(...ADMIN_ROLES)
   @ApiOperation({ summary: 'Issue a single-use, short-lived device enrollment token' })
   issueToken(@CurrentTenant() orgId: string, @Req() req: any, @Body() body: unknown) {
@@ -210,6 +222,14 @@ export class AgentAdminController {
     return this.devices.listDevices(orgId);
   }
 
+  @Patch('devices/:id')
+  @ZodBody(UpdateDeviceSchema)
+  @Roles(...ADMIN_ROLES)
+  @ApiOperation({ summary: 'Update device name, update channel or data egress policy (redaction cannot be disabled)' })
+  updateDevice(@CurrentTenant() orgId: string, @Req() req: any, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
+    return this.devices.updateDevice(orgId, req.user.id, id, body);
+  }
+
   @Post('devices/:id/revoke')
   @HttpCode(200)
   @Roles(...ADMIN_ROLES)
@@ -218,6 +238,7 @@ export class AgentAdminController {
   }
 
   @Post('devices/:id/jobs')
+  @ZodBody(CreateJobSchema)
   @Roles(...OPERATOR_ROLES)
   @ApiOperation({ summary: 'Queue a signed job (SCAN_DIRECTORY / PROBE_URL) for the device' })
   createJob(@CurrentTenant() orgId: string, @Req() req: any, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {

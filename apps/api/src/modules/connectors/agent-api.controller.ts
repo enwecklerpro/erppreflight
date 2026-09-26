@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AgentDevicesService } from './agent-devices.service';
+import { AgentDevicesService, EnrollSchema, HeartbeatSchema, JobResultSchema } from './agent-devices.service';
+import { ZodBody } from '../../common/openapi/zod-openapi';
 
 function rawBodyOf(req: any): string {
   if (req.rawBody && Buffer.isBuffer(req.rawBody)) return req.rawBody.toString('utf8');
@@ -19,12 +20,14 @@ export class AgentApiController {
   constructor(private readonly devices: AgentDevicesService) {}
 
   @Post('enroll')
+  @ZodBody(EnrollSchema)
   @ApiOperation({ summary: 'Enroll a device with a single-use enrollment token and its Ed25519 public key' })
   enroll(@Req() req: any, @Body() body: unknown) {
     return this.devices.enroll(body, req.ip);
   }
 
   @Post('heartbeat')
+  @ZodBody(HeartbeatSchema)
   @HttpCode(200)
   @ApiOperation({ summary: 'Signed heartbeat; returns queued signed job envelopes' })
   async heartbeat(@Req() req: any, @Body() body: unknown) {
@@ -33,6 +36,7 @@ export class AgentApiController {
   }
 
   @Post('jobs/:jobId/result')
+  @ZodBody(JobResultSchema)
   @HttpCode(200)
   @ApiOperation({ summary: 'Submit a signed job result (redacted manifest; contents only if egress policy allows)' })
   async result(@Req() req: any, @Param('jobId', new ParseUUIDPipe()) jobId: string, @Body() body: unknown) {

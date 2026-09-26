@@ -61,7 +61,7 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/erppf_(live|dev|enroll|scim)_[A-Za-z0-9_-]{8,}/g, 'erppf_$1_[REDACTED]'],
   [/whsec_[A-Za-z0-9]{8,}/g, 'whsec_[REDACTED]'],
   [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, '[REDACTED_JWT]'],
-  [/(https?:\/\/)[^\s:@/]+:[^\s@/]+@/gi, '$1[REDACTED]@'],
+  [/([a-z][a-z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/gi, '$1[REDACTED]@'],
   [/((?:password|passwd|secret|token|api[_-]?key|client[_-]?secret)["']?\s*[:=]\s*["']?)[^\s"',;&]+/gi, '$1[REDACTED]'],
 ];
 

@@ -17,11 +17,9 @@ export function resolveScalarBundle(): string | null {
     path.resolve(__dirname, '../../vendor/scalar/standalone.js'),
   ];
   for (const c of candidates) if (fs.existsSync(c)) return c;
-  try {
-    return require.resolve('@scalar/api-reference/dist/browser/standalone.js');
-  } catch {
-    return null;
-  }
+  // Development (ts / unbuilt): the devDependency inside apps/api/node_modules.
+  const dev = path.resolve(__dirname, '../../node_modules/@scalar/api-reference/dist/browser/standalone.js');
+  return fs.existsSync(dev) ? dev : null;
 }
 
 export function referenceHtml(specUrl: string, bundleUrl: string): string {

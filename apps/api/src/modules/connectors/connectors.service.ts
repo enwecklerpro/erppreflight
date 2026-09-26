@@ -342,11 +342,11 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
       const res = await this.db.query<ConnectorRow>(
         `UPDATE connector_instances
            SET name = $3, config = $4, credentials_ciphertext = $5, credentials_key_id = $6,
-               credentials_updated_at = CASE WHEN $7 THEN NOW() ELSE credentials_updated_at END,
-               access_mode = $8, status = $9,
+               credentials_updated_at = CASE WHEN $7::boolean THEN NOW() ELSE credentials_updated_at END,
+               access_mode = $8, status = $9::varchar,
                -- re-enabling or new credentials reset the circuit
-               circuit_state = CASE WHEN $7 OR ($9 = 'ACTIVE' AND status = 'DISABLED') THEN 'CLOSED' ELSE circuit_state END,
-               consecutive_failures = CASE WHEN $7 THEN 0 ELSE consecutive_failures END,
+               circuit_state = CASE WHEN $7::boolean OR ($9::varchar = 'ACTIVE' AND status = 'DISABLED') THEN 'CLOSED' ELSE circuit_state END,
+               consecutive_failures = CASE WHEN $7::boolean THEN 0 ELSE consecutive_failures END,
                updated_at = NOW()
          WHERE organization_id = $1 AND id = $2
          RETURNING *`,

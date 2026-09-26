@@ -4,7 +4,11 @@ const fs = require('fs');
 const path = require('path');
 
 const apiRoot = path.resolve(__dirname, '..');
-const src = require.resolve('@scalar/api-reference/dist/browser/standalone.js', { paths: [apiRoot] });
+const src = path.join(apiRoot, 'node_modules', '@scalar', 'api-reference', 'dist', 'browser', 'standalone.js');
+if (!fs.existsSync(src)) {
+  console.error('[api-reference] @scalar/api-reference is not installed; run pnpm install');
+  process.exit(1);
+}
 const destDir = path.join(apiRoot, 'dist', 'vendor', 'scalar');
 fs.mkdirSync(destDir, { recursive: true });
 fs.copyFileSync(src, path.join(destDir, 'standalone.js'));

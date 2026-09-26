@@ -6,7 +6,8 @@ import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
-import { PartnersService } from './partners.service';
+import { CreateGrantSchema, PartnersService } from './partners.service';
+import { ZodBody } from '../../common/openapi/zod-openapi';
 
 /** Partner mode (C §61): customer-granted, audited, expiring delegated access. */
 @ApiTags('Partner Mode')
@@ -25,6 +26,7 @@ export class PartnersController {
   }
 
   @Post('grants')
+  @ZodBody(CreateGrantSchema)
   @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
   @ApiOperation({ summary: 'Grant a partner organization time-limited delegated access (audited)' })
   grant(@CurrentTenant() orgId: string, @Req() req: any, @Body() body: unknown) {

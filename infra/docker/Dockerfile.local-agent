@@ -1,0 +1,46 @@
+# ==============================================================================
+# ERP Preflight — Local Agent (on-premise, outbound-only) container image
+# Part 03 §3.12, Part 18.7/18.8, Section C §36
+#
+# Build (from the repository root):
+#   docker build -f infra/docker/Dockerfile.local-agent -t erppreflight/local-agent:0.2.0 .
+#
+# Enroll once (the enrollment token is issued in ERP Preflight → Integrations → Local agents):
+#   docker volume create erppf-agent
+#   docker run --rm -v erppf-agent:/var/lib/erppreflight \
+#     erppreflight/local-agent:0.2.0 enroll https://api.erppreflight.com <ENROLLMENT_TOKEN> --name plant-01
+#
+# Run (read-only mount of the export directory the agent may scan):
+#   docker run -d --name erppf-agent --restart unless-stopped \
+#     --read-only --cap-drop ALL --security-opt no-new-privileges \
+#     -v erppf-agent:/var/lib/erppreflight \
+#     -v /srv/sap/exports:/data/exports:ro \
+#     -e ERP_PREFLIGHT_AGENT_SCAN_ROOTS=/data/exports \
+#     erppreflight/local-agent:0.2.0 daemon
+#
+# The agent only opens OUTBOUND HTTPS connections to the ERP Preflight API; no port is exposed.
+# ==============================================================================
+
+FROM node:22-alpine AS builder
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.20.0 --activate
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
+COPY packages/ ./packages/
+COPY apps/local-agent/ ./apps/local-agent/
+RUN pnpm install --frozen-lockfile --filter @erppreflight/local-agent...
+RUN pnpm --filter @erppreflight/local-agent build
+
+FROM node:22-alpine AS runner
+ENV NODE_ENV=production \
+    ERP_PREFLIGHT_AGENT_HOME=/var/lib/erppreflight
+WORKDIR /opt/erppreflight-agent
+RUN addgroup --system --gid 1001 agent && adduser --system --uid 1001 --ingroup agent agent && \
+    mkdir -p /var/lib/erppreflight && chown agent:agent /var/lib/erppreflight && chmod 0700 /var/lib/erppreflight
+# The agent has no runtime npm dependencies; only the compiled output is shipped.
+COPY --from=builder /app/apps/local-agent/dist ./dist
+COPY --from=builder /app/apps/local-agent/package.json ./package.json
+USER agent
+VOLUME ["/var/lib/erppreflight"]
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 CMD node dist/cli.js status >/dev/null || exit 1
+ENTRYPOINT ["node", "dist/cli.js"]
+CMD ["daemon"]
