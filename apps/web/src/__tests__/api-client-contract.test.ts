@@ -136,7 +136,31 @@ describe('api-client contract', () => {
         search: 'bkpf',
         severity: 'BLOCKER',
         engine: undefined,
+        latest: true,
       });
+    });
+
+    it('passes finding lifecycle filters (multi-status, assignee, due) to the server', () => {
+      const params = buildFindingsQueryParams(
+        {
+          page: 1,
+          pageSize: 50,
+          filters: { status: ['OPEN', 'ACKNOWLEDGED'], assignee: ['me'], due: ['overdue'] },
+        },
+        'p1'
+      );
+      expect(params).toMatchObject({ status: 'OPEN,ACKNOWLEDGED', assignee: 'me', due: 'overdue', latest: true });
+      expect(buildFindingsQueryParams({ page: 1, pageSize: 50, filters: {} }).latest).toBeUndefined();
+    });
+
+    it('serializes lifecycle filters into the findings request', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } }));
+      await fetchFindings({ projectId: 'p1', status: 'OPEN,RESOLVED', assignee: 'unassigned', due: 'due_soon', latest: true });
+      const url = String(fetchMock.mock.calls[0][0]);
+      expect(url).toContain('status=OPEN%2CRESOLVED');
+      expect(url).toContain('assignee=unassigned');
+      expect(url).toContain('due=due_soon');
+      expect(url).toContain('latest=true');
     });
   });
 
