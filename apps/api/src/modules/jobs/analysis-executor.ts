@@ -77,6 +77,11 @@ export interface EngineAssignmentInput {
 
 export type EngineRunOutcome = 'COMPLETED' | 'PARTIAL' | 'FAILED';
 
+/** Configuration key carrying a companion artifact's file name: `xdp_content` -> `xdp_file_name`. */
+export function companionFileNameKey(configKey: string): string | null {
+  return /^[a-z][a-z0-9_]*_content$/.test(configKey) ? configKey.replace(/_content$/, '_file_name') : null;
+}
+
 export interface AnalysisRunResult {
   finalStatus: EngineRunOutcome;
   totalFindings: number;
@@ -588,6 +593,10 @@ export class AnalysisExecutor {
       for (const c of unit.companions) {
         if (c.artifact.rawContentEncoding === 'utf-8' && c.artifact.rawContent !== null) {
           companionConfig[c.configKey] = c.artifact.rawContent;
+          // The engine cites the companion's real uploaded file name in its evidence
+          // (e.g. FormDoctor `xdp_content` -> `xdp_file_name`), not a template default.
+          const nameKey = companionFileNameKey(c.configKey);
+          if (nameKey && c.artifact.fileName) companionConfig[nameKey] = c.artifact.fileName;
         }
       }
       const wirePayload = toWireJobRequest({

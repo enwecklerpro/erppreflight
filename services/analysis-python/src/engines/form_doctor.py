@@ -282,29 +282,38 @@ class FormDoctorEngine(BaseEngine):
         xml_path = "invoice_payload.xml"
         xdp_path = "invoice_template.xdp"
 
+        cfg = request.configuration or {}
+        # Real uploaded file names (set by the API for the analysed artifact and for companion
+        # artifacts injected as *_content). Evidence must point at the file the user uploaded,
+        # never at a template default name.
+        source_name = self._file_name(cfg.get("sourceFileName") or cfg.get("source_file_name"))
+        raw_name = source_name or request.artifact_s3_key
+
         # Check configuration
-        if isinstance(request.configuration.get("bindings"), list):
-            raw_bindings = request.configuration["bindings"]
-        if request.configuration.get("xml_content"):
-            xml_content = request.configuration["xml_content"]
-        if request.configuration.get("xdp_content"):
-            xdp_content = request.configuration["xdp_content"]
+        if isinstance(cfg.get("bindings"), list):
+            raw_bindings = cfg["bindings"]
+        if cfg.get("xml_content"):
+            xml_content = cfg["xml_content"]
+            xml_path = self._file_name(cfg.get("xml_file_name")) or xml_path
+        if cfg.get("xdp_content"):
+            xdp_content = cfg["xdp_content"]
+            xdp_path = self._file_name(cfg.get("xdp_file_name")) or xdp_path
 
         # Check raw_content
         raw = request.raw_content or ""
         if raw.strip():
             if "<xdp:xdp" in raw or "<template" in raw or raw.strip().endswith(".xdp"):
                 xdp_content = raw
-                xdp_path = request.artifact_s3_key or "template.xdp"
+                xdp_path = raw_name or "template.xdp"
             elif any(k in raw.lower() for k in ("<smartform", "/:", "/*", "/=", "address", "ssf_function_module_name")):
                 xml_content = raw
-                xml_path = request.artifact_s3_key or "legacy_form.txt"
+                xml_path = raw_name or "legacy_form.txt"
             elif request.artifact_type == ArtifactType.TXT:
                 xml_content = raw
-                xml_path = request.artifact_s3_key or "legacy_form.txt"
+                xml_path = raw_name or "legacy_form.txt"
             elif raw.strip().startswith("<"):
                 xml_content = raw
-                xml_path = request.artifact_s3_key or "payload.xml"
+                xml_path = raw_name or "payload.xml"
 
         # Check artifacts list
         for art in request.artifacts:
@@ -323,6 +332,15 @@ class FormDoctorEngine(BaseEngine):
                 xml_path = art_name
 
         return xml_content, xdp_content, raw_bindings, xml_path, xdp_path
+
+    @staticmethod
+    def _file_name(value: Any) -> str:
+        """Display name of an uploaded artifact: last path segment, control characters removed, bounded."""
+        if not isinstance(value, str):
+            return ""
+        name = value.replace("\\", "/").rsplit("/", 1)[-1]
+        name = "".join(ch for ch in name if ch.isprintable()).strip()
+        return name[:255]
 
     # -------------------------------------------------------------------------
     # XML DOM Indexing
