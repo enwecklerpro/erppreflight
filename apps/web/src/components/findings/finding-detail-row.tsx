@@ -74,6 +74,19 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             </p>
           </div>
 
+          {/* Spec 10.14: report an incorrect result straight from the finding */}
+          <a
+            href={`/settings/support?findingId=${encodeURIComponent(finding.id)}${
+              (finding as { analysisId?: string }).analysisId
+                ? `&analysisId=${encodeURIComponent((finding as { analysisId?: string }).analysisId as string)}`
+                : ''
+            }`}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          >
+            <ShieldAlert className="size-3" aria-hidden="true" />
+            Report incorrect finding
+          </a>
+
           {/* Finding-to-Task Work Item Creation (Part 15.8) — configured connectors only */}
           <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2.5">
             <h5 className="font-semibold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">

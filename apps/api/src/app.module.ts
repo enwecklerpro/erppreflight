@@ -44,6 +44,14 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { SsoModule } from './modules/sso/sso.module';
 import { PartnersModule } from './modules/partners/partners.module';
+import { UsageModule } from './modules/usage/usage.module';
+import { RetentionModule } from './modules/retention/retention.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
+import { SupportModule } from './modules/support/support.module';
+import { AccountModule } from './modules/account/account.module';
+import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
+import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -97,6 +105,14 @@ import { PartnersModule } from './modules/partners/partners.module';
     ConnectorsModule,
     SsoModule,
     PartnersModule,
+    UsageModule,
+    RetentionModule,
+    FeatureFlagsModule,
+    SupportModule,
+    AccountModule,
+    KnowledgeGraphModule,
+    ReleaseIntelligenceModule,
+    NotificationsModule,
   ],
 })
 export class AppModule implements NestModule {
@@ -113,6 +129,8 @@ export class AppModule implements NestModule {
         'admin',
         'knowledge/(.*)',
         'knowledge',
+        'public/(.*)',
+        'public',
         'changelog/(.*)',
         'changelog',
         'billing/webhook',

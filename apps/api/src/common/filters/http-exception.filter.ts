@@ -52,6 +52,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       correlationId,
       message,
       ...(details ? { details } : {}),
+      // Machine-readable error code and plan-limit context (e.g. PLAN_LIMIT_EXCEEDED, HTTP 402).
+      ...pickStructuredErrorFields(exceptionResponse),
     };
 
     if (status >= 500) {
@@ -73,4 +75,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     response.status(status).json(errorPayload);
   }
+}
+
+const STRUCTURED_ERROR_KEYS = ['code', 'limitKey', 'used', 'limit', 'planTier'] as const;
+
+function pickStructuredErrorFields(exceptionResponse: unknown): Record<string, unknown> {
+  if (typeof exceptionResponse !== 'object' || exceptionResponse === null) return {};
+  const source = exceptionResponse as Record<string, unknown>;
+  if (typeof source.code !== 'string') return {};
+  const out: Record<string, unknown> = {};
+  for (const key of STRUCTURED_ERROR_KEYS) {
+    const value = source[key];
+    if (typeof value === 'string' || typeof value === 'number') out[key] = value;
+  }
+  return out;
 }

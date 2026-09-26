@@ -7,13 +7,18 @@ import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { ReleasedObjectsProvider } from '../knowledge-graph/released-objects.provider';
 import { TelemetryService } from '../telemetry/telemetry.service';
 import {
   AnalysisExecutor,
+  AnalysisRunResult,
   AnalysisJobFile,
   applyDataPolicy,
   resolveArtifactType,
 } from './analysis-executor';
+import { AuditService } from '../audit/audit.service';
+import { UsageService } from '../usage/usage.service';
+import { RetentionService } from '../retention/retention.service';
 
 export interface AnalysisJobData {
   analysisId: string;
@@ -53,7 +58,11 @@ export class AnalysisProcessor extends WorkerHost {
     private readonly db: DatabaseService,
     private readonly storageService: S3StorageService,
     private readonly config: ConfigService,
+    @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly usage?: UsageService,
+    @Optional() private readonly retention?: RetentionService,
     @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly releasedObjects?: ReleasedObjectsProvider,
     @Optional() private readonly telemetry?: TelemetryService
   ) {
     super();
@@ -65,8 +74,84 @@ export class AnalysisProcessor extends WorkerHost {
       this.storageService,
       this.analysisUrl,
       this.logger,
+      this.releasedObjects,
       (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms)
     );
+  }
+
+  /**
+   * Domain events for the notification engine / webhooks (Part 05 §5.10):
+   * analysis.completed | analysis.failed, plus finding.critical when the run
+   * persisted BLOCKER/CRITICAL findings. Best effort: never fails the job.
+   */
+  private async emitOutcome(
+    data: AnalysisJobData,
+    result: AnalysisRunResult | null,
+    error?: string
+  ): Promise<void> {
+    await this.recordOutcomeMetrics(data, result);
+    if (!this.outbox) return;
+    const { analysisId, organizationId, projectId, userId, engineTypes, targetRelease } = data;
+    try {
+      const failed = !result || result.finalStatus === 'FAILED';
+      await this.outbox.recordEvent(
+        organizationId,
+        failed ? 'analysis.failed' : 'analysis.completed',
+        'ANALYSIS',
+        analysisId,
+        {
+          analysisId,
+          projectId,
+          triggeredBy: userId ?? null,
+          engineTypes,
+          targetRelease,
+          status: result?.finalStatus ?? 'FAILED',
+          totalFindings: result?.totalFindings ?? 0,
+          engineOutcomes: result?.engineOutcomes ?? {},
+          ...(error ? { reason: error.slice(0, 500) } : {}),
+        }
+      );
+      if (!result || result.totalFindings === 0) return;
+      const sev = await this.db.query(
+        `SELECT severity, engine, COUNT(*)::int AS n FROM findings
+          WHERE analysis_id = $1 AND organization_id = $2 AND severity IN ('BLOCKER', 'CRITICAL')
+          GROUP BY severity, engine`,
+        [analysisId, organizationId],
+        { tenantId: organizationId }
+      );
+      if (!sev.rows.length) return;
+      const count = (s: string) => sev.rows.filter((r: any) => r.severity === s).reduce((a: number, r: any) => a + r.n, 0);
+      await this.outbox.recordEvent(organizationId, 'finding.critical', 'ANALYSIS', analysisId, {
+        analysisId,
+        projectId,
+        triggeredBy: userId ?? null,
+        blockerCount: count('BLOCKER'),
+        criticalCount: count('CRITICAL'),
+        engines: [...new Set(sev.rows.map((r: any) => r.engine))].sort(),
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not record analysis outcome event for ${analysisId}: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Business metrics (C §57): analyses by final status and emitted findings by severity. Never throws. */
+  private async recordOutcomeMetrics(data: AnalysisJobData, result: AnalysisRunResult | null): Promise<void> {
+    if (!this.telemetry) return;
+    try {
+      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL');
+      if (!result || result.totalFindings === 0) return;
+      const res = await this.db.query(
+        `SELECT severity, COUNT(*)::int AS n FROM findings
+          WHERE analysis_id = $1 AND organization_id = $2 GROUP BY severity`,
+        [data.analysisId, data.organizationId],
+        { tenantId: data.organizationId }
+      );
+      for (const r of res.rows ?? []) {
+        this.telemetry.incrementFindings(String(r.severity), Number(r.n));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not record analysis metrics for ${data.analysisId}: ${err?.message ?? err}`);
+    }
   }
 
   async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>): Promise<void> {
@@ -84,8 +169,9 @@ export class AnalysisProcessor extends WorkerHost {
       `Processing analysis job ${analysisId} for organization ${organizationId}: ${engineTypes.length} engines x ${data.files?.length ?? 0} artifacts`
     );
 
+    let result: AnalysisRunResult;
     try {
-      const result = await this.executor.run({
+      result = await this.executor.run({
         analysisId,
         organizationId,
         projectId,
@@ -97,16 +183,9 @@ export class AnalysisProcessor extends WorkerHost {
         legacyArtifactS3Key: data.artifactS3Key ?? null,
         legacyArtifactType: data.artifactType,
       });
-      await this.emitCompletionEvents(data, result.finalStatus, result.totalFindings, result.engineOutcomes);
+      await this.emitOutcome(data, result);
     } catch (err: any) {
       this.logger.error(`Analysis job ${analysisId} failed: ${err?.message ?? err}`);
-      this.telemetry?.incrementAnalyses('FAILED');
-      await this.recordEvent(organizationId, 'analysis.failed', analysisId, {
-        analysisId,
-        projectId,
-        engineTypes,
-        error: 'Analysis could not be executed',
-      });
       await this.db
         .query(
           `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
@@ -114,64 +193,69 @@ export class AnalysisProcessor extends WorkerHost {
           { tenantId: organizationId }
         )
         .catch(() => {});
+      await this.audit?.recordSafe({
+        organizationId,
+        action: 'analysis.failed',
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        payload: {
+          projectId,
+          engineTypes,
+          error: String(err?.message ?? err).slice(0, 300),
+        },
+      });
+      await this.emitOutcome(data, null, String(err?.message ?? err));
       // Rethrow so BullMQ records the failure and applies its retry policy.
       throw err;
     }
-  }
-
-  private async recordEvent(organizationId: string, eventType: string, aggregateId: string, payload: Record<string, unknown>) {
-    if (!this.outbox) return;
-    try {
-      await this.outbox.recordEvent(organizationId, eventType, 'ANALYSIS', aggregateId, payload);
-    } catch (err: any) {
-      this.logger.warn(`Could not record ${eventType} outbox event: ${err?.message}`);
-    }
+    await this.recordRunOutcome(data, result);
   }
 
   /**
-   * Domain events for webhooks / automation (C §48): analysis.completed or
-   * analysis.failed, plus finding.critical when BLOCKER/CRITICAL findings exist.
+   * Audit + usage hooks (spec 10.5, 10.15, 13.10 #14): one audit event and one
+   * ENGINE_EXECUTION usage row per engine, then the run outcome. Best-effort in
+   * the worker: bookkeeping failures are logged and never fail a finished run.
    */
-  private async emitCompletionEvents(
-    data: AnalysisJobData,
-    finalStatus: string,
-    totalFindings: number,
-    engineOutcomes: Record<string, string>
-  ) {
+  private async recordRunOutcome(data: AnalysisJobData, result: AnalysisRunResult): Promise<void> {
     const { analysisId, organizationId, projectId } = data;
-    this.telemetry?.incrementAnalyses(finalStatus as any);
-    const eventType = finalStatus === 'FAILED' ? 'analysis.failed' : 'analysis.completed';
-    await this.recordEvent(organizationId, eventType, analysisId, {
-      analysisId,
-      projectId,
-      status: finalStatus,
-      totalFindings,
-      engineOutcomes,
+    const artifactCount = data.files?.length ?? 0;
+    for (const [engine, outcome] of Object.entries(result.engineOutcomes)) {
+      await this.audit?.recordSafe({
+        organizationId,
+        action: `analysis.engine.${outcome.toLowerCase()}`,
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        payload: { engine, outcome, projectId, artifacts: artifactCount },
+      });
+      await this.usage?.recordSafe(organizationId, 'ENGINE_EXECUTION', Math.max(1, artifactCount), {
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        actorId: data.userId,
+        metadata: { engine, outcome },
+      });
+    }
+    await this.audit?.recordSafe({
+      organizationId,
+      action: `analysis.${result.finalStatus === 'COMPLETED' ? 'completed' : result.finalStatus === 'PARTIAL' ? 'partial' : 'failed'}`,
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: {
+        projectId,
+        finalStatus: result.finalStatus,
+        totalFindings: result.totalFindings,
+        engineOutcomes: result.engineOutcomes,
+      },
     });
-    if (finalStatus === 'FAILED') return;
-    try {
-      const res = await this.db.query(
-        `SELECT severity, COUNT(*)::int AS n FROM findings
-          WHERE organization_id = $1 AND analysis_id = $2 GROUP BY severity`,
-        [organizationId, analysisId],
-        { tenantId: organizationId }
-      );
-      const bySeverity: Record<string, number> = {};
-      for (const r of res.rows ?? []) {
-        bySeverity[r.severity] = Number(r.n);
-        this.telemetry?.incrementFindings(String(r.severity));
+    if (this.retention && data.files?.length) {
+      try {
+        await this.retention.purgeAfterAnalysis(
+          organizationId,
+          data.files.map((f) => f.fileId),
+          analysisId
+        );
+      } catch (err: any) {
+        this.logger.error(`Post-analysis retention purge failed for ${analysisId}: ${err?.message ?? err}`);
       }
-      const critical = (bySeverity.BLOCKER ?? 0) + (bySeverity.CRITICAL ?? 0);
-      if (critical > 0) {
-        await this.recordEvent(organizationId, 'finding.critical', analysisId, {
-          analysisId,
-          projectId,
-          criticalFindings: critical,
-          bySeverity,
-        });
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not evaluate critical findings for ${analysisId}: ${err?.message}`);
     }
   }
 
@@ -217,6 +301,19 @@ export class AnalysisProcessor extends WorkerHost {
       [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
       { tenantId: organizationId }
     );
+    await this.usage?.recordSafe(organizationId, 'ANALYSIS_RUN', 1, {
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      actorId: userId,
+      metadata: { source: 'scheduled', scheduleId: job.data.scheduleId },
+    });
+    await this.audit?.recordSafe({
+      organizationId,
+      action: 'analysis.queued',
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: { projectId, engineTypes, source: 'scheduled', scheduleId: job.data.scheduleId },
+    });
 
     await this.processAnalysis({
       analysisId,

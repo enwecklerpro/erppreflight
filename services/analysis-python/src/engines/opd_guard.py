@@ -12,6 +12,9 @@ import zipfile
 import defusedxml.ElementTree as DefusedET
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest
@@ -27,10 +30,71 @@ from src.parsers.safe_zip import ArchiveSecurityError, SafeZipReader
 XLSX_MAGIC = b"PK\x03\x04"
 
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "OPD_DETERMINATION_STEP_MISSING", "Output determination step has no matching rule", Severity.CRITICAL,
+        "In 'Output Parameter Determination' (BRFplus, app 'Output Parameter Determination'), add a decision "
+        "table row for the failing step that matches the document's condition values, or add a trailing "
+        "wildcard ('*') fallback row. Re-run the determination simulation for the document type.",
+        "Output Determination",
+    ),
+    RuleSpec(
+        "OPD_UNREACHABLE_RULE", "Decision table row shadowed by an earlier row", Severity.MINOR,
+        "Reorder the decision table so specific condition rows precede broader wildcard rows (BRFplus evaluates "
+        "first-match), or delete the redundant row.", "Configuration Integrity",
+    ),
+    RuleSpec(
+        "OPD_CHANNEL_INACTIVE", "Determined output channel is inactive or unsupported", Severity.CRITICAL,
+        "Change the Channel decision table result to a supported channel (EMAIL, PRINT, EDI, XML, IDOC, PORTAL) "
+        "and make sure the channel is active for the output type in SPRO > Output Control > Define Business Rules.",
+        "Channel Governance",
+    ),
+    RuleSpec(
+        "OPD_PRINTER_QUEUE_NOT_FOUND", "PRINT channel without a print queue", Severity.MAJOR,
+        "Maintain a Printer decision table row returning a valid print queue (app 'Maintain Print Queues' / "
+        "SAP Cloud Print Manager, or SPAD output device on-premise).", "Print Architecture",
+    ),
+    RuleSpec(
+        "OPD_RELEVANCE_SUPPRESSED", "Output generation suppressed by relevance rule", Severity.INFO,
+        "Confirm the Output Relevance table intentionally returns FALSE for this document status; otherwise "
+        "correct the relevance condition.", "Output Determination",
+    ),
+)
+
+
+class OPDInputModel(ContractModel):
+    """OPD scenario / decision-table JSON. Decision tables may also arrive as CSV, XML or XLSX artifacts."""
+    signal_fields = ("tables", "decision_tables", "scenario", "expected_determination")
+    signal_message = (
+        "OPD input requires decision tables ('tables' / 'decision_tables') and/or a document 'scenario'."
+    )
+    scenario: Optional[Dict[str, Any]] = None
+    tables: Optional[Dict[str, Any]] = None
+    decision_tables: Optional[Dict[str, Any]] = None
+    expected_determination: Optional[Dict[str, Any]] = None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.XML, InputFormat.CSV, InputFormat.XLSX),
+    summary=(
+        "BRFplus output-determination decision tables (CSV with a Step column, XML <table> export, XLSX, or "
+        "JSON {'tables': {step: [rows]}}) plus an optional document scenario JSON {'scenario': {...}}."
+    ),
+    required=("At least one decision table (CSV/XML/XLSX/JSON)",),
+    json_model=OPDInputModel,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class OPDGuardEngine(BaseEngine):
     engine_type = EngineType.OPD_GUARD
     rule_prefix = "OPD"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     accepts_binary_input = True
     name = "OPD Guard"
     description = "S/4HANA Output Parameter Determination & BRFplus decision table evaluation"

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
+import { PASSWORD_MIN_LENGTH, PasswordSchema, passwordPolicyViolations } from '@erppreflight/schemas';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSummaryErrors } from '@/components/form/form-inputs';
 import {
@@ -35,9 +36,8 @@ const signupSchema = z
       .string()
       .min(1, 'Email is required')
       .email('Please enter a valid work email address'),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters long'),
+    // Same policy the API enforces (shared @erppreflight/schemas contract).
+    password: PasswordSchema,
     confirmPassword: z
       .string()
       .min(1, 'Please confirm your password'),
@@ -45,6 +45,11 @@ const signupSchema = z
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
     path: ['confirmPassword'],
+  })
+  .superRefine((data, ctx) => {
+    if (passwordPolicyViolations(data.password, { email: data.email }).includes('Password must not contain your e-mail address')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Password must not contain your e-mail address' });
+    }
   });
 
 type SignupFormData = z.infer<typeof signupSchema>;
@@ -61,10 +66,12 @@ interface AuthResponse {
   };
 }
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { evictTenantQueryCache } from '@/lib/query/query-provider';
 
 export default function SignupPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [serverError, setServerError] = React.useState<string | null>(null);
 
   const signupMutation = useMutation({
@@ -79,7 +86,9 @@ export default function SignupPage() {
         }),
       });
     },
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
+      // New identity: drop anything cached while signed out (e.g. a 401 for /auth/me).
+      await evictTenantQueryCache(queryClient);
       if (res?.accessToken) {
         setStoredAuthToken(res.accessToken);
       }
@@ -231,7 +240,7 @@ export default function SignupPage() {
                   id="signup-password"
                   name={field.name}
                   label="Password"
-                  description="Minimum 8 characters"
+                  description={`At least ${PASSWORD_MIN_LENGTH} characters with three of: lower-case, upper-case, digit, symbol.`}
                   required
                   error={field.state.meta.errors as any}
                 >

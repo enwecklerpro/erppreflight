@@ -24,6 +24,21 @@ interface VerifiedTenant {
   tenantRole?: string;
   systemRole?: string;
   delegated?: DelegatedAccess;
+  /** The organization requires 2FA and this user has not enrolled yet. */
+  mfaEnrollmentRequired?: boolean;
+}
+
+/**
+ * Routes a member of a "require 2FA" organization may still call before enrolling:
+ * authentication / account self-service and the organization list used by the switcher.
+ */
+const MFA_ENROLLMENT_ALLOWED_ANY_METHOD = [/^\/auth(\/|$)/, /^\/account(\/|$)/, /^\/invitations(\/|$)/];
+const MFA_ENROLLMENT_ALLOWED_READ = [/^\/organizations\/?$/, /^\/organizations\/current\/?$/];
+
+export function isMfaEnrollmentAllowedPath(originalUrl: string, method = 'GET'): boolean {
+  const path = String(originalUrl || '').split('?')[0].replace(/^\/api\/v1(?=\/|$)/, '') || '/';
+  if (MFA_ENROLLMENT_ALLOWED_ANY_METHOD.some((re) => re.test(path))) return true;
+  return String(method).toUpperCase() === 'GET' && MFA_ENROLLMENT_ALLOWED_READ.some((re) => re.test(path));
 }
 
 /** Audit / last-used bookkeeping for delegated (partner) access at most once per grant+user per window. */
@@ -69,6 +84,14 @@ export class TenancyMiddleware implements NestMiddleware {
       return next();
     }
 
+    if (verified.mfaEnrollmentRequired && !isMfaEnrollmentAllowedPath(req.originalUrl || req.url, req.method)) {
+      throw new ForbiddenException({
+        message:
+          'This organization requires two-factor authentication. Enable it under Settings > Security to continue.',
+        code: 'MFA_ENROLLMENT_REQUIRED',
+      });
+    }
+
     const anyReq = req as any;
     anyReq.tenantId = verified.tenantId;
     anyReq.tenantRole = verified.tenantRole;
@@ -110,6 +133,11 @@ export class TenancyMiddleware implements NestMiddleware {
       return null;
     }
 
+    // Only access tokens establish a tenant (2FA challenge tokens carry a typ claim).
+    if (payload?.typ) {
+      return null;
+    }
+
     const userId: string | undefined = payload?.sub;
     const requestedTenantId: string | undefined = headerTenantId || payload?.organizationId;
     if (!userId || !requestedTenantId || !isValidUuid(requestedTenantId) || !isValidUuid(userId)) {
@@ -117,10 +145,12 @@ export class TenancyMiddleware implements NestMiddleware {
     }
 
     const res = await this.db.query(
-      `SELECT u.status, u.system_role, m.role AS member_role
+      `SELECT u.status, u.system_role, u.token_version, u.totp_enabled_at,
+              m.role AS member_role, o.require_2fa
        FROM users u
        LEFT JOIN organization_members m
          ON m.user_id = u.id AND m.organization_id = $1
+       LEFT JOIN organizations o ON o.id = $1
        WHERE u.id = $2`,
       [requestedTenantId, userId],
       { bypassRls: true }
@@ -129,6 +159,12 @@ export class TenancyMiddleware implements NestMiddleware {
     const row = res.rows[0];
     if (!row || row.status !== 'ACTIVE') {
       throw new UnauthorizedException('Account is not active');
+    }
+
+    // Revoked session (password change/reset, 2FA change, logout-all): no tenant context;
+    // JwtAuthGuard rejects the token with 401 on protected routes.
+    if (Number(row.token_version ?? 0) !== Number(payload?.tv ?? 0)) {
+      return null;
     }
 
     if (!row.member_role && row.system_role !== 'SUPER_ADMIN') {
@@ -153,6 +189,8 @@ export class TenancyMiddleware implements NestMiddleware {
       userId,
       tenantRole: row.member_role || undefined,
       systemRole: row.system_role,
+      mfaEnrollmentRequired:
+        !!row.require_2fa && !row.totp_enabled_at && row.system_role !== 'SUPER_ADMIN',
     };
   }
 

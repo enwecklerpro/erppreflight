@@ -276,6 +276,10 @@ describe('H3/M6: environment validation', () => {
     S3_ACCESS_KEY: 'prod-access-key',
     S3_SECRET_KEY: 'prod-secret-key-value',
     MASTER_ENCRYPTION_KEY: 'c'.repeat(64),
+    MAIL_TRANSPORT: 'smtp',
+    SMTP_HOST: 'smtp.example.com',
+    MAIL_FROM: 'ERP Preflight <no-reply@example.com>',
+    APP_PUBLIC_URL: 'https://app.example.com',
   };
   let errSpy: any;
   beforeEach(() => {
@@ -435,7 +439,7 @@ describe('M7: billing checkout validation & webhook', () => {
     );
     const t = Math.floor(Date.now() / 1000);
     const sig = crypto.createHmac('sha256', 'whsec_test').update(`${t}.${body.toString('utf-8')}`).digest('hex');
-    await expect(svc.handleWebhook(`t=${t},v1=deadbeef,v1=${sig}`, body)).resolves.toEqual({ received: true });
+    await expect(svc.handleWebhook(`t=${t},v1=deadbeef,v1=${sig}`, body)).resolves.toMatchObject({ received: true });
     await expect(svc.handleWebhook(`t=${t},v1=${'0'.repeat(64)}`, body)).rejects.toBeInstanceOf(
       BadRequestException
     );

@@ -1,3 +1,4 @@
+import type { RequestMeta } from '../auth/security-audit.service';
 import {
   BadRequestException,
   ConflictException,
@@ -409,7 +410,12 @@ export class SsoService {
     return jwks;
   }
 
-  async completeLogin(query: { code?: string; state?: string; error?: string }, cookieStateHash: string | undefined, requestOrigin?: string) {
+  async completeLogin(
+    query: { code?: string; state?: string; error?: string },
+    cookieStateHash: string | undefined,
+    requestOrigin?: string,
+    meta: RequestMeta = {}
+  ) {
     if (query.error) throw new UnauthorizedException(`Identity provider returned error: ${String(query.error).slice(0, 80)}`);
     if (!query.code || !query.state) throw new BadRequestException('Missing code or state');
     const st = this.openState(query.state);
@@ -479,7 +485,7 @@ export class SsoService {
 
     // 3. Resolve / JIT-provision the user and membership
     const userId = await this.resolveUser(organizationId, provider, email, claims);
-    const session = await this.auth.issueSessionForMembership(userId, organizationId);
+    const session = await this.auth.issueSessionForMembership(userId, organizationId, meta);
     await this.audit.record({
       organizationId,
       action: 'sso.login_succeeded',

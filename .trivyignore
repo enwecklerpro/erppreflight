@@ -1,0 +1,14 @@
+# ==============================================================================
+# Trivy risk-acceptance list (spec 20.7 "allow/deny exceptions with expiration").
+# Every entry needs: justification, owner, expiry (exp:YYYY-MM-DD — Trivy stops ignoring the
+# finding after that date, so the blocking scans fail again and force a re-review).
+# Tracked in SECURITY_REVIEW.md §5 "Open issues".
+# ==============================================================================
+
+# postcss 8.4.31, pinned exactly by `next` (apps/web > next > postcss). Next.js uses it only at
+# BUILD time to process the application's own CSS; the standalone server traces the package
+# but never feeds it attacker-controlled CSS or source maps. Fix: upgrade `next` once it ships
+# postcss >= 8.5.18, or add a pnpm override (`next>postcss`) after verifying the web build.
+# Owner: web workstream. Review by expiry.
+CVE-2026-45623 exp:2026-12-31
+CVE-2026-73646 exp:2026-12-31

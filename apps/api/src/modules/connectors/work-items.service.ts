@@ -59,7 +59,7 @@ export const ResolveConflictSchema = z
 export const CommentSchema = z.object({ text: z.string().trim().min(1).max(5000), confirm: z.boolean().default(false) }).strict();
 
 export function appBaseUrl(): string {
-  const explicit = process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL;
+  const explicit = process.env.APP_PUBLIC_URL || process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL;
   if (explicit) return explicit.replace(/\/+$/, '');
   const cors = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean)[0];
   return (cors || 'http://localhost:3000').replace(/\/+$/, '');

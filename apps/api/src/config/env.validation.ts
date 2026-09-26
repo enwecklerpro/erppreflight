@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resolveMailConfig } from '../modules/mail/mail.config';
 
 const booleanFlag = z.preprocess(
   (val) => (val === undefined || val === null || val === '' ? undefined : val === 'true' || val === true),
@@ -19,6 +20,12 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
+  // Billing provider: 'stripe' (needs STRIPE_SECRET_KEY), 'local' (non-production simulator) or 'none'.
+  BILLING_PROVIDER: z.enum(['stripe', 'local', 'none']).optional(),
+  TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  // Knowledge graph sync (docs/KNOWLEDGE_GRAPH.md): weekly cron in UTC or 'off'; optional repository file subset.
+  KNOWLEDGE_SYNC_CRON: z.string().optional(),
+  KNOWLEDGE_CR_FILES: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),
@@ -40,6 +47,25 @@ export const envSchema = z.object({
   ADMIN_BOOTSTRAP_PASSWORD: z.string().optional(),
   METRICS_TOKEN: z.string().optional(),
   ENABLE_SWAGGER: booleanFlag,
+  // Account lifecycle / e-mail (see modules/mail and .env.coolify.example)
+  APP_PUBLIC_URL: z.string().optional(),
+  MAIL_TRANSPORT: z.string().optional(),
+  MAIL_FROM: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().optional(),
+  SMTP_SECURE: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_TLS_REJECT_UNAUTHORIZED: z.string().optional(),
+  SMTP_TIMEOUT_MS: z.coerce.number().int().optional(),
+  SMTP_EHLO_NAME: z.string().optional(),
+  MAIL_HTTP_PROVIDER: z.string().optional(),
+  MAIL_HTTP_URL: z.string().optional(),
+  MAIL_HTTP_API_KEY: z.string().optional(),
+  MAIL_HTTP_TIMEOUT_MS: z.coerce.number().int().optional(),
+  MAIL_DEV_OUTBOX_TOKEN: z.string().optional(),
+  // Unverified accounts may sign in but cannot run analyses / exports (default true).
+  EMAIL_VERIFICATION_REQUIRED: booleanFlag,
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -120,6 +146,8 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
   if (env.CLAMAV_MOCK_MODE === undefined) {
     env.CLAMAV_MOCK_MODE = !isProduction;
   }
+
+  errors.push(...resolveMailConfig(env).errors);
 
   if (errors.length > 0) {
     console.error(`Environment validation error:\n - ${errors.join('\n - ')}`);

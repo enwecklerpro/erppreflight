@@ -12,6 +12,20 @@ import { createFindingFingerprint } from '@erppreflight/evidence';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
+import {
+  KNOWLEDGE_AWARE_ENGINES,
+  RELEASED_OBJECTS_CONFIG_KEY,
+  ReleasedObjectsConfiguration,
+} from '../knowledge-graph/released-objects.provider';
+
+/** Supplies the snapshot-derived released-object list for knowledge-aware engines (optional). */
+export interface ReleasedObjectsSource {
+  forArtifact(
+    rawContent: string | null,
+    encoding: RawContentEncoding,
+    targetRelease: string
+  ): Promise<ReleasedObjectsConfiguration | null>;
+}
 
 /** A server-resolved, tenant-verified CLEAN artifact to analyse. */
 export interface AnalysisJobFile {
@@ -136,9 +150,48 @@ export class AnalysisExecutor {
     private readonly storage: S3StorageService | undefined,
     private readonly analysisUrl: string,
     private readonly logger: Logger,
+    private readonly releasedObjects?: ReleasedObjectsSource,
     /** Observability hook: engine call latency + outcome (C §57). */
     private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void
   ) {}
+
+  /**
+   * Knowledge-graph integration (additive): for CLEAN_CORE_OBJECT_GUARD the
+   * objects referenced by the artifact are classified against the latest
+   * immutable knowledge snapshot and passed as configuration.released_objects;
+   * the snapshot id is recorded on the analysis for reproducibility (Part 17.3).
+   */
+  private async knowledgeConfiguration(
+    engine: EngineType,
+    artifact: PreparedArtifact,
+    input: AnalysisRunInput,
+    cache: Map<string, ReleasedObjectsConfiguration | null>,
+    recorded: Set<string>
+  ): Promise<Record<string, unknown>> {
+    if (!this.releasedObjects || !KNOWLEDGE_AWARE_ENGINES.has(engine)) return {};
+    const key = artifact.fileId ?? artifact.storagePath ?? 'inline';
+    if (!cache.has(key)) {
+      cache.set(
+        key,
+        await this.releasedObjects
+          .forArtifact(artifact.rawContent, artifact.rawContentEncoding, input.targetRelease)
+          .catch(() => null)
+      );
+    }
+    const list = cache.get(key);
+    if (!list) return {};
+    if (!recorded.has(list.snapshotId)) {
+      recorded.add(list.snapshotId);
+      await this.db
+        .query(
+          `UPDATE analyses SET knowledge_snapshot_id = $1 WHERE id = $2 AND organization_id = $3`,
+          [list.snapshotId, input.analysisId, input.organizationId],
+          { tenantId: input.organizationId }
+        )
+        .catch((err: any) => this.logger.warn(`Could not record knowledge snapshot on analysis: ${err?.message ?? err}`));
+    }
+    return { [RELEASED_OBJECTS_CONFIG_KEY]: list };
+  }
 
   private async prepareArtifacts(input: AnalysisRunInput): Promise<PreparedArtifact[]> {
     const prepared: PreparedArtifact[] = [];
@@ -205,11 +258,16 @@ export class AnalysisExecutor {
   async run(input: AnalysisRunInput): Promise<AnalysisRunResult> {
     const { analysisId, organizationId, projectId, engineTypes, targetRelease } = input;
 
-    await this.db.query(
-      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2`,
+    const runningRes = await this.db.query(
+      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2 RETURNING created_at`,
       [analysisId, organizationId],
       { tenantId: organizationId }
     );
+    // Time-based rules (e.g. decommission recency) need a stable reference date. Use the
+    // analysis creation date so re-runs of the same analysis stay reproducible; an
+    // evaluation date inside the artifact or the requested configuration still wins.
+    const createdAt = runningRes?.rows?.[0]?.created_at;
+    const evaluationDate = createdAt ? new Date(createdAt).toISOString().slice(0, 10) : undefined;
 
     const artifacts = await this.prepareArtifacts(input);
     if (artifacts.length === 0) {
@@ -221,6 +279,8 @@ export class AnalysisExecutor {
     let partialCalls = 0;
     let failedCalls = 0;
     const engineOutcomes: Record<string, EngineRunOutcome> = {};
+    const knowledgeCache = new Map<string, ReleasedObjectsConfiguration | null>();
+    const recordedSnapshots = new Set<string>();
 
     for (const engine of engineTypes) {
       let engineCompleted = 0;
@@ -238,6 +298,13 @@ export class AnalysisExecutor {
           }
         };
         try {
+          const knowledgeConfig = await this.knowledgeConfiguration(
+            engine,
+            artifact,
+            input,
+            knowledgeCache,
+            recordedSnapshots
+          );
           const wirePayload = toWireJobRequest({
             jobId: analysisId,
             tenantId: organizationId,
@@ -247,9 +314,11 @@ export class AnalysisExecutor {
             artifactS3Key: artifact.storagePath,
             artifactType: artifact.artifactType,
             configuration: {
+              ...(evaluationDate ? { evaluation_date: evaluationDate } : {}),
               ...(input.configuration ?? {}),
               ...(artifact.fileId ? { sourceFileId: artifact.fileId } : {}),
               ...(artifact.fileName ? { sourceFileName: artifact.fileName } : {}),
+              ...knowledgeConfig,
             },
             rawContent: artifact.rawContent,
             rawContentEncoding: artifact.rawContentEncoding,

@@ -77,9 +77,10 @@ export class TelemetryService {
     this.rulesEvaluatedTotal += count;
   }
 
-  incrementFindings(severity: string) {
+  incrementFindings(severity: string, count = 1) {
     const key = severity.toUpperCase();
-    this.findingsEmittedTotal.set(key, (this.findingsEmittedTotal.get(key) || 0) + 1);
+    const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+    this.findingsEmittedTotal.set(key, (this.findingsEmittedTotal.get(key) || 0) + n);
   }
 
   /** Engine latency per engine and outcome (analysis service call duration). */

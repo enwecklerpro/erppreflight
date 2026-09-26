@@ -2,14 +2,19 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
   Logger,
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { passwordPolicyViolations } from '@erppreflight/schemas';
 import { DatabaseService } from '../database/database.service';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { hash, verify } from '@node-rs/argon2';
+import { EmailVerificationService } from './email-verification.service';
+import { SessionAuthMethod, SessionService } from './session.service';
+import type { RequestMeta } from './security-audit.service';
 
 const ARGON2ID_ALGORITHM = 2; // Algorithm.Argon2id (RFC 9106 recommended)
 const ARGON2_OPTIONS = {
@@ -18,9 +23,68 @@ const ARGON2_OPTIONS = {
   timeCost: 2,
   parallelism: 1,
 } as const;
+
+/**
+ * True when a stored hash is not Argon2id with the current parameters (spec §8.1
+ * rehash-on-login). Legacy non-Argon2 hashes never authenticate at all.
+ */
+export function passwordHashNeedsRehash(stored: string): boolean {
+  const match = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$/.exec(String(stored || ''));
+  if (!match) return true;
+  return (
+    Number(match[1]) !== 19 ||
+    Number(match[2]) !== ARGON2_OPTIONS.memoryCost ||
+    Number(match[3]) !== ARGON2_OPTIONS.timeCost ||
+    Number(match[4]) !== ARGON2_OPTIONS.parallelism
+  );
+}
+
+/** Fallback session lifetime when the token expiry cannot be decoded. */
+const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_BOOTSTRAP_PASSWORD_LENGTH = 12;
 const BOOTSTRAP_ORG_SLUG = 'erppreflight-global';
 const BOOTSTRAP_ORG_NAME = 'ERP Preflight Global';
+/** Lifetime of the short-lived token issued between password and TOTP steps. */
+export const MFA_CHALLENGE_TTL_SECONDS = 300;
+export const MFA_CHALLENGE_TYPE = 'mfa_challenge';
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  fullName: string | null;
+  organizationId: string;
+  role: string;
+  systemRole: string;
+  emailVerified: boolean;
+  mfaEnabled: boolean;
+}
+
+export interface SessionResult {
+  accessToken: string;
+  user: SessionUser;
+  /** The active organization requires 2FA and the user has not enrolled yet. */
+  mfaEnrollmentRequired?: boolean;
+}
+
+export interface MfaChallengeResult {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresIn: number;
+}
+
+export type LoginResult = SessionResult | MfaChallengeResult;
+
+export function isMfaChallenge(result: LoginResult): result is MfaChallengeResult {
+  return (result as MfaChallengeResult).mfaRequired === true;
+}
+
+/** Throws 400 with every password policy violation. */
+export function assertPasswordPolicy(password: string, context: { email?: string | null } = {}): void {
+  const violations = passwordPolicyViolations(password, context);
+  if (violations.length > 0) {
+    throw new BadRequestException(violations);
+  }
+}
 
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
@@ -29,7 +93,9 @@ export class AuthService implements OnApplicationBootstrap {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly jwt: JwtService
+    private readonly jwt: JwtService,
+    private readonly verification: EmailVerificationService,
+    private readonly sessions: SessionService
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -96,8 +162,9 @@ export class AuthService implements OnApplicationBootstrap {
       const userId = uuidv4();
       const passwordHash = await this.hashPassword(bootstrapPassword);
       const inserted = await this.db.query(
-        `INSERT INTO users (id, email, password_hash, full_name, system_role, status)
-         VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 'ACTIVE')
+        // Operator-provisioned from environment: the address is trusted as verified.
+        `INSERT INTO users (id, email, password_hash, full_name, system_role, status, email_verified_at)
+         VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 'ACTIVE', NOW())
          ON CONFLICT (email) DO NOTHING
          RETURNING id`,
         [userId, email, passwordHash, 'ERP Preflight Super Admin'],
@@ -122,7 +189,7 @@ export class AuthService implements OnApplicationBootstrap {
     }
   }
 
-  private async hashPassword(password: string): Promise<string> {
+  async hashPassword(password: string): Promise<string> {
     return hash(password, ARGON2_OPTIONS);
   }
 
@@ -130,7 +197,7 @@ export class AuthService implements OnApplicationBootstrap {
    * Verifies a password against an Argon2id hash. The supplied password is used
    * byte-for-byte (no trimming) and non-Argon2 (legacy unsalted) hashes are rejected.
    */
-  private async verifyPassword(plain: string, hashed: string): Promise<boolean> {
+  async verifyPassword(plain: string, hashed: string): Promise<boolean> {
     if (!hashed || typeof plain !== 'string' || !hashed.startsWith('$argon2')) {
       return false;
     }
@@ -142,18 +209,21 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /** Equalizes response timing for unknown accounts (mitigates user enumeration). */
-  private async burnPasswordCheck(plain: string): Promise<void> {
+  async burnPasswordCheck(plain: string): Promise<void> {
     if (!this.dummyHash) {
       this.dummyHash = await this.hashPassword(uuidv4());
     }
     await this.verifyPassword(plain, this.dummyHash);
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, meta: RequestMeta = {}): Promise<SessionResult> {
+    const email = dto.email.trim().toLowerCase();
+    assertPasswordPolicy(dto.password, { email });
+
     // 1. Check if user already exists
     const existing = await this.db.query(
       'SELECT id FROM users WHERE email = $1',
-      [dto.email.toLowerCase()],
+      [email],
       { bypassRls: true }
     );
     if (existing.rows.length > 0) {
@@ -178,11 +248,11 @@ export class AuthService implements OnApplicationBootstrap {
       { bypassRls: true }
     );
 
-    // 3. Insert user
+    // 3. Insert user (unverified until the e-mail link is followed)
     await this.db.query(
-      `INSERT INTO users (id, email, password_hash, full_name, system_role, status)
-       VALUES ($1, $2, $3, $4, 'USER', 'ACTIVE')`,
-      [userId, dto.email.toLowerCase(), passwordHash, dto.fullName || ''],
+      `INSERT INTO users (id, email, password_hash, full_name, system_role, status, password_changed_at)
+       VALUES ($1, $2, $3, $4, 'USER', 'ACTIVE', NOW())`,
+      [userId, email, passwordHash, dto.fullName || ''],
       { bypassRls: true }
     );
 
@@ -194,87 +264,49 @@ export class AuthService implements OnApplicationBootstrap {
       { bypassRls: true }
     );
 
-    // 5. Sign token
-    const token = this.jwt.sign({
-      sub: userId,
-      email: dto.email.toLowerCase(),
-      organizationId: orgId,
-      role: 'ORGANIZATION_OWNER',
-      systemRole: 'USER',
-    });
+    // 5. Verification e-mail. Delivery failures never fail sign-up: the user can
+    //    request a new link from the banner (POST /auth/verify-email/resend).
+    await this.verification.issueSafely({ userId, email, fullName: dto.fullName || null, ip: meta.ip });
+
+    // 6. Sign token (bound to a new server-side session)
+    const accessToken = await this.issueSessionToken(
+      {
+        userId,
+        email,
+        organizationId: orgId,
+        role: 'ORGANIZATION_OWNER',
+        systemRole: 'USER',
+        tokenVersion: 0,
+      },
+      'SIGNUP',
+      meta
+    );
 
     return {
-      accessToken: token,
+      accessToken,
       user: {
         id: userId,
-        email: dto.email.toLowerCase(),
+        email,
         fullName: dto.fullName || '',
         organizationId: orgId,
         role: 'ORGANIZATION_OWNER',
+        systemRole: 'USER',
+        emailVerified: false,
+        mfaEnabled: false,
       },
     };
   }
 
   /**
-   * Issues the same session JWT as password login for a principal that was
-   * authenticated by another mechanism (enterprise SSO, see modules/sso). The
-   * user must be ACTIVE and a member of the organization; nothing else about
-   * the session differs from a password login.
+   * Password step. Returns a session, or — when TOTP 2FA is enabled — a short-lived
+   * challenge token that must be completed with POST /auth/login/2fa.
    */
-  async issueSessionForMembership(userId: string, organizationId: string) {
-    const res = await this.db.query(
-      `SELECT u.id, u.email, u.full_name, u.system_role, u.status, m.role
-         FROM users u
-         JOIN organization_members m ON m.user_id = u.id AND m.organization_id = $2
-         JOIN organizations o ON o.id = m.organization_id AND o.status = 'ACTIVE'
-        WHERE u.id = $1`,
-      [userId, organizationId],
-      { bypassRls: true }
-    );
-    const row = res.rows[0];
-    if (!row) {
-      throw new UnauthorizedException('User is not a member of this organization');
-    }
-    if (row.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Account is not active');
-    }
-    const role = row.role || 'VIEWER';
-    const token = this.jwt.sign({
-      sub: row.id,
-      email: row.email,
-      organizationId,
-      role,
-      systemRole: row.system_role,
-    });
-    return {
-      accessToken: token,
-      user: {
-        id: row.id,
-        email: row.email,
-        fullName: row.full_name,
-        organizationId,
-        role,
-        systemRole: row.system_role,
-      },
-    };
-  }
-
-  async login(dto: LoginDto) {
-    // Deterministic membership selection: the oldest membership in an ACTIVE organization.
+  async login(dto: LoginDto, meta: RequestMeta = {}): Promise<LoginResult> {
     const userRes = await this.db.query(
-      `SELECT u.id, u.email, u.full_name, u.password_hash, u.system_role, u.status,
-              m.organization_id, m.role
+      `SELECT u.id, u.password_hash, u.status, u.token_version, u.totp_enabled_at
        FROM users u
-       LEFT JOIN LATERAL (
-         SELECT om.organization_id, om.role
-         FROM organization_members om
-         JOIN organizations o ON o.id = om.organization_id
-         WHERE om.user_id = u.id AND o.status = 'ACTIVE'
-         ORDER BY om.created_at ASC, om.organization_id ASC
-         LIMIT 1
-       ) m ON TRUE
        WHERE u.email = $1`,
-      [dto.email.toLowerCase()],
+      [dto.email.trim().toLowerCase()],
       { bypassRls: true }
     );
 
@@ -293,22 +325,82 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Account is not active');
     }
 
+    if (passwordHashNeedsRehash(row.password_hash)) {
+      // Parameters changed since the hash was created: upgrade transparently.
+      const upgraded = await this.hashPassword(dto.password);
+      await this.db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [upgraded, row.id], {
+        bypassRls: true,
+      });
+    }
+
+    if (row.totp_enabled_at) {
+      return {
+        mfaRequired: true,
+        challengeToken: this.signMfaChallenge(row.id, Number(row.token_version ?? 0)),
+        expiresIn: MFA_CHALLENGE_TTL_SECONDS,
+      };
+    }
+
+    return this.createSession(row.id, { meta, authMethod: 'PASSWORD' });
+  }
+
+  /**
+   * Issues an access token for an ACTIVE user in `preferredOrganizationId` (when the
+   * user is a member of that ACTIVE organization) or in their oldest ACTIVE membership.
+   */
+  async createSession(
+    userId: string,
+    options: {
+      preferredOrganizationId?: string | null;
+      meta?: RequestMeta;
+      authMethod?: SessionAuthMethod;
+    } = {}
+  ): Promise<SessionResult> {
+    const preferred =
+      options.preferredOrganizationId && isUuid(options.preferredOrganizationId)
+        ? options.preferredOrganizationId
+        : null;
+    const res = await this.db.query(
+      `SELECT u.id, u.email, u.full_name, u.system_role, u.status, u.token_version,
+              u.email_verified_at, u.totp_enabled_at,
+              m.organization_id, m.role, m.require_2fa
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT om.organization_id, om.role, o.require_2fa
+         FROM organization_members om
+         JOIN organizations o ON o.id = om.organization_id
+         WHERE om.user_id = u.id AND o.status = 'ACTIVE'
+         ORDER BY (om.organization_id = $2::uuid) DESC NULLS LAST, om.created_at ASC, om.organization_id ASC
+         LIMIT 1
+       ) m ON TRUE
+       WHERE u.id = $1`,
+      [userId, preferred],
+      { bypassRls: true }
+    );
+    const row = res.rows[0];
+    if (!row || row.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
+    }
     const organizationId = row.organization_id;
     if (!organizationId) {
       throw new UnauthorizedException('User has no active organization assignment');
     }
     const role = row.role || 'VIEWER';
-
-    const token = this.jwt.sign({
-      sub: row.id,
-      email: row.email,
-      organizationId,
-      role,
-      systemRole: row.system_role,
-    });
-
+    const accessToken = await this.issueSessionToken(
+      {
+        userId: row.id,
+        email: row.email,
+        organizationId,
+        role,
+        systemRole: row.system_role,
+        tokenVersion: Number(row.token_version ?? 0),
+      },
+      options.authMethod || 'PASSWORD',
+      options.meta
+    );
+    const mfaEnabled = !!row.totp_enabled_at;
     return {
-      accessToken: token,
+      accessToken,
       user: {
         id: row.id,
         email: row.email,
@@ -316,7 +408,81 @@ export class AuthService implements OnApplicationBootstrap {
         organizationId,
         role,
         systemRole: row.system_role,
+        emailVerified: !!row.email_verified_at,
+        mfaEnabled,
       },
+      ...(row.require_2fa && !mfaEnabled && row.system_role !== 'SUPER_ADMIN'
+        ? { mfaEnrollmentRequired: true }
+        : {}),
     };
+  }
+
+  /**
+   * Session for a principal authenticated by enterprise SSO (modules/sso). Uses the same
+   * server-side session + token_version machinery as password login, so logout, "log out
+   * everywhere" and account security actions revoke SSO sessions too. The user must be an
+   * ACTIVE member of the ACTIVE organization the IdP is configured for.
+   */
+  async issueSessionForMembership(userId: string, organizationId: string, meta: RequestMeta = {}): Promise<SessionResult> {
+    const session = await this.createSession(userId, { preferredOrganizationId: organizationId, meta, authMethod: 'SSO' });
+    if (session.user.organizationId !== organizationId) {
+      throw new UnauthorizedException('User is not a member of this organization');
+    }
+    return session;
+  }
+
+  /** Registers a server-side session and signs an access token bound to it (jti). */
+  private async issueSessionToken(
+    params: {
+      userId: string;
+      email: string;
+      organizationId: string;
+      role: string;
+      systemRole: string;
+      tokenVersion: number;
+    },
+    authMethod: SessionAuthMethod,
+    meta: RequestMeta = {}
+  ): Promise<string> {
+    const sessionId = uuidv4();
+    const token = this.jwt.sign({
+      sub: params.userId,
+      email: params.email,
+      organizationId: params.organizationId,
+      role: params.role,
+      systemRole: params.systemRole,
+      tv: params.tokenVersion,
+      jti: sessionId,
+    });
+    let expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_MS);
+    try {
+      const decoded: any = this.jwt.decode(token);
+      if (decoded?.exp) expiresAt = new Date(decoded.exp * 1000);
+    } catch {
+      // keep default
+    }
+    await this.sessions.create({ id: sessionId, userId: params.userId, expiresAt, authMethod, meta });
+    return token;
+  }
+
+  signMfaChallenge(userId: string, tokenVersion: number): string {
+    return this.jwt.sign(
+      { sub: userId, typ: MFA_CHALLENGE_TYPE, tv: tokenVersion, jti: uuidv4() },
+      { expiresIn: MFA_CHALLENGE_TTL_SECONDS }
+    );
+  }
+
+  /** Verifies a 2FA challenge token (signature, expiry and type). */
+  verifyMfaChallenge(token: string): { userId: string; tokenVersion: number } {
+    let payload: any;
+    try {
+      payload = this.jwt.verify(token);
+    } catch {
+      throw new UnauthorizedException('The sign-in challenge expired. Please sign in again.');
+    }
+    if (payload?.typ !== MFA_CHALLENGE_TYPE || typeof payload.sub !== 'string' || !isUuid(payload.sub)) {
+      throw new UnauthorizedException('Invalid sign-in challenge');
+    }
+    return { userId: payload.sub, tokenVersion: Number(payload.tv ?? 0) };
   }
 }

@@ -28,7 +28,7 @@ import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
-import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from '../auth/auth.controller';
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS, requestMeta } from '../auth/auth.controller';
 import { SSO_STATE_COOKIE, SsoService } from './sso.service';
 import { ScimError, ScimService, SCIM_ERROR } from './scim.service';
 import { ZodBody } from '../../common/openapi/zod-openapi';
@@ -165,7 +165,7 @@ export class SsoLoginController {
   @ApiOperation({ summary: 'OIDC redirect URI: validates the ID token and issues the ERP Preflight session' })
   async callback(@Req() req: any, @Res() res: Response, @Query() query: Record<string, string>) {
     try {
-      const { session, returnTo } = await this.sso.completeLogin(query, readCookie(req, SSO_STATE_COOKIE), requestOrigin(req));
+      const { session, returnTo } = await this.sso.completeLogin(query, readCookie(req, SSO_STATE_COOKIE), requestOrigin(req), requestMeta(req));
       res.clearCookie(SSO_STATE_COOKIE, { path: '/api/v1/sso' });
       res.cookie(SESSION_COOKIE_NAME, session.accessToken, SESSION_COOKIE_OPTIONS);
       res.redirect(302, this.sso.webCompletionUrl(session.accessToken, session.user.organizationId, returnTo));

@@ -37,6 +37,7 @@ import {
   OrganizationDetails,
   fetchTelemetrySummary,
 } from '@/lib/api-client';
+import { SettingsNav } from '@/components/settings/settings-nav';
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -160,6 +161,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
+        <SettingsNav />
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white">

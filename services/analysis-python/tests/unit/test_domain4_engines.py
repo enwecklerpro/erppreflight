@@ -690,7 +690,7 @@ class TestSoftwareCollectionGuardHarness:
         assert resp.engine_type == EngineType.SOFTWARE_COLLECTION_DEPENDENCY_GUARD
 
     def test_malformed_json_fails_closed(self):
-        """Verifies completely corrupted JSON fails closed with SC_SCHEMA_VALIDATION_FAILED or status FAILED."""
+        """Verifies completely corrupted JSON fails closed with SC_PARSE_ERROR and status FAILED."""
         corrupt_raw = "{ invalid json: true, missing quotes }"
         req = make_analysis_request(
             EngineType.SOFTWARE_COLLECTION_DEPENDENCY_GUARD,
@@ -698,12 +698,12 @@ class TestSoftwareCollectionGuardHarness:
             ArtifactType.JSON,
             "corrupt.json"
         )
-        engine = EngineRegistry.get(EngineType.SOFTWARE_COLLECTION_DEPENDENCY_GUARD)
-        resp: AnalysisResponse = asyncio.run(engine.analyze(req))
+        resp: AnalysisResponse = asyncio.run(EngineRunner.execute(req))
 
-        assert resp.status in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)
-        if resp.status == AnalysisStatus.COMPLETED:
-            assert any(f.rule_id == "SC_SCHEMA_VALIDATION_FAILED" for f in resp.findings)
+        # Fails closed: FAILED with a single UNKNOWN input finding, never a verdict.
+        assert resp.status == AnalysisStatus.FAILED
+        assert [f.rule_id for f in resp.findings] == ["SC_PARSE_ERROR"]
+        assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
     def test_diamond_dag_deterministic_tie_breaking(self):
         """Property test: Diamond DAG topology produces deterministic alphabetical tie-breaking."""
@@ -973,9 +973,11 @@ class TestTransportDependencyAnalyzerHarness:
             ArtifactType.JSON,
             "corrupt.raw"
         )
-        engine = EngineRegistry.get(EngineType.TRANSPORT_DEPENDENCY_ANALYZER)
-        resp: AnalysisResponse = asyncio.run(engine.analyze(req))
-        assert resp.status in (AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)
+        resp: AnalysisResponse = asyncio.run(EngineRunner.execute(req))
+        # Corrupt input never yields a verdict: FAILED with one UNKNOWN parse finding.
+        assert resp.status == AnalysisStatus.FAILED
+        assert [f.rule_id for f in resp.findings] == ["TR_PARSE_ERROR"]
+        assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 # =============================================================================

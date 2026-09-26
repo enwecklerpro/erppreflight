@@ -19,6 +19,8 @@ export interface ApiErrorResponse {
   correlationId?: string;
   timestamp?: string;
   path?: string;
+  /** Machine-readable error code, e.g. EMAIL_NOT_VERIFIED or MFA_ENROLLMENT_REQUIRED. */
+  code?: string;
 }
 
 export class ApiError extends Error {
@@ -27,6 +29,7 @@ export class ApiError extends Error {
   public readonly details?: string | string[];
   public readonly timestamp?: string;
   public readonly path?: string;
+  public readonly code?: string;
 
   constructor(status: number, data: ApiErrorResponse | string) {
     const message =
@@ -44,6 +47,7 @@ export class ApiError extends Error {
       this.details = data.message;
       this.timestamp = data.timestamp;
       this.path = data.path;
+      this.code = typeof data.code === 'string' ? data.code : undefined;
     }
   }
 }
@@ -63,6 +67,25 @@ export const getStoredAuthToken = (): string | null => {
   }
 };
 
+/**
+ * Non-sensitive marker cookie (no token inside) telling the Next.js middleware that
+ * a sign-in exists, so private routes can redirect anonymous visitors to /login
+ * before rendering. The API remains the only authority on authentication.
+ */
+export const AUTH_HINT_COOKIE = 'erp_auth';
+const AUTH_HINT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+export const setAuthHintCookie = (present: boolean): void => {
+  if (typeof document === 'undefined') return;
+  try {
+    document.cookie = present
+      ? `${AUTH_HINT_COOKIE}=1; path=/; max-age=${AUTH_HINT_MAX_AGE_SECONDS}; samesite=lax`
+      : `${AUTH_HINT_COOKIE}=; path=/; max-age=0; samesite=lax`;
+  } catch {
+    // cookies disabled
+  }
+};
+
 export const setStoredAuthToken = (token: string | null): void => {
   if (typeof window === 'undefined') return;
   try {
@@ -74,6 +97,7 @@ export const setStoredAuthToken = (token: string | null): void => {
   } catch {
     // Ignore storage quota / private browsing exceptions
   }
+  setAuthHintCookie(Boolean(token));
 };
 
 export const getStoredTenantId = (): string | null => {
