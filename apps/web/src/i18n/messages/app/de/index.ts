@@ -19,6 +19,7 @@ import { commercial, billing } from './billing';
 import { audit } from './audit';
 import { retention } from './retention';
 import { support } from './support';
+import { admin } from './admin';
 
 export const appDe: AppMessages = {
   ui,
@@ -40,4 +41,5 @@ export const appDe: AppMessages = {
   audit,
   retention,
   support,
+  admin,
 };

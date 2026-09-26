@@ -20,6 +20,7 @@ import { commercial, billing } from './billing';
 import { audit } from './audit';
 import { retention } from './retention';
 import { support } from './support';
+import { admin } from './admin';
 
 export const appEn = {
   ui,
@@ -41,6 +42,7 @@ export const appEn = {
   audit,
   retention,
   support,
+  admin,
 };
 
 export type AppMessages = typeof appEn;
