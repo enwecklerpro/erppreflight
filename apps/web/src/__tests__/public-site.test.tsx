@@ -1,13 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render } from '@testing-library/react';
 import { resolveRoute, splitLocale, localizePath, alternatePaths } from '../lib/routing';
 import { Markdown, parseMarkdown, parseInline, sanitizeHref } from '../components/public/markdown';
 import { serializeJsonLd } from '../components/public/json-ld';
 import { readLegalOperator } from '../lib/legal';
-import { PUBLIC_PLANS } from '../lib/plans';
+import { catalogFallbackPlans, fetchPublicPlans } from '../lib/plans';
+import { PLAN_CATALOG, PLAN_TIERS } from '@erppreflight/schemas';
 import { buildContentSecurityPolicy, generateNonce } from '../lib/csp';
 import { CANONICAL_ENGINES } from '../lib/api-client';
 import { SOLUTION_SLUGS, enginesForSolution, solutionForEngine } from '../lib/solutions';
@@ -112,14 +111,21 @@ describe('solutions and plans sources', () => {
     expect(solutionForEngine('NOPE')).toBeNull();
   });
 
-  it('pricing adapter mirrors the tiers enforced by the API (no invented prices)', () => {
-    const source = fs.readFileSync(
-      path.resolve(__dirname, '../../../api/src/modules/billing/entitlements.service.ts'),
-      'utf8'
-    );
-    const apiPrices = Array.from(source.matchAll(/priceEurMonthly:\s*([\d_]+)/g)).map((m) => Number(m[1].replace(/_/g, '')));
-    const apiTiers = Array.from(source.matchAll(/^\s{4}tier:\s*'(\w+)'/gm)).map((m) => m[1]);
-    expect(PUBLIC_PLANS.map((p) => p.tier)).toEqual(apiTiers);
-    expect(PUBLIC_PLANS.map((p) => p.priceEurMonthly)).toEqual(apiPrices);
+  it('pricing uses the API plan catalog and withholds prices when it is unreachable', async () => {
+    const fallback = catalogFallbackPlans();
+    expect(fallback.map((p) => p.tier)).toEqual([...PLAN_TIERS]);
+    expect(fallback.every((p) => p.monthlyPriceEur === null)).toBe(true);
+
+    const apiPlans = PLAN_TIERS.map((tier) => ({ ...PLAN_CATALOG[tier], monthlyPriceEur: tier === 'STARTER' ? 590 : PLAN_CATALOG[tier].monthlyPriceEur, purchasable: false }));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ plans: apiPlans, provider: { name: 'none' } }), { status: 200 })));
+    const live = await fetchPublicPlans();
+    expect(live.source).toBe('api');
+    expect(live.plans.find((p) => p.tier === 'STARTER')?.monthlyPriceEur).toBe(590);
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('down'); }));
+    const down = await fetchPublicPlans();
+    expect(down.source).toBe('catalog');
+    expect(down.plans.every((p) => p.monthlyPriceEur === null)).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

@@ -22,7 +22,7 @@ import { getMessages, getT } from '../../i18n/translate';
 import { localizePath } from '../../lib/routing';
 import { SOLUTION_SLUGS, TOTAL_ENGINE_COUNT, enginesForSolution } from '../../lib/solutions';
 import { getAppBaseUrl, localizedUrl, publicPageMetadata } from '../../lib/seo';
-import { getPublicPlans } from '../../lib/plans';
+import { fetchPublicPlans } from '../../lib/plans';
 import { JsonLd } from '../../components/public/json-ld';
 import { resolveLocale, type LocaleParams } from './locale-params';
 
@@ -44,8 +44,9 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
   const t = getT(locale);
   const m = getMessages(locale);
   const lp = (p: string) => localizePath(locale, p);
-  const plans = getPublicPlans();
-  const prices = plans.map((p) => p.priceEurMonthly).filter((p): p is number => p !== null);
+  const { plans, source: planSource } = await fetchPublicPlans();
+  // Offers only from the live catalog (configured prices), never from fallback defaults.
+  const prices = planSource === 'api' ? plans.map((p) => p.monthlyPriceEur).filter((p): p is number => p !== null) : [];
   // Optional teaser: the homepage renders fully even if the knowledge API is down.
   const articles = await fetchKnowledgeListSafe(locale);
 

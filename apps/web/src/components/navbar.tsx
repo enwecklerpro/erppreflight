@@ -25,6 +25,10 @@ import {
   PlayCircle,
   FileBox,
   FileText,
+  CreditCard,
+  ScrollText,
+  Archive,
+  LifeBuoy,
 } from 'lucide-react';
 import { NavMoreMenu, type NavLinkItem } from './nav-more-menu';
 import { fetchCurrentUser } from '../lib/api-client';
@@ -76,6 +80,10 @@ export function Navbar() {
     { key: 'agent-gate', label: t('nav.agentGate'), href: '/agent-gate', icon: Bot },
     { key: 'matrix', label: t('nav.matrix'), href: '/matrix', icon: ShieldCheck },
     { key: 'settings', label: t('nav.settings'), href: '/settings', icon: Sliders },
+    { key: 'billing', label: t('nav.billing'), href: '/settings/billing', icon: CreditCard },
+    { key: 'audit', label: t('nav.audit'), href: '/settings/audit', icon: ScrollText },
+    { key: 'retention', label: t('nav.retention'), href: '/settings/retention', icon: Archive },
+    { key: 'support', label: t('nav.support'), href: '/settings/support', icon: LifeBuoy },
   ];
   if (isSuperAdmin) {
     appSecondary.push({ key: 'admin', label: t('nav.admin'), href: '/admin', icon: ShieldAlert });
