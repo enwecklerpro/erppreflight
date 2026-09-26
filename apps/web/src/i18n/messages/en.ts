@@ -1,5 +1,6 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
 import { analyzeEn } from './analyze.en';
+import { publicToolsEn } from './public-tools.en';
 import { findingLifecycleEn } from './finding-lifecycle.en';
 
 /**
@@ -531,6 +532,8 @@ export const en = {
     knowledge: 'Browse the knowledge base',
   },
   ...analyzeEn,
+  /** Free tools, programmatic SEO pages and documentation chrome (./public-tools.en.ts). */
+  publicTools: publicToolsEn,
   findingLifecycle: findingLifecycleEn,
 };
 

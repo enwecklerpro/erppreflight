@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { DEFAULT_LOCALE, LOCALES, LOCALE_TAGS, type Locale } from '../i18n/config';
 import { LEGAL_DOCS, localizePath } from './routing';
 import { SOLUTION_SLUGS } from './solutions';
+import { TOOL_SLUGS } from './tools';
+import { DOC_SLUGS } from './docs/pages';
 
 /**
  * Route inventory used by robots.ts, sitemap.ts, middleware and the private-route
@@ -22,6 +24,11 @@ export const LOCALIZED_PUBLIC_ROUTES: readonly string[] = [
   ...SOLUTION_SLUGS.map((s) => `/solutions/${s}`),
   '/knowledge',
   ...LEGAL_DOCS.map((d) => `/legal/${d}`),
+  // Free tools (Part 01 §1.11) and product documentation (C §46).
+  '/tools',
+  ...TOOL_SLUGS.map((s) => `/tools/${s}`),
+  '/docs',
+  ...DOC_SLUGS.map((s) => `/docs/${s}`),
 ];
 
 /** Top-level directories under app/ that host the localized public pages. */
@@ -29,16 +36,19 @@ export const LOCALIZED_PUBLIC_SEGMENTS = ['/[locale]'] as const;
 
 /** Publicly reachable, indexable, English-only pages (no tenant data). */
 export const PUBLIC_INDEXABLE_ROUTES = [
-  '/docs',
   '/changelog',
   '/matrix',
   '/trust',
   '/procurement',
   '/status',
   '/demo',
-  // Public free tool (Part 01 §1.11). Object pages below it decide index/noindex per page (Part 02 §2.9).
-  '/knowledge-graph/lookup',
 ] as const;
+
+/**
+ * Sitemap index and child sitemaps (route handlers, Part 02 §2.9): split by
+ * content type — pages, knowledge articles, SAP object pages (paginated).
+ */
+export const SITEMAP_ROUTE_SEGMENTS = ['/sitemap.xml', '/sitemaps'] as const;
 
 /** Authenticated application routes and routes without indexable content. */
 export const PRIVATE_ROUTE_PREFIXES = [

@@ -1,5 +1,6 @@
 import type { Messages } from './en';
 import { analyzeDe } from './analyze.de';
+import { publicToolsDe } from './public-tools.de';
 import { findingLifecycleDe } from './finding-lifecycle.de';
 
 /**
@@ -547,5 +548,6 @@ export const de: Messages = {
     knowledge: 'Wissensdatenbank durchsuchen',
   },
   ...analyzeDe,
+  publicTools: publicToolsDe,
   findingLifecycle: findingLifecycleDe,
 };

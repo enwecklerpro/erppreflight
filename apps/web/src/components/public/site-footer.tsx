@@ -72,8 +72,13 @@ export function SiteFooter({ locale }: { locale: Locale }) {
               </Link>
             </li>
             <li>
-              <Link className="hover:text-foreground" href="/docs">
+              <Link className="hover:text-foreground" href={lp('/docs')}>
                 {t('footer.docs')}
+              </Link>
+            </li>
+            <li>
+              <Link className="hover:text-foreground" href={lp('/tools')}>
+                {t('publicTools.nav.tools')}
               </Link>
             </li>
             <li>

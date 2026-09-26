@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AlertCircle, ArrowRight, CalendarCheck, ExternalLink, Info } from 'lucide-react';
 import type { Locale } from '../../../../i18n/config';
-import { getFormat, getMessages, getT } from '../../../../i18n/translate';
+import { getFormat, getMessages, getT, type MessageKey } from '../../../../i18n/translate';
 import { localizePath } from '../../../../lib/routing';
 import { getAppBaseUrl, localizedUrl, publicPageMetadata } from '../../../../lib/seo';
 import { engineName, solutionForEngine, type SolutionSlug } from '../../../../lib/solutions';
@@ -46,6 +46,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
     availableLocales: a.availableLocales,
     publishedTime: a.publishedAt,
     modifiedTime: a.updatedAt,
+    // Content workflow (Part 02 §2.13): flagged articles stay readable but are not indexed.
+    noindex: a.status === 'UPDATE_REQUIRED',
   });
 }
 
@@ -150,7 +152,19 @@ export default async function KnowledgeArticlePage({ params }: { params: Params 
             <dt>{t('common.version')}:</dt>
             <dd>{article.version}</dd>
           </div>
+          <div className="flex gap-1.5" data-testid="article-provenance">
+            <dt>{t('publicTools.article.provenance')}:</dt>
+            <dd>{t(`publicTools.article.provenanceValues.${article.provenance ?? 'EDITORIAL'}` as MessageKey)}</dd>
+          </div>
         </dl>
+        {article.status === 'UPDATE_REQUIRED' ? (
+          <p role="status" className="mt-4 flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="article-update-required">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {article.updateRequiredReason
+              ? t('publicTools.article.updateRequired', { reason: article.updateRequiredReason })
+              : t('publicTools.article.updateRequiredNoReason')}
+          </p>
+        ) : null}
       </header>
 
       <Markdown source={article.bodyMarkdown} />

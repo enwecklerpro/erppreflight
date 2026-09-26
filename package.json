@@ -26,6 +26,7 @@
     "smoke:commercial-ui": "node scripts/e2e-commercial-ui.cjs",
     "smoke:account-ui": "node scripts/e2e-account-ui-smoke.cjs",
     "smoke:analyze": "node scripts/e2e-analyze-smoke.cjs",
+    "smoke:tools": "node scripts/e2e-tools-smoke.cjs",
     "smoke:findings": "node scripts/e2e-findings-smoke.cjs"
   },
   "devDependencies": {

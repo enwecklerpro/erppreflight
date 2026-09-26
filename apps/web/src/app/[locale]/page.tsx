@@ -266,7 +266,7 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
           {t('home.integrationsTitle')}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{t('home.integrationsBody')}</p>
-        <Link href="/docs" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+        <Link href={lp('/docs')} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
           {t('footer.docs')}
           <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
@@ -299,7 +299,7 @@ export default async function HomePage({ params }: { params: LocaleParams }) {
             <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
             <h2 className="mt-3 text-lg font-bold">{t('home.docsTitle')}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{t('home.docsBody')}</p>
-            <Link href="/docs" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+            <Link href={lp('/docs')} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
               {t('footer.docs')}
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>

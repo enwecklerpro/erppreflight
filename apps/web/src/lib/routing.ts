@@ -16,7 +16,7 @@ export type LegalDoc = (typeof LEGAL_DOCS)[number];
 
 /** Localized public pages: exact paths and path prefixes (subtrees). */
 export const LOCALIZED_PUBLIC_EXACT = ['/', '/pricing', '/security'] as const;
-export const LOCALIZED_PUBLIC_PREFIXES = ['/solutions', '/knowledge', '/legal'] as const;
+export const LOCALIZED_PUBLIC_PREFIXES = ['/solutions', '/knowledge', '/legal', '/tools', '/sap', '/docs'] as const;
 
 /**
  * Application routes that require a signed-in user. Requests without a session
