@@ -40,5 +40,13 @@
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "next>postcss": "^8.5.23",
+      "@scalar/json-magic>undici": "^7.29.0",
+      "@ai-sdk/provider-utils": "^4.0.33",
+      "exceljs>uuid": "^11.1.1"
+    }
   }
 }

@@ -5,10 +5,5 @@
 # Tracked in SECURITY_REVIEW.md §5 "Open issues".
 # ==============================================================================
 
-# postcss 8.4.31, pinned exactly by `next` (apps/web > next > postcss). Next.js uses it only at
-# BUILD time to process the application's own CSS; the standalone server traces the package
-# but never feeds it attacker-controlled CSS or source maps. Fix: upgrade `next` once it ships
-# postcss >= 8.5.18, or add a pnpm override (`next>postcss`) after verifying the web build.
-# Owner: web workstream. Review by expiry.
-CVE-2026-45623 exp:2026-12-31
-CVE-2026-73646 exp:2026-12-31
+# (no active exceptions — the postcss 8.4.31 entries were removed when `next>postcss` was
+# overridden to ^8.5.23 in package.json; SECURITY_REVIEW.md S7)
