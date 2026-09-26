@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { KnowledgeGraphService } from './knowledge-graph.service';
 
+/** Configuration key carrying the snapshot-derived list (python: knowledge_client.CONFIG_KEYS). */
+export const RELEASED_OBJECTS_CONFIG_KEY = 'released_objects';
+
 /**
- * Contract of `configuration.releasedObjects` sent to the Python analysis
+ * Contract of `configuration.released_objects` sent to the Python analysis
  * service for CLEAN_CORE_OBJECT_GUARD (documented in docs/KNOWLEDGE_GRAPH.md
  * and parsed by services/analysis-python/src/platform/knowledge_client.py).
  * Additive: engines that do not read it behave exactly as before.
@@ -22,15 +25,15 @@ export interface ReleasedObjectsConfiguration {
     note?: string;
   };
   objects: Array<{
-    name: string;
     objectType: string;
+    objectName: string;
     tadirObject: string | null;
     state: string | null;
     cleanCoreLevel: string | null;
     classicApiState: string | null;
     successorClassification: string | null;
     successorConcept: string | null;
-    successors: Array<{ objectType: string; name: string }>;
+    successors: Array<{ objectType: string; objectName: string }>;
   }>;
 }
 
@@ -92,15 +95,15 @@ export class ReleasedObjectsProvider {
           ...(result.release.note ? { note: result.release.note } : {}),
         },
         objects: result.objects.slice(0, MAX_OBJECTS).map((o) => ({
-          name: o.name,
           objectType: o.sapObjectType,
+          objectName: o.name,
           tadirObject: o.tadirObject,
           state: o.state,
           cleanCoreLevel: o.cleanCoreLevel,
           classicApiState: o.classicApiState,
           successorClassification: o.successorClassification,
           successorConcept: o.successorConcept,
-          successors: o.successors,
+          successors: o.successors.map((x) => ({ objectType: x.objectType, objectName: x.name })),
         })),
       };
     } catch (err: any) {

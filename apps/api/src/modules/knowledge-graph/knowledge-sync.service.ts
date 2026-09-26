@@ -4,7 +4,7 @@ import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { Pool } from 'pg';
 import { DatabaseService } from '../database/database.service';
-import { ReleaseWatchEvaluator } from '../release-intelligence/release-watch.evaluator';
+import { EvaluationSummary, ReleaseWatchEvaluator } from '../release-intelligence/release-watch.evaluator';
 import { CloudificationRepositorySource } from './sources/cloudification-repository.source';
 import { RosaFileImportSource } from './sources/rosa-file-import.source';
 import { KnowledgeSyncPipeline, SyncResult, SyncTrigger } from './sync/knowledge-sync.pipeline';
@@ -93,7 +93,7 @@ export class KnowledgeSyncService implements OnModuleInit, OnModuleDestroy {
   async runSource(source: ReleasedObjectSource, trigger: SyncTrigger, triggeredBy?: string | null) {
     const pool = this.getOwnerPool();
     const result: SyncResult = await new KnowledgeSyncPipeline(pool, this.logger).run(source, { trigger, triggeredBy });
-    let watches = null;
+    let watches: EvaluationSummary | null = null;
     if (result.status === 'PUBLISHED' && result.snapshotId && result.snapshotSeq) {
       watches = await new ReleaseWatchEvaluator(pool, this.logger, this.db.getRuntimeRole()).evaluateAfterSnapshot({
         id: result.snapshotId,

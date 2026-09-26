@@ -144,14 +144,14 @@ export function renderNotification(
       const changes: any[] = Array.isArray(payload.changes) ? payload.changes : [];
       if (changes.length === 0) return null;
       const severity = maxSeverity(changes.map((c) => WATCH_EVENT_SEVERITY[c.eventType] ?? 'LOW'));
-      const describe = (c: any) =>
+      const headline = (c: any) =>
         `${WATCH_EVENT_LABEL[c.eventType] ?? c.eventType}: ${c.objectKey ?? 'object'}${c.sapObjectType ? ` (${c.sapObjectType})` : ''}` +
-        `${c.releaseLabel ? ` in ${c.releaseLabel}` : ''}` +
-        `${c.previous?.supportState || c.current?.supportState ? ` — ${c.previous?.supportState ?? 'not listed'} → ${c.current?.supportState ?? 'not listed'}` : ''}`;
+        `${c.releaseLabel ? ` in ${c.releaseLabel}` : ''}`;
+      const describe = (c: any) =>
+        headline(c) +
+        `${c.previous?.supportState || c.current?.supportState ? ` (${c.previous?.supportState ?? 'not listed'} → ${c.current?.supportState ?? 'not listed'})` : ''}`;
       const title =
-        changes.length === 1
-          ? describe(changes[0]).split(' — ')[0]
-          : `Release watch "${payload.label ?? 'watch'}": ${changes.length} changes`;
+        changes.length === 1 ? headline(changes[0]) : `Release watch "${payload.label ?? 'watch'}": ${changes.length} changes`;
       return {
         severity,
         title: title.slice(0, 300),

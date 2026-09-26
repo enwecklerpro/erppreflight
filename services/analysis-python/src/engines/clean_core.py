@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -64,6 +64,7 @@ from src.parsers.json_input import parse_json_payload
 from src.parsers.safe_zip import ArchiveSecurityError, SafeZipReader, is_zip_bytes
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.platform.knowledge_client import SnapshotIndex, build_snapshot_index, parse_released_objects
 
 # ==============================================================================
 # Knowledge snapshot (versioned, immutable data file)
@@ -81,6 +82,58 @@ class ReleaseKnowledge:
     not_released_fms: Dict[str, str]
     not_released_classes: Dict[str, str]
     not_released_tables: Dict[str, str]
+    # Populated only when the API supplies a knowledge-graph snapshot (configuration.released_objects).
+    released_tables: frozenset = frozenset()
+    not_released_cds: Dict[str, str] = field(default_factory=dict)
+    external_snapshot_id: Optional[str] = None
+    external_source: Optional[str] = None
+    external_release: Optional[str] = None
+    static_snapshot_id: Optional[str] = None
+    snapshot_names: frozenset = frozenset()
+
+    def provenance(self, affected: List[str]) -> Dict[str, Any]:
+        """Technical-detail provenance of a verdict: which knowledge answered for these objects."""
+        if not self.external_snapshot_id:
+            return {}
+        from_snapshot = any(a.upper() in self.snapshot_names for a in affected)
+        return {
+            "knowledgeGraphSnapshotId": self.external_snapshot_id,
+            "knowledgeSource": self.external_source,
+            "knowledgeRelease": self.external_release,
+            "staticKnowledgeSnapshot": self.static_snapshot_id,
+            "verdictSource": "KNOWLEDGE_GRAPH_SNAPSHOT" if from_snapshot else "STATIC_CURATED_LIST",
+        }
+
+
+def overlay_snapshot(base: ReleaseKnowledge, idx: SnapshotIndex) -> ReleaseKnowledge:
+    """Snapshot facts take precedence over the static curated list for every object they cover;
+    everything else falls back to the static list (never guessed)."""
+
+    def merge(released: frozenset, not_released: Dict[str, str], snap_rel: frozenset, snap_not: Dict[str, str]):
+        rel = (released - frozenset(snap_not)) | snap_rel
+        nrel = {k: v for k, v in not_released.items() if k not in snap_rel}
+        nrel.update(snap_not)
+        return frozenset(rel), nrel
+
+    fms, nfms = merge(base.released_fms, base.not_released_fms, idx.released_fms, idx.not_released_fms)
+    classes, nclasses = merge(base.released_classes, base.not_released_classes, idx.released_classes,
+                              idx.not_released_classes)
+    cds, ncds = merge(base.released_cds, base.not_released_cds, idx.released_cds, idx.not_released_cds)
+    tables, ntables = merge(base.released_tables, base.not_released_tables, idx.released_tables,
+                            idx.not_released_tables)
+    return replace(
+        base,
+        snapshot_id=f"knowledge-graph:{idx.snapshot_id}",
+        released_fms=fms, not_released_fms=nfms,
+        released_classes=classes, not_released_classes=nclasses,
+        released_cds=cds, not_released_cds=ncds,
+        released_tables=tables, not_released_tables=ntables,
+        external_snapshot_id=idx.snapshot_id,
+        external_source=idx.source,
+        external_release=idx.release_label,
+        static_snapshot_id=base.snapshot_id,
+        snapshot_names=idx.names,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -273,6 +326,9 @@ INPUT_CONTRACT = InputContract(
         "configuration.abap_references accepts AST-derived references (kind TABLE|CDS|FUNCTION_MODULE|CLASS|DYNAMIC, "
         "name, operation READ|WRITE|CALL, artifact, line, column) from an external analyzer such as abaplint; they "
         "are classified by the same rules, capped at RULE_DERIVED.",
+        "configuration.released_objects (sent by the API from the latest immutable knowledge-graph snapshot of the "
+        "official SAP Cloudification Repository) takes precedence over the static list for the objects it covers; "
+        "the snapshot id is recorded in every finding (knowledgeGraphSnapshotId).",
     ),
 )
 
@@ -349,6 +405,21 @@ class AbapCleanCoreAnalyzer:
         if n in self.k.released_cds:
             self.inventory["cds_views"].add(n)
             return
+        if n in self.k.released_tables and not mutation:
+            self.inventory["tables"].add(n)
+            return
+        if n in self.k.not_released_cds and not mutation:
+            self.inventory["cds_views"].add(n)
+            succ = self.k.not_released_cds[n]
+            out.append(RawFinding(
+                "CLEAN_CORE_UNRELEASED_OBJECT", Severity.MAJOR, ConfidenceClass.VERIFIED, tok, stmt,
+                f"CDS view {n} is not released for cloud development",
+                f"'{n}' is classified as not released in snapshot {self.k.snapshot_id}.",
+                (f"Use the released successor: {succ}." if succ
+                 else RULES["CLEAN_CORE_UNRELEASED_OBJECT"].remediation), [n],
+                {"object": n, "objectType": "DDLS", "releaseStatus": "NOT_RELEASED", "successor": succ or None},
+            ))
+            return
         if CDS_NAME.match(n) and not mutation:
             self.inventory["cds_views"].add(n)
             out.append(RawFinding(
@@ -398,7 +469,8 @@ class AbapCleanCoreAnalyzer:
                 f"Call to Unreleased Function Module: {fm}",
                 f"Function module '{fm}' is classified as not released for cloud development in snapshot "
                 f"{self.k.snapshot_id}.",
-                f"Migrate function module call '{fm}' to official cloud successor: {successor}.",
+                (f"Migrate function module call '{fm}' to official cloud successor: {successor}." if successor
+                 else RULES["CLEAN_CORE_UNRELEASED_API"].remediation),
                 [fm], {"function_module": fm, "releaseStatus": "NOT_RELEASED", "successor": successor},
             ))
         else:
@@ -422,7 +494,8 @@ class AbapCleanCoreAnalyzer:
                 "CLEAN_CORE_UNRELEASED_CLASS", Severity.CRITICAL, ConfidenceClass.VERIFIED, tok, stmt,
                 f"Use of unreleased class {c}",
                 f"Class '{c}' is not released for cloud development (snapshot {self.k.snapshot_id}).",
-                f"Replace '{c}' with: {successor}.", [c],
+                (f"Replace '{c}' with: {successor}." if successor else RULES["CLEAN_CORE_UNRELEASED_CLASS"].remediation),
+                [c],
                 {"class": c, "releaseStatus": "NOT_RELEASED", "successor": successor},
             ))
 
@@ -697,6 +770,9 @@ class CleanCoreEngine(BaseEngine):
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         start_time = time.perf_counter()
         knowledge = load_release_knowledge()
+        released_objects = parse_released_objects(request.configuration)
+        if released_objects is not None:
+            knowledge = overlay_snapshot(knowledge, build_snapshot_index(released_objects))
         prefix = self.rule_prefix
         sources, object_list = self._collect_sources(request)
         if not sources and object_list is None and not (request.configuration or {}).get("abap_references"):
@@ -783,6 +859,7 @@ class CleanCoreEngine(BaseEngine):
                     "lexical_warnings": lexical[:20],
                     "skipped_non_abap_artifacts": skipped,
                     "knowledgeSnapshot": knowledge.snapshot_id,
+                    "knowledgeGraphSnapshotId": knowledge.external_snapshot_id,
                     "analysisMethod": "abap-token-stream",
                     "engine": "clean_core_object_guard",
                 },
@@ -823,6 +900,7 @@ class CleanCoreEngine(BaseEngine):
                 "token": rf.token.value,
                 "statement": rf.statement.text()[:500],
                 "knowledgeSnapshot": knowledge.snapshot_id,
+                **knowledge.provenance(rf.affected),
                 **{k: v for k, v in rf.details.items() if v is not None},
             },
             affected_objects=rf.affected,
@@ -916,7 +994,8 @@ class CleanCoreEngine(BaseEngine):
                 confidence=conf, confidence_score=1.0 if conf == ConfidenceClass.VERIFIED else 0.85,
                 remediation=rem, evidence=[ev],
                 technical_details={"object": name, "objectType": otype or "UNSPECIFIED",
-                                   "knowledgeSnapshot": knowledge.snapshot_id, **details},
+                                   "knowledgeSnapshot": knowledge.snapshot_id, **knowledge.provenance([name]),
+                                   **details},
                 affected_objects=[name],
             )))
         return out, len(rows) * 3
@@ -926,7 +1005,8 @@ class CleanCoreEngine(BaseEngine):
         released = (
             (otype in ("FUNC", "FM", "") and name in k.released_fms)
             or (otype in ("CLAS", "CLASS", "") and name in k.released_classes)
-            or (otype in ("DDLS", "CDS", "VIEW", "") and name in k.released_cds)
+            or (otype in ("DDLS", "CDS", "VIEW", "CDS_STOB", "") and name in k.released_cds)
+            or (otype in ("TABL", "TABLE", "") and name in k.released_tables)
         )
         if released:
             return ("CLEAN_CORE_OBJECT_RELEASED", Severity.INFO, ConfidenceClass.VERIFIED,
@@ -935,18 +1015,27 @@ class CleanCoreEngine(BaseEngine):
         if name in k.not_released_fms:
             succ = k.not_released_fms[name]
             return ("CLEAN_CORE_UNRELEASED_API", Severity.CRITICAL, ConfidenceClass.VERIFIED,
-                    f"Function module {name} is not released", f"Use the successor: {succ}.",
+                    f"Function module {name} is not released",
+                    f"Use the successor: {succ}." if succ else RULES["CLEAN_CORE_UNRELEASED_API"].remediation,
                     {"releaseStatus": "NOT_RELEASED", "successor": succ})
         if name in k.not_released_classes:
             succ = k.not_released_classes[name]
             return ("CLEAN_CORE_UNRELEASED_CLASS", Severity.CRITICAL, ConfidenceClass.VERIFIED,
-                    f"Class {name} is not released", f"Use the successor: {succ}.",
+                    f"Class {name} is not released",
+                    f"Use the successor: {succ}." if succ else RULES["CLEAN_CORE_UNRELEASED_CLASS"].remediation,
                     {"releaseStatus": "NOT_RELEASED", "successor": succ})
+        if name in k.not_released_cds:
+            succ = k.not_released_cds[name]
+            return ("CLEAN_CORE_UNRELEASED_OBJECT", Severity.MAJOR, ConfidenceClass.VERIFIED,
+                    f"CDS view {name} is not released",
+                    f"Use the successor: {succ}." if succ else RULES["CLEAN_CORE_UNRELEASED_OBJECT"].remediation,
+                    {"releaseStatus": "NOT_RELEASED", "successor": succ or None})
         if name in k.not_released_tables:
             succ = k.not_released_tables[name]
             return ("CLEAN_CORE_UNRELEASED_OBJECT", Severity.CRITICAL, ConfidenceClass.VERIFIED,
                     f"Table {name} is not released for direct access",
-                    f"Read the released CDS view {succ} instead.",
+                    f"Read the released CDS view {succ} instead." if succ
+                    else RULES["CLEAN_CORE_DIRECT_DB_ACCESS"].remediation,
                     {"releaseStatus": "NOT_RELEASED", "successor": succ})
         return ("CLEAN_CORE_UNRELEASED_OBJECT", Severity.MAJOR, ConfidenceClass.RULE_DERIVED,
                 f"{name} is not in the released-object snapshot",

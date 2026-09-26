@@ -168,7 +168,7 @@ export class ReleaseWatchEvaluator {
     // runs as the schema owner outside any tenant context). All writes below are
     // performed inside per-tenant RLS transactions.
     const watchesRes = await this.pool.query(
-      `SELECT id, organization_id, watch_type, label, target_object_ids, release_id, last_state, finding_id
+      `SELECT id, organization_id, created_by, watch_type, label, target_object_ids, release_id, last_state, finding_id
          FROM release_watches
         WHERE status = 'ACTIVE' AND target_object_ids && $1::uuid[]
           AND (last_snapshot_id IS NULL OR last_snapshot_id <> $2)`,
@@ -259,6 +259,7 @@ export class ReleaseWatchEvaluator {
       watchType: watch.watch_type,
       label: watch.label,
       findingId: watch.finding_id ?? null,
+      createdBy: watch.created_by ?? null,
       snapshotId: snapshot.id,
       snapshotSeq: snapshot.seq,
       changes: changes.map((c) => {
