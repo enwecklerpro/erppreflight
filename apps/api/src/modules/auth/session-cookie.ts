@@ -245,6 +245,7 @@ export class SessionCookieService {
     const csrfToken = binding ? csrfTokenFor(this.csrfKey, binding) : null;
     if (res && typeof res.cookie === 'function') {
       const maxAge = tokenMaxAgeMs(payload);
+      this.clearHostOnlyLeftovers(res);
       res.cookie(SESSION_COOKIE_NAME, accessToken, sessionCookieOptions(this.settings, maxAge));
       if (csrfToken) {
         res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions(this.settings, maxAge));
@@ -266,13 +267,21 @@ export class SessionCookieService {
     const { maxAge: _c, ...csrfOpts } = csrfCookieOptions(this.settings);
     res.clearCookie(SESSION_COOKIE_NAME, sessionOpts);
     res.clearCookie(CSRF_COOKIE_NAME, csrfOpts);
-    if (this.settings.domain) {
-      // Also drop host-only cookies issued before SESSION_COOKIE_DOMAIN was configured.
-      const { domain: _d1, ...hostSession } = sessionOpts;
-      const { domain: _d2, ...hostCsrf } = csrfOpts;
-      res.clearCookie(SESSION_COOKIE_NAME, hostSession);
-      res.clearCookie(CSRF_COOKIE_NAME, hostCsrf);
-    }
+    this.clearHostOnlyLeftovers(res);
+  }
+
+  /**
+   * With SESSION_COOKIE_DOMAIN configured, drops host-only cookies issued before it
+   * was set. Otherwise the browser would send both `erppreflight_session` cookies and
+   * the older host-only one (listed first) would keep authenticating the previous
+   * session after a new sign-in.
+   */
+  private clearHostOnlyLeftovers(res: Response): void {
+    if (!this.settings.domain || typeof res.clearCookie !== 'function') return;
+    const { maxAge: _s, domain: _d1, ...hostSession } = sessionCookieOptions(this.settings);
+    const { maxAge: _c, domain: _d2, ...hostCsrf } = csrfCookieOptions(this.settings);
+    res.clearCookie(SESSION_COOKIE_NAME, hostSession);
+    res.clearCookie(CSRF_COOKIE_NAME, hostCsrf);
   }
 
   /**

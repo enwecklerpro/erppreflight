@@ -201,6 +201,27 @@ async function registerVerified(tag) {
     await page.getByText(`Session Smoke ${R}`).first().waitFor({ timeout: 15000 });
   });
 
+  await step('03b production topology (API cookies not readable by the web origin): CSRF token via GET /auth/csrf after reload', async () => {
+    // web on erppreflight.com + API on api.erppreflight.com without SESSION_COOKIE_DOMAIN: the
+    // web app cannot read erp_csrf and has lost its in-memory copy after a reload.
+    await context.clearCookies({ name: 'erp_csrf' });
+    const csrfFetches = [];
+    const onResponse = (r) => { if (r.url().endsWith('/api/v1/auth/csrf')) csrfFetches.push(r.status()); };
+    page.on('response', onResponse);
+    await page.goto(`${WEB}/projects`);
+    await page.getByText('New Project').click();
+    await page.getByPlaceholder('e.g. S/4HANA 2023 Enterprise Migration Preflight').fill(`Session Smoke B ${R}`);
+    const [created] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith('/api/v1/projects') && r.request().method() === 'POST'),
+      page.locator('form button[type=submit]').click(),
+    ]);
+    page.off('response', onResponse);
+    assert(csrfFetches.length > 0 && csrfFetches.every((s) => s === 200), `GET /auth/csrf: ${JSON.stringify(csrfFetches)}`);
+    assert(created.status() === 201, `create project without a readable CSRF cookie: HTTP ${created.status()}`);
+    assert(created.request().headers()['x-csrf-token'], 'X-CSRF-Token missing');
+    sess = await sessionCookie();
+  });
+
   const cookieHeader = () => `erppreflight_session=${sess.value}`;
   await step('04 CSRF: cookie-auth POST without X-CSRF-Token -> 403 CSRF_REJECTED (in the browser and from a script)', async () => {
     const inPage = await pageFetch('/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'csrf-a', targetRelease: 'S4H_2023' }) });

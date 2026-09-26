@@ -36,6 +36,7 @@ import {
   sanitizeNextPath,
 } from '../src/modules/auth/magic-link.service';
 import { AuthService } from '../src/modules/auth/auth.service';
+import { AccountSecurityService } from '../src/modules/auth/account-security.service';
 import { renderMagicLink } from '../src/modules/mail/mail.templates';
 import { validateEnv } from '../src/config/env.validation';
 
@@ -180,6 +181,26 @@ describe('SessionCookieService', () => {
       `${CSRF_COOKIE_NAME}:host`,
     ]);
     expect(res.cleared.every((c: any) => c.options.maxAge === undefined)).toBe(true);
+  });
+
+  it('a new sign-in with SESSION_COOKIE_DOMAIN drops host-only leftovers so they cannot shadow the new session', () => {
+    process.env.SESSION_COOKIE_DOMAIN = 'erppreflight.com';
+    const scoped = new SessionCookieService(config, jwt);
+    const res = fakeResponse();
+    scoped.setSessionCookies(res, sessionToken());
+    expect(res.cleared.map((c: any) => `${c.name}:${c.options.domain ?? 'host'}`)).toEqual([
+      `${SESSION_COOKIE_NAME}:host`,
+      `${CSRF_COOKIE_NAME}:host`,
+    ]);
+    expect(res.cookies.map((c: any) => `${c.name}:${c.options.domain}`)).toEqual([
+      `${SESSION_COOKIE_NAME}:erppreflight.com`,
+      `${CSRF_COOKIE_NAME}:erppreflight.com`,
+    ]);
+    // Without a configured domain nothing is cleared on sign-in.
+    delete process.env.SESSION_COOKIE_DOMAIN;
+    const hostOnly = fakeResponse();
+    new SessionCookieService(config, jwt).setSessionCookies(hostOnly, sessionToken());
+    expect(hostOnly.cleared).toEqual([]);
   });
 
   it('CSRF tokens are bound to the session id and differ per session', () => {
@@ -465,6 +486,29 @@ describe('Magic-link sign-in (spec 10.2)', () => {
     expect(mail.template).toBe('MAGIC_LINK');
     expect(mail.text).toContain('15 minutes');
     expect(mail.text).toContain('https://app/login/magic?token=t');
+  });
+
+  it('"sign out everywhere" and password changes also revoke open sign-in links', async () => {
+    const tokens = { revokeAll: vi.fn().mockResolvedValue(undefined) };
+    const sessions = { revokeAll: vi.fn().mockResolvedValue(1) };
+    const audit = { recordForUser: vi.fn().mockResolvedValue(undefined) };
+    const db = { query: vi.fn().mockResolvedValue({ rows: [] }) } as any;
+    const svc = new AccountSecurityService(db, {} as any, tokens as any, {} as any, audit as any, sessions as any);
+    await svc.logoutAll(USER);
+    expect(sessions.revokeAll).toHaveBeenCalledWith(USER, 'LOGOUT_ALL');
+    expect(tokens.revokeAll).toHaveBeenCalledWith(USER, 'MAGIC_LINK');
+
+    tokens.revokeAll.mockClear();
+    const auth = {
+      verifyPassword: vi.fn().mockResolvedValue(true),
+      hashPassword: vi.fn().mockResolvedValue('$argon2id$new'),
+      createSession: vi.fn().mockResolvedValue({ accessToken: 't', user: { id: USER } }),
+    };
+    db.query.mockResolvedValueOnce({ rows: [{ email: 'k@example.com', full_name: null, password_hash: 'h', status: 'ACTIVE' }] });
+    const mail = { sendInBackground: vi.fn(), link: vi.fn().mockReturnValue('https://app/x') };
+    const svc2 = new AccountSecurityService(db, auth as any, tokens as any, mail as any, audit as any, sessions as any);
+    await svc2.changePassword(USER, 'Old-Password-1!', 'Brand-New-Pass-77', null);
+    expect(tokens.revokeAll).toHaveBeenCalledWith(USER, 'MAGIC_LINK');
   });
 });
 
