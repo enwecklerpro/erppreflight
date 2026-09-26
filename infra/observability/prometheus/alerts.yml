@@ -1,0 +1,197 @@
+# ==============================================================================
+# ERP Preflight — Prometheus alert rules (KNOWN_LIMITATIONS O4)
+#
+# Every expression uses series that the API exports at GET /api/v1/metrics
+# (apps/api/src/modules/telemetry/telemetry.service.ts) plus Prometheus' own `up` series for the
+# scrape job `erppreflight-api` (infra/observability/prometheus/prometheus.yml).
+# Validate:  promtool check rules alerts.yml && promtool test rules alerts.test.yml
+# Runbooks:  docs/runbooks/observability.md §7 (one section per alert) and the linked runbooks.
+#
+# Notes on the source metrics:
+# - *_total counters and histograms are per API process and reset on restart; rate()/increase()
+#   handle resets.
+# - *_by_status, *_by_health, erppreflight_upload_rejections and erppreflight_queue_jobs are
+#   gauges computed from PostgreSQL / Redis at scrape time (all tenants, no tenant labels).
+# - erppreflight_queue_jobs disappears from the output when Redis is unreachable.
+# ==============================================================================
+groups:
+  - name: erppreflight-availability
+    rules:
+      - alert: ErpPreflightApiDown
+        expr: up{job="erppreflight-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "ERP Preflight API metrics endpoint unreachable ({{ $labels.instance }})"
+          description: "Prometheus could not scrape /api/v1/metrics for 2 minutes. The API container is down, restarting, or METRICS_TOKEN no longer matches (401/404 also count as a failed scrape)."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightapidown"
+
+      - alert: ErpPreflightApiRestarting
+        expr: resets(process_uptime_seconds{job="erppreflight-api"}[30m]) >= 3
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "ERP Preflight API restarted {{ $value }} times in 30 minutes"
+          description: "The API process is crash-looping (OOM kill, failed dependency at boot, or unhandled error). Check `docker logs erppreflight-api` and whether the container was OOM-killed (`docker inspect erppreflight-api`, field State.OOMKilled)."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightapirestarting"
+
+      - alert: ErpPreflightRedisMetricsMissing
+        expr: count(up{job="erppreflight-api"} == 1) unless count(erppreflight_queue_jobs)
+        for: 5m
+        labels:
+          severity: critical
+          service: redis
+        annotations:
+          summary: "API is up but reports no analysis queue metrics (Redis unreachable)"
+          description: "The API omits erppreflight_queue_jobs when BullMQ cannot reach Redis. Analyses cannot be queued or processed."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/QUEUE_BACKLOG.md"
+
+  - name: erppreflight-http
+    rules:
+      - alert: ErpPreflightHigh5xxRate
+        expr: |
+          (
+            sum(rate(erppreflight_http_requests_total{job="erppreflight-api", status=~"5.."}[5m]))
+            /
+            sum(rate(erppreflight_http_requests_total{job="erppreflight-api"}[5m]))
+          ) > 0.02
+          and
+          sum(rate(erppreflight_http_requests_total{job="erppreflight-api"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "API 5xx ratio {{ $value | humanizePercentage }} over 10 minutes"
+          description: "More than 2 % of API responses are server errors. Correlate with Sentry (SENTRY_DSN) and the request logs by X-Request-Id."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflighthigh5xxrate"
+
+      - alert: ErpPreflightHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(erppreflight_http_request_duration_seconds_bucket{job="erppreflight-api"}[5m]))
+          ) > 2.5
+        for: 15m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "API p95 latency {{ $value | humanizeDuration }} over 15 minutes"
+          description: "The 95th percentile of all API requests is above 2.5 s. Check the DB pool (erppreflight_db_pool_connections), host CPU/memory and slow traces."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflighthighlatencyp95"
+
+  - name: erppreflight-analysis
+    rules:
+      - alert: ErpPreflightAnalysisQueueBacklog
+        expr: |
+          erppreflight_queue_jobs{queue="analysis-queue", state="waiting"} >= 5
+          and
+          min_over_time(erppreflight_queue_jobs{queue="analysis-queue", state="waiting"}[15m]) > 0
+          and
+          delta(erppreflight_queue_jobs{queue="analysis-queue", state="waiting"}[15m]) > 0
+        labels:
+          severity: warning
+          service: worker
+        annotations:
+          summary: "Analysis queue backlog growing ({{ $value }} waiting)"
+          description: "Waiting analysis jobs have not drained for 15 minutes and keep growing. The worker in the API container may be stuck or the analysis service slow/unavailable."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/QUEUE_BACKLOG.md"
+
+      - alert: ErpPreflightAnalysisJobsFailing
+        expr: (erppreflight_queue_jobs{queue="analysis-queue", state="failed"} - erppreflight_queue_jobs{queue="analysis-queue", state="failed"} offset 30m) > 0
+        labels:
+          severity: warning
+          service: worker
+        annotations:
+          summary: "{{ $value }} analysis job(s) failed after all retries in the last 30 minutes"
+          description: "BullMQ moved jobs to the failed set (3 attempts exhausted). Inspect failedReason in Redis."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/QUEUE_BACKLOG.md"
+
+      - alert: ErpPreflightEngineFailureRatio
+        expr: |
+          (
+            sum(increase(erppreflight_engine_runs_total{job="erppreflight-api", outcome="FAILED"}[30m]))
+            /
+            sum(increase(erppreflight_engine_runs_total{job="erppreflight-api"}[30m]))
+          ) > 0.25
+          and
+          sum(increase(erppreflight_engine_runs_total{job="erppreflight-api"}[30m])) >= 10
+        for: 15m
+        labels:
+          severity: warning
+          service: analysis-python
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of engine runs FAILED in 30 minutes"
+          description: "FAILED includes rejected input (INSUFFICIENT_INPUT / PARSE_ERROR), so a single customer uploading wrong files can trigger this; a ratio across many runs points at the analysis service. Break down by engine in the Grafana dashboard."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightenginefailureratio"
+
+  - name: erppreflight-platform
+    rules:
+      - alert: ErpPreflightDbPoolSaturated
+        expr: max(erppreflight_db_pool_connections{job="erppreflight-api", state="waiting"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "Requests waiting for a PostgreSQL connection for 5 minutes"
+          description: "The pg pool has had waiting clients continuously. Look for long-running queries (pg_stat_activity) and lock contention."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightdbpoolsaturated"
+
+      - alert: ErpPreflightOutboxLag
+        expr: max(erppreflight_outbox_queue_lag{job="erppreflight-api"}) > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "{{ $value }} domain events pending in the outbox for 15 minutes"
+          description: "Notifications and webhooks are not being dispatched."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightoutboxlag"
+
+      - alert: ErpPreflightProcessMemoryHigh
+        expr: max(process_resident_memory_bytes{job="erppreflight-api"}) > 1.7e9
+        for: 15m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "API resident memory {{ $value | humanize1024 }}B (container limit 2 GiB)"
+          description: "The API is close to its compose memory limit and will be OOM-killed."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightprocessmemoryhigh"
+
+  - name: erppreflight-ingestion-integrations
+    rules:
+      - alert: ErpPreflightUploadRejectionSpike
+        expr: (erppreflight_upload_rejections{job="erppreflight-api"} - erppreflight_upload_rejections{job="erppreflight-api"} offset 1h) > 10
+        labels:
+          severity: warning
+          service: ingestion
+        annotations:
+          summary: "{{ $value }} uploads rejected or quarantined in the last hour"
+          description: "A burst of REJECTED/QUARANTINED uploads: malware attempts, a broken client, or an antivirus problem."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/CLAMAV_DOWN.md"
+
+      - alert: ErpPreflightWebhookDeliveriesDead
+        expr: (erppreflight_webhook_deliveries_by_status{job="erppreflight-api", status="DEAD"} - erppreflight_webhook_deliveries_by_status{job="erppreflight-api", status="DEAD"} offset 30m) > 0
+        labels:
+          severity: warning
+          service: integrations
+        annotations:
+          summary: "{{ $value }} webhook deliveries exhausted all retries in 30 minutes"
+          description: "Receivers stopped accepting deliveries. Tenants can replay them from /integrations?tab=webhooks once the receiver is fixed."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightwebhookdeliveriesdead"
+
+      - alert: ErpPreflightConnectorsUnhealthy
+        expr: max(erppreflight_connectors_by_health{job="erppreflight-api", health="UNHEALTHY"}) > 0
+        for: 30m
+        labels:
+          severity: info
+          service: integrations
+        annotations:
+          summary: "{{ $value }} active connector(s) UNHEALTHY for 30 minutes"
+          description: "Circuit breaker open or credentials invalid. Usually a tenant-side configuration issue; escalate only if many connectors of one type fail at once."
+          runbook_url: "https://github.com/enwecklerpro/erppreflight/blob/main/docs/runbooks/observability.md#erppreflightconnectorsunhealthy"
