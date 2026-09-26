@@ -23,6 +23,7 @@ import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect } from '@/components/form/form-inputs';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { vmsg } from '@/i18n/validation';
+import { useLocale } from '@/i18n/client';
 import {
   Connector,
   ConnectorTypeSpec,
@@ -451,11 +452,11 @@ function ConnectorRow({ c, types }: { c: Connector; types: ConnectorTypeSpec[] }
             <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
               <div>
                 <p className="font-medium">{t('app.integrations.connectors.canRead')}</p>
-                <ul className="list-disc pl-4">{(lastTest.capabilities.readable ?? []).map((r) => <li key={r}>{r}</li>)}</ul>
+                <ul className="list-disc pl-4">{(spec?.canRead ?? lastTest.capabilities.readable ?? []).map((r) => <li key={r}>{r}</li>)}</ul>
               </div>
               <div>
                 <p className="font-medium">{t('app.integrations.connectors.cannotAccess')}</p>
-                <ul className="list-disc pl-4">{(lastTest.capabilities.notAccessible ?? []).map((r) => <li key={r}>{r}</li>)}</ul>
+                <ul className="list-disc pl-4">{(spec?.cannotAccess ?? lastTest.capabilities.notAccessible ?? []).map((r) => <li key={r}>{r}</li>)}</ul>
               </div>
             </div>
           )}
@@ -473,7 +474,9 @@ function ConnectorRow({ c, types }: { c: Connector; types: ConnectorTypeSpec[] }
 
 export function ConnectorsPanel() {
   const { t } = useIntegrationText();
-  const types = useQuery({ queryKey: connectorKeys.types, queryFn: fetchConnectorTypes, staleTime: 5 * 60_000 });
+  const locale = useLocale();
+  // Registry texts (descriptions, scope reasons) come back in the UI language (Accept-Language).
+  const types = useQuery({ queryKey: [...connectorKeys.types, locale], queryFn: fetchConnectorTypes, staleTime: 5 * 60_000 });
   const connectors = useQuery({ queryKey: connectorKeys.all, queryFn: fetchConnectors });
   const [adding, setAdding] = React.useState(false);
 

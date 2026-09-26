@@ -172,6 +172,22 @@ export const integrations = {
     catalogLoading: 'Loading event catalog',
     catalogWhat: 'the event catalog',
     payloadFields: 'data: {fields}',
+    /** Event catalog descriptions by event type (`.` replaced by `_`); unknown types show the API text. */
+    events: {
+      analysis_completed: 'An analysis finished (status COMPLETED or PARTIAL).',
+      analysis_failed: 'An analysis failed or could not be executed.',
+      finding_critical: 'An analysis produced BLOCKER or CRITICAL findings.',
+      finding_reviewed: 'A finding was reviewed (verified, risk accepted, suppressed).',
+      connector_unhealthy: 'A connector became UNHEALTHY (circuit opened after repeated failures).',
+      traceability_task_dispatched: 'A work item was created from a finding in an external system.',
+      change_set_created: 'A change set was created.',
+      change_set_simulated: 'A what-if simulation finished for a change set.',
+      change_set_approved: 'A change set was approved.',
+      agent_proposal_verdict: 'The agent change gate produced a verdict.',
+      agent_proposal_approved: 'An agent proposal was approved by a human.',
+      agent_proposal_executed: 'An approved agent proposal was executed.',
+      organization_plan_upgraded: 'The organization plan changed.',
+    },
     deliveries: {
       loading: 'Loading deliveries',
       what: 'the delivery log',

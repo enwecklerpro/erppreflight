@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { localizeRule } from '@/i18n/rule-catalog';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { AlertCircle, BookOpen, ExternalLink } from 'lucide-react';
@@ -200,7 +201,10 @@ export function EngineRules({ locale, engine }: { locale: Locale; engine: Engine
               {validation ? t('publicTools.docs.inputRules') : t('publicTools.docs.rules')} ({list.length})
             </h3>
             <ul className="space-y-2">
-              {list.map((r) => (
+              {list.map((r) => {
+                // German rule catalog text on /de docs (engine catalog text otherwise).
+                const text = localizeRule(locale, r.code, r.title, r.remediation);
+                return (
                 <li key={r.code} id={r.code} className="rounded-lg border border-border bg-card p-3 text-sm">
                   <p className="flex flex-wrap items-center gap-2">
                     <code className="font-mono text-xs font-semibold">{r.code}</code>
@@ -211,12 +215,13 @@ export function EngineRules({ locale, engine }: { locale: Locale; engine: Engine
                       {t('publicTools.docs.category')}: {r.category}
                     </span>
                   </p>
-                  <p className="mt-1 font-medium">{r.title}</p>
+                  <p className="mt-1 font-medium">{text.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    <strong>{t('publicTools.docs.remediation')}:</strong> {r.remediation}
+                    <strong>{t('publicTools.docs.remediation')}:</strong> {text.remediation}
                   </p>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </section>
         );

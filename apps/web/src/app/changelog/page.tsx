@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Calendar, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { fetchChangelogs } from '../../lib/api-client';
-import { useFmt, useLabel, useT } from '../../i18n/client';
+import { useFmt, useLabel, useLocale, useT } from '../../i18n/client';
 
 const CATEGORIES = ['ALL', 'PLATFORM', 'KNOWLEDGE_SNAPSHOT'] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -14,7 +14,7 @@ function Section({ title, items, tone }: { title: string; items: string[]; tone:
   return (
     <div className="space-y-1.5 pt-2">
       <h4 className={`text-xs font-bold uppercase tracking-wider ${tone}`}>{title}</h4>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90" translate="no">
+      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">
         {items.map((item, idx) => (
           <li key={idx}>{item}</li>
         ))}
@@ -27,10 +27,11 @@ export default function ChangelogPage() {
   const t = useT();
   const fmt = useFmt();
   const label = useLabel();
+  const locale = useLocale();
   const [selectedCategory, setSelectedCategory] = useState<Category>('ALL');
 
   const { data: changelogs = [], isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['changelog', selectedCategory],
+    queryKey: ['changelog', selectedCategory, locale],
     queryFn: () => fetchChangelogs(selectedCategory === 'ALL' ? undefined : selectedCategory),
   });
 
@@ -125,8 +126,8 @@ export default function ChangelogPage() {
                     </div>
                   </div>
 
-                  {/* Release notes are published content, shown as written. */}
-                  <div translate="no">
+                  {/* Release notes arrive in the UI language (API Accept-Language). */}
+                  <div>
                     <h2 className="text-lg font-bold text-foreground">{item.title}</h2>
                     <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{item.summary}</p>
                   </div>
@@ -141,7 +142,7 @@ export default function ChangelogPage() {
                         <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                         {t('app.changelog.breakingChanges')}
                       </h4>
-                      <ul className="list-disc pl-5 space-y-0.5" translate="no">
+                      <ul className="list-disc pl-5 space-y-0.5">
                         {item.breakingChanges.map((brk, idx) => (
                           <li key={idx}>{brk}</li>
                         ))}

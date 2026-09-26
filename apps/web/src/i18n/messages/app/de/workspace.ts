@@ -157,14 +157,6 @@ export const workspace: typeof En = {
     setBaseline: 'Als Baseline festlegen',
     setBaselineHint: 'Als digitale Projekt-Baseline festlegen',
   },
-  engineDomains: {
-    'Output & Extensibility': 'Output & Erweiterbarkeit',
-    'Migration & Clean Core': 'Migration & Clean Core',
-    Integration: 'Integration',
-    'Release & Transport': 'Release & Transport',
-    Operations: 'Betrieb',
-    'Warehouse Automation': 'Lagerautomatisierung',
-  },
   launcher: {
     title: 'Preflight-Bewertung konfigurieren & starten',
     intro: 'Wählen Sie Eingabedateien und deterministische Preflight-Engines für {project} aus.',

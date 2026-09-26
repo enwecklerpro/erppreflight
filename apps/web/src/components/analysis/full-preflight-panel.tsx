@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleTitle } from '@/components/findings/rule-text';
 import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -303,7 +304,7 @@ function EngineRow({
                 <li key={f.id} className="flex flex-wrap items-center gap-2" data-testid="fpp-finding">
                   <SeverityBadge severity={f.severity as Severity} size="sm" />
                   <span className="font-mono text-[11px]">{f.ruleId}</span>
-                  <span className="text-foreground">{f.title}</span>
+                  <RuleTitle ruleId={f.ruleId} title={f.title} className="text-foreground" />
                   <Link className="ml-auto text-primary underline" href={`/projects/${projectId}/findings?engineType=${f.engineType}&search=${encodeURIComponent(f.ruleId)}`}>
                     {t('fullPreflight.openFinding')}
                   </Link>

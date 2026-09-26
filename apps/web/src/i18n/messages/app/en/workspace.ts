@@ -156,15 +156,6 @@ export const workspace = {
     setBaseline: 'Set as Baseline',
     setBaselineHint: 'Set as digital project baseline',
   },
-  /** Engine domains as delivered by the engine catalog (keys are the canonical English domain names). */
-  engineDomains: {
-    'Output & Extensibility': 'Output & Extensibility',
-    'Migration & Clean Core': 'Migration & Clean Core',
-    Integration: 'Integration',
-    'Release & Transport': 'Release & Transport',
-    Operations: 'Operations',
-    'Warehouse Automation': 'Warehouse Automation',
-  },
   launcher: {
     title: 'Configure & Trigger Preflight Assessment',
     intro: 'Select input files and deterministic preflight engines to execute against {project}.',

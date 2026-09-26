@@ -1,23 +1,30 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Req, Query, Headers } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TemplatesService } from './templates.service';
 import { CreateTemplateDto } from './dto/template.dto';
+import { resolveRequestLocale } from '../../common/i18n/request-locale';
 
 @Controller('templates')
 @UseGuards(JwtAuthGuard)
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
+  /** System templates are returned in the requested language (`?locale=` or Accept-Language). */
   @Get()
-  async listTemplates(@Req() req: any) {
+  async listTemplates(@Req() req: any, @Query('locale') locale?: string, @Headers('accept-language') acceptLanguage?: string) {
     const orgId = req.user?.organizationId || req.user?.organization_id;
-    return this.templatesService.listTemplates(orgId);
+    return this.templatesService.listTemplates(orgId, resolveRequestLocale(locale, acceptLanguage));
   }
 
   @Get(':id')
-  async getTemplate(@Req() req: any, @Param('id') id: string) {
+  async getTemplate(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string
+  ) {
     const orgId = req.user?.organizationId || req.user?.organization_id;
-    return this.templatesService.getTemplateById(id, orgId);
+    return this.templatesService.getTemplateById(id, orgId, resolveRequestLocale(locale, acceptLanguage));
   }
 
   @Post()

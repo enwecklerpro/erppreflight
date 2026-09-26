@@ -12,6 +12,8 @@
  * - Clean HTTP 204 / empty payload guards
  */
 
+import { applyLocaleHeader } from './locale-header';
+
 export interface ApiErrorResponse {
   statusCode: number;
   message: string | string[];
@@ -266,6 +268,7 @@ export const fetchApiBlob = async (
 ): Promise<DownloadedFile> => {
   const headers = new Headers(options?.headers);
   applyAuthHeaders(headers);
+  applyLocaleHeader(headers);
   const response = await fetch(resolveApiUrl(url), {
     ...options,
     headers,
@@ -334,6 +337,7 @@ export const customInstance = async <T>(
 
   // Multi-tenant & Auth headers in browser environment
   applyAuthHeaders(headers);
+  applyLocaleHeader(headers);
 
   const response = await fetch(fullUrl, {
     ...options,

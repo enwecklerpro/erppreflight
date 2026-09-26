@@ -55,6 +55,7 @@ import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress
 import { FullPreflightPanel } from '@/components/analysis/full-preflight-panel';
 import { ProjectTabLabel, RunFullPreflightLabel, RunProgressDisclosure } from '@/components/analysis/project-workspace-extras';
 import { ProjectContextForm } from '@/components/projects/project-context-form';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { useErrorText, useFmt, useLabel, useT } from '@/i18n/client';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
@@ -66,6 +67,7 @@ export default function ProjectWorkspacePage() {
   const t = useT();
   const fmt = useFmt();
   const statusLabel = useLabel();
+  const domainLabel = useEngineDomainLabel();
   const errText = useErrorText();
 
   const [activeTab, setActiveTab] = useState<
@@ -1371,7 +1373,7 @@ export default function ProjectWorkspacePage() {
                   >
                     <div>
                       <div className="text-foreground">{eng.name}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{statusLabel('app.workspace.engineDomains', eng.domain)}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{domainLabel(eng.domain)}</div>
                     </div>
                     {selected && <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0 ml-2" />}
                   </button>

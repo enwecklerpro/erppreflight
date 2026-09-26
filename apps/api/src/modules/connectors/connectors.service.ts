@@ -1,3 +1,5 @@
+import type { ApiLocale } from '../../common/i18n/request-locale';
+import { localizeConnectorType } from './connector-registry.i18n';
 import {
   BadRequestException,
   ConflictException,
@@ -155,8 +157,8 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
   // -------------------------------------------------------------------------
   // Registry
   // -------------------------------------------------------------------------
-  listTypes() {
-    return CONNECTOR_TYPES.map((t) => describeConnectorType(CONNECTOR_DEFINITIONS[t]));
+  listTypes(locale: ApiLocale = 'en') {
+    return CONNECTOR_TYPES.map((t) => localizeConnectorType(describeConnectorType(CONNECTOR_DEFINITIONS[t]), locale));
   }
 
   getAdapter(type: ConnectorType): ConnectorAdapter {

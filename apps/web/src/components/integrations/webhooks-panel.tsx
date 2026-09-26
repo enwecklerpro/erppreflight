@@ -13,6 +13,7 @@ import {
   rotateWebhookSecret,
   setWebhookStatus,
 } from '@/lib/api/integrations';
+import { useLabel } from '@/i18n/client';
 import { Button, Card, ConfirmButton, OneTimeSecret, OutcomeBadge, PanelEmpty, PanelError, PanelLoading, StatusBadge, useIntegrationText } from './ui';
 
 const keys = {
@@ -134,6 +135,12 @@ function HookItem({ hook }: { hook: WebhookRow }) {
 
 export function WebhooksPanel() {
   const { t } = useIntegrationText();
+  const label = useLabel();
+  const eventText = (type: string, fallback: string) => {
+    const key = type.replace(/\./g, '_');
+    const text = label('app.integrations.webhooks.events', key);
+    return text === key ? fallback : text;
+  };
   const hooks = useQuery({ queryKey: keys.hooks, queryFn: fetchWebhooksWithStats });
   const events = useQuery({ queryKey: keys.events, queryFn: fetchWebhookEvents, staleTime: 10 * 60_000 });
   return (
@@ -171,7 +178,7 @@ export function WebhooksPanel() {
             {events.data?.map((e) => (
               <div key={e.type} className="rounded-md border border-border p-2">
                 <dt className="font-mono font-semibold">{e.type}</dt>
-                <dd className="text-muted-foreground">{e.description}</dd>
+                <dd className="text-muted-foreground">{eventText(e.type, e.description)}</dd>
                 <dd className="mt-0.5 text-[11px] text-muted-foreground">
                   {t('app.integrations.webhooks.payloadFields', { fields: e.payloadFields.join(', ') })}
                 </dd>

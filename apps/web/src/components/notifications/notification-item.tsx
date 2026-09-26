@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { SeverityBadge } from '@/components/findings/severity-badge';
 import type { AppNotification } from '@/lib/knowledge-graph';
 import { useFmt, useT } from '@/i18n/client';
+import { localizeNotification } from '@/lib/notification-text';
 
 export function NotificationItem({
   n,
@@ -18,6 +19,7 @@ export function NotificationItem({
   const t = useT();
   const fmt = useFmt();
   const unread = !n.readAt;
+  const text = React.useMemo(() => localizeNotification(n, t), [n, t]);
   const content = (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -29,8 +31,8 @@ export function NotificationItem({
         ) : null}
         <time dateTime={n.createdAt} className="text-[11px] text-muted-foreground">{fmt.dateTime(n.createdAt)}</time>
       </div>
-      <p className={`mt-1 text-sm ${unread ? 'font-semibold' : ''}`}>{n.title}</p>
-      {!compact && n.body ? <p className="mt-0.5 whitespace-pre-line text-xs text-muted-foreground">{n.body}</p> : null}
+      <p className={`mt-1 text-sm ${unread ? 'font-semibold' : ''}`}>{text.title}</p>
+      {!compact && text.body ? <p className="mt-0.5 whitespace-pre-line text-xs text-muted-foreground">{text.body}</p> : null}
     </>
   );
   return (
@@ -49,7 +51,7 @@ export function NotificationItem({
           type="button"
           onClick={() => onToggleRead(n)}
           className="shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-          aria-label={unread ? t('app.shell.notification.markReadLabel', { title: n.title }) : t('app.shell.notification.markUnreadLabel', { title: n.title })}
+          aria-label={unread ? t('app.shell.notification.markReadLabel', { title: text.title }) : t('app.shell.notification.markUnreadLabel', { title: text.title })}
         >
           {unread ? t('app.shell.notification.markRead') : t('app.shell.notification.markUnread')}
         </button>

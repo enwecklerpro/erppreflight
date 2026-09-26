@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleRemediation, RuleTitle } from '@/components/findings/rule-text';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, Play, CheckCircle2, AlertTriangle, XCircle, ShieldCheck, Plus, Loader2, RefreshCw } from 'lucide-react';
@@ -265,12 +266,12 @@ export function WhatIfSimulationPanel({ projectId }: WhatIfSimulationPanelProps)
                                 <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">{f.severity}</span>
                                 <span className="font-mono text-xs font-semibold text-foreground">{f.ruleId}</span>
                               </span>
-                              <p className="mt-1 text-sm font-medium text-foreground">{f.title}</p>
+                              <p className="mt-1 text-sm font-medium text-foreground"><RuleTitle ruleId={f.ruleId} title={f.title} /></p>
                               {'description' in f && typeof (f as { description?: unknown }).description === 'string' && (
                                 <p className="text-sm text-muted-foreground">{(f as { description: string }).description}</p>
                               )}
                               <p className="mt-2 rounded border border-border bg-background p-2 text-sm text-foreground">
-                                <strong>{t('app.changesets.remediation')}</strong> {f.remediation}
+                                <strong>{t('app.changesets.remediation')}</strong> <RuleRemediation ruleId={f.ruleId} title={f.title} remediation={f.remediation} />
                               </p>
                             </li>
                           ))}

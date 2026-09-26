@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleTitle } from '@/components/findings/rule-text';
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -818,7 +819,7 @@ export default function ScenarioTestLabPage() {
                             </span>
                             <SeverityBadge severity={finding.severity as Severity} size="sm" />
                           </div>
-                          <h5 className="font-bold text-xs text-foreground">{finding.title}</h5>
+                          <h5 className="font-bold text-xs text-foreground"><RuleTitle ruleId={finding.ruleId} title={finding.title} /></h5>
                           <p className="text-[11px] text-muted-foreground">{finding.description}</p>
                           <div className="pt-1 flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/50">
                             <ConfidenceBadge

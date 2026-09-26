@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleTitle } from '@/components/findings/rule-text';
 import * as React from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -10,7 +11,8 @@ import { CheckCircle2, FileText, FolderPlus, Loader2, Play, Search, ShieldAlert,
 import { TargetReleaseEnum, type ProblemRouteResponse, type Severity } from '@erppreflight/schemas';
 import { FormField, FormInput, FormSelect, FormTextarea } from '@/components/form';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
-import { useLabel, useT } from '@/i18n/client';
+import { useT } from '@/i18n/client';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { createProject, fetchProjects, fetchProjectFiles, type ProjectRecord } from '@/lib/api-client';
 import {
   fetchAnalysisFindings,
@@ -67,7 +69,7 @@ function AnalyzePage() {
   // Localized API error text (codes → EN/DE dictionary).
   const errorMessage = useCommercialErrorText();
   const t = useT();
-  const domainLabel = useLabel();
+  const domainLabel = useEngineDomainLabel();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [route, setRoute] = React.useState<ProblemRouteResponse | null>(null);
@@ -459,7 +461,7 @@ function AnalyzePage() {
                       />
                       <span>
                         <span className="block font-semibold text-foreground">{e.engineName}</span>
-                        <span className="block text-[10px] text-muted-foreground">{domainLabel('app.workspace.engineDomains', e.domain)}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
+                        <span className="block text-[10px] text-muted-foreground">{domainLabel(e.domain)}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
                       </span>
                     </label>
                   );
@@ -507,7 +509,7 @@ function AnalyzePage() {
                     <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 text-xs" data-testid="analyze-finding" data-rule={f.ruleId}>
                       <SeverityBadge severity={f.severity as Severity} size="sm" />
                       <span className="font-mono text-[11px]">{f.ruleId}</span>
-                      <span className="text-foreground">{f.title}</span>
+                      <RuleTitle ruleId={f.ruleId} title={f.title} className="text-foreground" />
                     </li>
                   ))}
                 </ul>

@@ -1,4 +1,5 @@
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
+import { resolveRequestLocale } from '../../common/i18n/request-locale';
 import {
   Body,
   Controller,
@@ -10,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  Headers,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -45,8 +47,9 @@ export class ConnectorsController {
 
   @Get('types')
   @ApiOperation({ summary: 'Connector registry: types, config/credential fields, least-privilege scopes, write action registry' })
-  types() {
-    return this.connectors.listTypes();
+  types(@Query('locale') locale?: string, @Headers('accept-language') acceptLanguage?: string) {
+    // Descriptions / scope reasons in the requested language (`?locale=` or Accept-Language).
+    return this.connectors.listTypes(resolveRequestLocale(locale, acceptLanguage));
   }
 
   @Get()

@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleTitle } from '@/components/findings/rule-text';
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
@@ -333,7 +334,7 @@ export default function ChangeSimulationPage() {
                       {sim.newFindings.map((nf, idx) => (
                         <li key={idx} className="p-3 bg-slate-950/80 border border-rose-500/20 rounded-lg text-sm">
                           <div className="font-mono font-bold text-white mb-0.5 break-all">{nf.ruleId}</div>
-                          <div className="text-slate-400">{nf.title}</div>
+                          <div className="text-slate-400"><RuleTitle ruleId={nf.ruleId} title={nf.title} /></div>
                         </li>
                       ))}
                     </ul>
