@@ -20,6 +20,11 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
+  // Distributed rate limiting (modules/rate-limit): shared Redis limiter; behaviour when Redis fails.
+  RATE_LIMIT_BACKEND: z.enum(['redis', 'memory']).optional(),
+  RATE_LIMIT_REDIS_FAILURE_MODE: z.enum(['memory', 'closed']).optional(),
+  RATE_LIMIT_KEY_PREFIX: z.string().max(64).optional(),
+  RATE_LIMIT_REDIS_TIMEOUT_MS: z.coerce.number().int().min(50).max(10_000).optional(),
   // Billing provider: 'stripe' (needs STRIPE_SECRET_KEY), 'local' (non-production simulator) or 'none'.
   BILLING_PROVIDER: z.enum(['stripe', 'local', 'none']).optional(),
   TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),

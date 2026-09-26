@@ -228,6 +228,9 @@ services:
       REDIS_HOST: erppreflight-redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Shared (Redis) rate limits; see .env.coolify.example
+      RATE_LIMIT_REDIS_FAILURE_MODE: ${RATE_LIMIT_REDIS_FAILURE_MODE:-memory}
+      RATE_LIMIT_KEY_PREFIX: ${RATE_LIMIT_KEY_PREFIX:-erppreflight:}
       ANALYSIS_SERVICE_URL: http://erppreflight-analysis:8000
       S3_ENDPOINT: http://erppreflight-minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}

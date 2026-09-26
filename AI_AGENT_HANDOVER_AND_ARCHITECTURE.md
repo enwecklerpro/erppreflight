@@ -294,6 +294,7 @@ The API **refuses to start** in `NODE_ENV=production` when a required secret is 
 | `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `CONNECTOR_ALLOW_PRIVATE_NETWORKS`, `SSO_ALLOW_PRIVATE_NETWORKS` | default `false` | SSRF policy exceptions for private receivers/IdPs/connector targets (staging only). |
 | `AGENT_JOB_SIGNING_KEY`, `AGENT_UPDATE_MANIFEST_*` | for local agents | Signs jobs sent to enrolled local agents; update channels. |
 | `AUTH_RATE_LIMIT_SCALE`, `TRUST_PROXY`, `BILLING_RETURN_ORIGINS`, `ALLOW_PRIVATE_LANDSCAPE_PROBES` | optional | See `.env.coolify.example`. |
+| `RATE_LIMIT_REDIS_FAILURE_MODE`, `RATE_LIMIT_KEY_PREFIX` | default `memory`, `erppreflight:` | Rate limits are shared by all API instances through Redis (`modules/rate-limit`). Redis down: `memory` enforces the same limits per instance, `closed` answers 503 on rate-limited endpoints. |
 
 Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from the environment (§4.1.1).
 
@@ -379,6 +380,10 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-findings
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analyze-smoke.cjs      # /analyze + router + SSE, 13
 WEB_URL=... API_BASE_URL=... [SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=...] node scripts/e2e-tools-smoke.cjs   # free tools + SEO pages, 24
 WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-i18n-smoke.cjs             # DE on every app page, 375/1440 px
+# Two API processes with the same environment (second one e.g. on API port + 2): shared Redis rate limit,
+# presigned upload metered once, assignment e-mail (DE) + deep link, FormDoctor file names [+ connector metering
+# with DOUBLES_FILE]
+WEB_URL=... API_URL=... API_URL_2=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-platform-hardening-smoke.cjs   # pnpm smoke:platform-hardening
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -401,6 +406,25 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 `NEXT_PUBLIC_API_URL=http://localhost:3001` and served with `next start`.
 
 ---
+
+### 5.4 Rate limiting, usage metering, notifications (platform hardening)
+
+- **Rate limits** — `apps/api/src/modules/rate-limit/`: `RateLimiterService` (global) keeps every budget in Redis
+  (`<RATE_LIMIT_KEY_PREFIX>rl:<namespace>:<scope>:<sha256(id)>`, one atomic Lua script per decision: fixed window
+  check-then-INCR+PEXPIRE, token bucket on the Redis clock). Users: `AuthRateLimitGuard` + `@AuthRateLimit(rule)`
+  (auth, invitations, SSO discover/login/callback, public tools, public knowledge lookup), the 2FA failure budget
+  (`two-factor.service.ts`, namespace `mfa-fail`) and the per-connector token bucket (`connector-http.ts`,
+  `distributedConnectorLimiter`). Never add an in-process `Map` limiter; use the service. Redis failure behaviour:
+  `RATE_LIMIT_REDIS_FAILURE_MODE` (`memory` = same limits per instance, `closed` = 503).
+- **Usage metering** — `@Metered` for request-scoped metrics; uploads are metered inside
+  `IngestionService.confirmUpload` (ARTIFACT_UPLOAD + ARTIFACT_BYTES exactly once per file: atomic
+  `PENDING_SCAN/REJECTED -> SCANNING` claim; a repeated confirm returns `alreadyProcessed`). Outbound connector
+  requests are metered per attempt as `CONNECTOR_REQUEST` (`ConnectorsService.buildContext`). New metrics need the
+  enum in `packages/schemas/src/plans.ts` and the `chk_usage_metric` constraint (migration 024).
+- **Notifications** — event types, recipient policy and texts in `notifications/notification-renderer.ts`
+  (EN/DE per `users.preferred_locale`, `GET/PUT /notifications/locale`); e-mails go through `MailService`
+  (`notification-mail.templates.ts`). `finding.assigned` reaches only the assignee and deep-links to
+  `/projects/:id/findings?finding=:id&org=:orgId` (focused view: `components/findings/focused-finding.tsx`).
 
 ## 6. Where an AI Agent Must Make Specific Changes
 
