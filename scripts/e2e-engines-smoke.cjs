@@ -316,8 +316,11 @@ function mfsLog(bytes) {
   });
 
   // ------------------------------------------------------------------------------------------- UI
+  // Browser session as after a real login (cookie-only auth): the JWT only in the API's
+  // HttpOnly session cookie, never in web storage; the web app fetches its CSRF token itself.
+  await context.addCookies([{ name: 'erppreflight_session', value: A.token, url: API_ORIGIN, httpOnly: true, sameSite: 'Lax' }]);
   await page.goto(WEB + '/login');
-  await page.evaluate(([t, o]) => { localStorage.setItem('erppreflight_token', t); localStorage.setItem('erppreflight_tenant_id', o); }, [A.token, A.orgId]);
+  await page.evaluate((o) => { localStorage.setItem('erppreflight_tenant_id', o); }, A.orgId);
   await context.addCookies([{ name: 'erp_auth', value: '1', url: WEB }, { name: 'erp_consent', value: 'necessary', url: WEB }]);
 
   await ui('12 ui: baselines panel lists the registered baseline as active (text + icon)', async () => {

@@ -62,7 +62,13 @@ export async function registerVerifiedAccount(request: APIRequestContext, label:
   const link = await mailLink(request, email, 'EMAIL_VERIFICATION');
   const token = new URL(link).searchParams.get('token');
   expect(token, `verification link without token: ${link}`).toBeTruthy();
-  const ver = await request.post(`${API}/auth/verify-email`, { data: { token } });
+  // The request context keeps the HttpOnly session cookie set by /auth/register; a cookie-
+  // authenticated POST needs X-CSRF-Token. API clients authenticate with the Bearer token
+  // instead (exempt from the CSRF check, the cookie is then ignored).
+  const ver = await request.post(`${API}/auth/verify-email`, {
+    data: { token },
+    headers: { Authorization: `Bearer ${body.accessToken}` },
+  });
   expect(ver.ok(), await ver.text()).toBeTruthy();
   return { email, password, token: body.accessToken, organizationId: body.user.organizationId };
 }

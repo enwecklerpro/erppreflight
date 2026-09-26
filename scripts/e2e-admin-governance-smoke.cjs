@@ -324,11 +324,14 @@ async function main() {
   try {
     const context = await browser.newContext({ viewport: { width: 1360, height: 1000 } });
     const page = await context.newPage();
+    // Cookie-only auth: the JWT only in the API's HttpOnly session cookie (never in web storage).
+    await context.addCookies([
+      { name: 'erppreflight_session', value: SA, url: API.replace(/\/api\/v1$/, ''), httpOnly: true, sameSite: 'Lax' },
+    ]);
     await page.goto(`${WEB}/login`);
-    await page.evaluate(([tok, org]) => {
-      localStorage.setItem('erppreflight_token', tok);
+    await page.evaluate((org) => {
       localStorage.setItem('erppreflight_tenant_id', org);
-    }, [SA, saOrg]);
+    }, saOrg);
     await context.addCookies([
       { name: 'erp_auth', value: '1', url: WEB },
       { name: 'erp_consent', value: 'necessary', url: WEB },
