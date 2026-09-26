@@ -32,6 +32,22 @@ describe('i18n dictionaries', () => {
     expect(Object.keys(flatDe).sort()).toEqual(Object.keys(flatEn).sort());
   });
 
+  it('no dictionary key contains a dot (next-intl uses dots as path separators)', () => {
+    const dotted: string[] = [];
+    const walk = (value: unknown, path: string) => {
+      if (Array.isArray(value)) value.forEach((v, i) => walk(v, `${path}[${i}]`));
+      else if (value && typeof value === 'object') {
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          if (k.includes('.')) dotted.push(`${path}.${k}`);
+          walk(v, path ? `${path}.${k}` : k);
+        }
+      }
+    };
+    walk(en, '');
+    walk(de, '');
+    expect(dotted).toEqual([]);
+  });
+
   it('no translation is empty and placeholders match', () => {
     for (const [key, value] of Object.entries(flatEn)) {
       expect(value.trim(), `en ${key}`).not.toBe('');

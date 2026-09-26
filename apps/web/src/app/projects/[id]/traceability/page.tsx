@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, ExternalLink, GitMerge, Layers, ListChecks, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, GitMerge, Layers, ListChecks, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import {
   fetchCloudAlmProjects,
   fetchConnectors,
@@ -14,7 +14,8 @@ import {
   linkProjectToCloudAlm,
 } from '@/lib/api/integrations';
 import { exportRawData } from '@/lib/export';
-import { Button, PanelEmpty, PanelError, PanelLoading, RemediationBadge, errorMessage } from '@/components/integrations/ui';
+import { Button, PanelEmpty, PanelLoading, RemediationBadge } from '@/components/integrations/ui';
+import { useErrorText, useFmt, useRichT, useT } from '@/i18n/client';
 import { SeverityBadge } from '@/components/findings/severity-badge';
 
 function Kpi({ label, value, hint, icon: Icon, tone }: { label: string; value: React.ReactNode; hint: string; icon: React.ElementType; tone: string }) {
@@ -29,8 +30,30 @@ function Kpi({ label, value, hint, icon: Icon, tone }: { label: string; value: R
   );
 }
 
+function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const t = useT();
+  const errText = useErrorText();
+  return (
+    <div role="alert" className="flex flex-col justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm sm:flex-row sm:items-center">
+      <div className="flex items-start gap-2 text-destructive">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <div>
+          <p className="font-semibold">{t('app.traceability.loadError')}</p>
+          <p className="opacity-90">{errText(error, t('app.traceability.unexpected'))}</p>
+        </div>
+      </div>
+      <Button variant="secondary" onClick={onRetry}>
+        <RefreshCw className="size-3.5" aria-hidden="true" /> {t('app.traceability.retry')}
+      </Button>
+    </div>
+  );
+}
+
 /** Cloud ALM project mapping + requirements import (pull). */
 function CloudAlmImport({ projectId }: { projectId: string }) {
+  const t = useT();
+  const rt = useRichT();
+  const errText = useErrorText();
   const qc = useQueryClient();
   const connectors = useQuery({ queryKey: ['integrations', 'connectors'], queryFn: fetchConnectors });
   const calm = (connectors.data ?? []).filter((c) => c.type === 'SAP_CLOUD_ALM' && c.status === 'ACTIVE');
@@ -49,21 +72,23 @@ function CloudAlmImport({ projectId }: { projectId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] }),
   });
 
-  if (connectors.isLoading) return <PanelLoading rows={1} label="Loading connectors" />;
+  if (connectors.isLoading) return <PanelLoading rows={1} label={t('app.traceability.loadingConnectors')} />;
   if (!calm.length) {
     return (
-      <p className="text-xs text-muted-foreground">
-        Requirements come from SAP Cloud ALM.{' '}
-        <Link href="/integrations?tab=connectors" className="text-primary hover:underline">
-          Connect Cloud ALM
-        </Link>{' '}
-        to import them.
+      <p className="text-sm text-muted-foreground">
+        {rt('app.traceability.noCalmRich', {
+          link: (c) => (
+            <Link href="/integrations?tab=connectors" className="text-primary hover:underline">
+              {c}
+            </Link>
+          ),
+        })}
       </p>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <label htmlFor="calm-conn" className="sr-only">Cloud ALM connector</label>
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <label htmlFor="calm-conn" className="sr-only">{t('app.traceability.connector')}</label>
       <select id="calm-conn" value={selected?.id} onChange={(e) => setConnectorId(e.target.value)} className="rounded border border-border bg-background px-2 py-1">
         {calm.map((c) => (
           <option key={c.id} value={c.id}>{c.name}</option>
@@ -71,35 +96,49 @@ function CloudAlmImport({ projectId }: { projectId: string }) {
       </select>
       {link ? (
         <>
-          <span className="text-muted-foreground">mapped to Cloud ALM project <code className="font-mono">{link.externalProjectId}</code> ({link.syncDirection})</span>
+          <span className="text-muted-foreground">
+            {rt('app.traceability.mappedRich', {
+              project: link.externalProjectId,
+              direction: link.syncDirection,
+              code: (c) => <code className="font-mono">{c}</code>,
+            })}
+          </span>
           <Button onClick={() => run.mutate()} busy={run.isPending}>
-            <GitMerge className="size-3.5" aria-hidden="true" /> Import requirements
+            <GitMerge className="size-3.5" aria-hidden="true" /> {t('app.traceability.import')}
           </Button>
         </>
       ) : remoteProjects.isLoading ? (
-        <span className="text-muted-foreground">Loading Cloud ALM projects…</span>
+        <span className="text-muted-foreground">{t('app.traceability.loadingProjects')}</span>
       ) : remoteProjects.isError ? (
-        <span className="text-destructive">{errorMessage(remoteProjects.error)}</span>
+        <span className="text-destructive">{errText(remoteProjects.error, t('app.traceability.unexpected'))}</span>
       ) : (
         <>
-          <label htmlFor="calm-project" className="sr-only">Cloud ALM project</label>
+          <label htmlFor="calm-project" className="sr-only">{t('app.traceability.remoteProject')}</label>
           <select id="calm-project" value={remote} onChange={(e) => setRemote(e.target.value)} className="rounded border border-border bg-background px-2 py-1">
             {(remoteProjects.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
           <Button variant="secondary" onClick={() => mapProject.mutate()} busy={mapProject.isPending} disabled={!remoteProjects.data?.length}>
-            Map project
+            {t('app.traceability.mapProject')}
           </Button>
         </>
       )}
-      {run.isSuccess && <span role="status" className="text-muted-foreground">Imported {run.data.imported} requirement(s): {run.data.created} new, {run.data.updated} updated.</span>}
-      {(run.isError || mapProject.isError) && <span role="alert" className="text-destructive">{errorMessage(run.error ?? mapProject.error)}</span>}
+      {run.isSuccess && (
+        <span role="status" className="text-muted-foreground">
+          {t('app.traceability.imported', { imported: run.data.imported, created: run.data.created, updated: run.data.updated })}
+        </span>
+      )}
+      {(run.isError || mapProject.isError) && (
+        <span role="alert" className="text-destructive">{errText(run.error ?? mapProject.error, t('app.traceability.unexpected'))}</span>
+      )}
     </div>
   );
 }
 
 export default function TraceabilityMatrixPage() {
+  const t = useT();
+  const fmt = useFmt();
   const params = useParams();
   const projectId = params.id as string;
   const q = useQuery({ queryKey: ['projects', projectId, 'traceability'], queryFn: () => fetchTraceability(projectId) });
@@ -110,13 +149,10 @@ export default function TraceabilityMatrixPage() {
       <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
-            <Layers className="size-3.5" aria-hidden="true" /> Delivery traceability
+            <Layers className="size-3.5" aria-hidden="true" /> {t('app.traceability.badge')}
           </p>
-          <h1 className="text-2xl font-bold text-foreground">Traceability matrix</h1>
-          <p className="text-sm text-muted-foreground max-w-3xl">
-            Business process → requirement (SAP Cloud ALM) → preflight finding → remediation work item → test → transport → release. Built only from imported and
-            recorded data.
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">{t('app.traceability.title')}</h1>
+          <p className="text-sm text-muted-foreground max-w-3xl">{t('app.traceability.intro')}</p>
         </div>
         <Button
           variant="secondary"
@@ -125,29 +161,50 @@ export default function TraceabilityMatrixPage() {
             exportRawData((data?.nodes ?? []) as unknown as Record<string, unknown>[], 'csv', `traceability-matrix-${projectId}-${new Date().toISOString().slice(0, 10)}.csv`)
           }
         >
-          <Download className="size-3.5" aria-hidden="true" /> Export CSV
+          <Download className="size-3.5" aria-hidden="true" /> {t('app.traceability.exportCsv')}
         </Button>
       </header>
 
       <section className="rounded-xl border border-border bg-card p-4 space-y-2">
-        <h2 className="text-sm font-semibold">Requirements source</h2>
+        <h2 className="text-sm font-semibold">{t('app.traceability.sourceTitle')}</h2>
         <CloudAlmImport projectId={projectId} />
       </section>
 
       {q.isLoading ? (
-        <PanelLoading rows={4} label="Loading traceability matrix" />
+        <PanelLoading rows={4} label={t('app.traceability.loading')} />
       ) : q.isError ? (
-        <PanelError error={q.error} onRetry={() => q.refetch()} what="the traceability matrix" />
+        <LoadError error={q.error} onRetry={() => q.refetch()} />
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <Kpi label="Requirements" value={data!.summary.totalRequirements} hint={`${data!.summary.requirementsWithFindings} linked to findings`} icon={ListChecks} tone="border-border" />
-            <Kpi label="Criticals without task" value={data!.summary.criticalFindingsWithoutTasks} hint={`${data!.summary.criticalFindingsInLatestRun} BLOCKER/CRITICAL in the latest run`} icon={AlertTriangle} tone="border-rose-500/30" />
-            <Kpi label="Untested requirements" value={data!.summary.requirementsWithoutTests} hint="No regression test linked" icon={ShieldAlert} tone="border-amber-500/30" />
             <Kpi
-              label="Verified remediation"
-              value={data!.summary.remediationVerifiedPercent === null ? '—' : `${data!.summary.remediationVerifiedPercent}%`}
-              hint={`${data!.summary.workItemsPendingVerification} pending verification · ${data!.summary.workItemsInConflict} in conflict`}
+              label={t('app.traceability.kpi.requirements')}
+              value={fmt.number(data!.summary.totalRequirements)}
+              hint={t('app.traceability.kpi.requirementsHint', { count: data!.summary.requirementsWithFindings })}
+              icon={ListChecks}
+              tone="border-border"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.criticals')}
+              value={fmt.number(data!.summary.criticalFindingsWithoutTasks)}
+              hint={t('app.traceability.kpi.criticalsHint', { count: data!.summary.criticalFindingsInLatestRun })}
+              icon={AlertTriangle}
+              tone="border-rose-500/30"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.untested')}
+              value={fmt.number(data!.summary.requirementsWithoutTests)}
+              hint={t('app.traceability.kpi.untestedHint')}
+              icon={ShieldAlert}
+              tone="border-amber-500/30"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.verified')}
+              value={data!.summary.remediationVerifiedPercent === null ? '—' : fmt.percent(data!.summary.remediationVerifiedPercent / 100)}
+              hint={t('app.traceability.kpi.verifiedHint', {
+                pending: data!.summary.workItemsPendingVerification,
+                conflicts: data!.summary.workItemsInConflict,
+              })}
               icon={ShieldCheck}
               tone="border-emerald-500/30"
             />
@@ -156,22 +213,22 @@ export default function TraceabilityMatrixPage() {
           {!data!.nodes.length ? (
             <PanelEmpty
               icon={Layers}
-              title="No traceability data yet"
-              body="Import requirements from SAP Cloud ALM, or create work items from findings — each linked finding appears here."
+              title={t('app.traceability.emptyTitle')}
+              body={t('app.traceability.emptyBody')}
             />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-border bg-card">
-              <table className="w-full text-left text-xs">
-                <caption className="sr-only">Traceability matrix</caption>
-                <thead className="text-muted-foreground uppercase tracking-wider">
+              <table className="w-full min-w-[900px] text-left text-sm">
+                <caption className="sr-only">{t('app.traceability.caption')}</caption>
+                <thead className="text-xs text-muted-foreground uppercase tracking-wider">
                   <tr>
-                    <th className="p-3">Business process</th>
-                    <th className="p-3">Requirement</th>
-                    <th className="p-3">Finding</th>
-                    <th className="p-3">Work item</th>
-                    <th className="p-3">Test</th>
-                    <th className="p-3">Transport</th>
-                    <th className="p-3">Release</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.process')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.requirement')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.finding')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.workItem')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.test')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.transport')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.release')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -192,7 +249,7 @@ export default function TraceabilityMatrixPage() {
                               <p className="text-muted-foreground max-w-[16rem]">{n.findingTitle}</p>
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">No finding linked</span>
+                            <span className="text-muted-foreground">{t('app.traceability.noFinding')}</span>
                           )}
                         </td>
                         <td className="p-3">
@@ -201,7 +258,7 @@ export default function TraceabilityMatrixPage() {
                               {wi.externalUrl ? (
                                 <a href={wi.externalUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-primary hover:underline">
                                   {wi.externalKey ?? wi.externalId} <ExternalLink className="size-3" aria-hidden="true" />
-                                  <span className="sr-only">(opens in new tab)</span>
+                                  <span className="sr-only">{t('app.traceability.newTab')}</span>
                                 </a>
                               ) : (
                                 <span className="font-mono">{wi.externalKey ?? wi.externalId}</span>
@@ -211,12 +268,12 @@ export default function TraceabilityMatrixPage() {
                           ) : n.remediationTaskId ? (
                             <span className="font-mono">{n.remediationTaskId} ({n.taskStatus})</span>
                           ) : n.findingId ? (
-                            <Link href={`/projects/${projectId}/findings?id=${n.findingId}`} className="text-primary hover:underline">Create from finding</Link>
+                            <Link href={`/projects/${projectId}/findings?id=${n.findingId}`} className="text-primary hover:underline">{t('app.traceability.createFromFinding')}</Link>
                           ) : (
                             '—'
                           )}
                         </td>
-                        <td className="p-3">{n.testCaseId ? `${n.testTitle ?? n.testCaseId} (${n.testStatus})` : <span className="text-muted-foreground">No test</span>}</td>
+                        <td className="p-3">{n.testCaseId ? `${n.testTitle ?? n.testCaseId} (${n.testStatus})` : <span className="text-muted-foreground">{t('app.traceability.noTest')}</span>}</td>
                         <td className="p-3 font-mono">{n.transportId ?? '—'}</td>
                         <td className="p-3 font-mono">{n.releaseId}</td>
                       </tr>

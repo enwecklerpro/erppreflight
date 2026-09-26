@@ -31,6 +31,8 @@ import { kg } from './kg';
 import { notifications, inspector } from './notifications';
 import { status, demo, changelog, trust, procurement, feedback, onboarding } from './platform';
 import { objects } from './objects';
+import { changesets } from './changesets';
+import { traceability } from './traceability';
 
 export const appEn = {
   ui,
@@ -70,6 +72,8 @@ export const appEn = {
   feedback,
   onboarding,
   objects,
+  changesets,
+  traceability,
 };
 
 export type AppMessages = typeof appEn;

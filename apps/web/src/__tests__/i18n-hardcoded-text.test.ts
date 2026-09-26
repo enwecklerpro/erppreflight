@@ -96,6 +96,7 @@ function looksLikeCopy(text: string): boolean {
   const t = text.replace(/&[a-z]+;|&#\d+;/g, ' ').trim();
   if (!t || ALLOWED_TEXT.has(t)) return false;
   if (/^https?:\/\/\S+$/.test(t)) return false; // example URLs
+  if (/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(t)) return false; // contact addresses
   return /[A-Za-z]*[a-z][A-Za-z]*/.test(t) && /\b[A-Za-z]*[a-z][A-Za-z]{1,}\b/.test(t) && /[a-z]{2,}/.test(t);
 }
 
