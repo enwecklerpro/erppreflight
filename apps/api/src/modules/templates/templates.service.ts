@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CreateTemplateDto } from './dto/template.dto';
 import { v4 as uuidv4 } from 'uuid';
+import type { ApiLocale } from '../../common/i18n/request-locale';
+import { localizeTemplate } from './templates.i18n';
 
 export interface AnalysisTemplate {
   id: string;
@@ -144,7 +146,11 @@ export class TemplatesService {
 
   constructor(private readonly db: DatabaseService) {}
 
-  async listTemplates(organizationId: string): Promise<AnalysisTemplate[]> {
+  async listTemplates(organizationId: string, locale: ApiLocale = 'en'): Promise<AnalysisTemplate[]> {
+    return (await this.loadTemplates(organizationId)).map((t) => localizeTemplate(t, locale));
+  }
+
+  private async loadTemplates(organizationId: string): Promise<AnalysisTemplate[]> {
     try {
       const res = await this.db.query(
         `SELECT * FROM analysis_templates
@@ -153,7 +159,7 @@ export class TemplatesService {
         [organizationId]
       );
       if (res.rows && res.rows.length > 0) {
-        return res.rows.map((r: any) => ({
+        const stored: AnalysisTemplate[] = res.rows.map((r: any) => ({
           id: r.id,
           name: r.name,
           slug: r.slug,
@@ -167,6 +173,12 @@ export class TemplatesService {
           isSystemTemplate: r.is_system_template,
           createdAt: r.created_at,
         }));
+        // System templates are code constants (not seeded); keep them next to custom templates.
+        const missingSystem = SYSTEM_TEMPLATES.filter((s) => !stored.some((t) => t.id === s.id || t.slug === s.slug)).map((t) => ({
+          ...t,
+          createdAt: new Date().toISOString(),
+        }));
+        return [...missingSystem, ...stored];
       }
     } catch {
       // If table query fails, fallback to hardcoded SYSTEM_TEMPLATES
@@ -178,8 +190,8 @@ export class TemplatesService {
     }));
   }
 
-  async getTemplateById(id: string, organizationId: string): Promise<AnalysisTemplate> {
-    const templates = await this.listTemplates(organizationId);
+  async getTemplateById(id: string, organizationId: string, locale: ApiLocale = 'en'): Promise<AnalysisTemplate> {
+    const templates = await this.listTemplates(organizationId, locale);
     const found = templates.find((t) => t.id === id || t.slug === id);
     if (!found) {
       throw new NotFoundException(`Template '${id}' not found`);

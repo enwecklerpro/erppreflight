@@ -17,7 +17,7 @@ import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useT } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/translate';
 import { updateProjectContext } from '@/lib/api/analysis-orchestration';
-import { errorMessage } from '@/components/commercial/states';
+import { useCommercialErrorText } from '@/components/commercial/states';
 import type { ProjectRecord } from '@/lib/api-client';
 
 type ContextValues = {
@@ -65,6 +65,8 @@ const recentSaves = new Map<string, number>();
 const SAVED_NOTICE_MS = 8000;
 
 export function ProjectContextForm({ project }: { project: ProjectRecord }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const [saved, setSaved] = React.useState(() => Date.now() - (recentSaves.get(project.id) ?? 0) < SAVED_NOTICE_MS);

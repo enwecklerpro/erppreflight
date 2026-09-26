@@ -21,17 +21,7 @@ const EXCLUDED = [
   /^app\/\[locale\]\//, // public website (localized separately)
   /^app\/api\//, // route handlers
   /^app\/docs\//, // public docs (being moved under [locale])
-  /^app\/projects\/\[id\]\/findings\//,
-  /^app\/projects\/\[id\]\/lab\//,
-  /^app\/projects\/\[id\]\/page\.tsx$/, // analysis launcher / run history (shared file, see handover §6.1)
-  /^app\/analyze\//,
-  /^app\/reports\//,
-  /^app\/integrations\//,
-  /^components\/findings\//,
-  /^components\/integrations\//,
-  /^components\/analysis\//, // analysis launcher workstream (analyze.* dictionaries)
   /^components\/tools\//, // public free tools (public-tools.* dictionaries)
-  /^components\/evidence-inspector\.tsx$/,
   /^components\/public\//,
 ];
 
@@ -99,6 +89,9 @@ function looksLikeCopy(text: string): boolean {
   if (!t || ALLOWED_TEXT.has(t)) return false;
   if (/^https?:\/\/\S+$/.test(t)) return false; // example URLs
   if (/^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(t)) return false; // contact addresses
+  if (/^[a-z0-9]+([.-][a-z0-9]+)+$/.test(t)) return false; // example domains / slugs (acme.com, partner-consulting-1234)
+  if (/^\/[\w./{}:-]*$/.test(t)) return false; // URL paths (/api/v1/scim/v2)
+  if (/^(\.[a-z0-9]+)(,\s*\.[a-z0-9]+)*$/.test(t)) return false; // file extension lists (.xml, .json)
   return /[A-Za-z]*[a-z][A-Za-z]*/.test(t) && /\b[A-Za-z]*[a-z][A-Za-z]{1,}\b/.test(t) && /[a-z]{2,}/.test(t);
 }
 
@@ -113,6 +106,7 @@ export function findHardcodedText(file: string, source: string): string[] {
     const text = m[2];
     if (!text.trim()) continue;
     if (/[();=&|`]/.test(text) || /^\s*(else|return|as|from|typeof|extends|keyof)\b/.test(text)) continue;
+    if (/^\s*,/.test(text)) continue; // TypeScript generics (`Record<string, X>, next: Y`), never JSX copy
     if (!looksLikeCopy(text)) continue;
     hits.push(`${file}:${lineOf(m.index ?? 0)}  text  "${text.trim().slice(0, 80)}"`);
   }

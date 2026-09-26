@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import type { ApiLocale } from '../../common/i18n/request-locale';
+import { localizeReleaseNote } from './changelog.i18n';
 
 export interface ReleaseNote {
   id: string;
@@ -89,7 +91,11 @@ export class ChangelogService {
 
   constructor(private readonly db: DatabaseService) {}
 
-  async listChangelogs(category?: string): Promise<ReleaseNote[]> {
+  async listChangelogs(category?: string, locale: ApiLocale = 'en'): Promise<ReleaseNote[]> {
+    return (await this.loadChangelogs(category)).map((n) => localizeReleaseNote(n, locale));
+  }
+
+  private async loadChangelogs(category?: string): Promise<ReleaseNote[]> {
     try {
       let query = `SELECT * FROM release_notes`;
       const params: any[] = [];

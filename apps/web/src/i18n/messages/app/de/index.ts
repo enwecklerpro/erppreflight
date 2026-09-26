@@ -36,6 +36,12 @@ import { magicLink } from './magicLink';
 import { analysisRun } from './analysisRun';
 import { tenantAccess } from './tenantAccess';
 import { governance } from './governance';
+import { integrations } from './integrations';
+import { findings } from './findings';
+import { notificationText } from './notificationText';
+import { apiErrorCodes } from './apiErrorCodes';
+import { lab } from './lab';
+import { workspace } from './workspace';
 
 export const appDe: AppMessages = {
   ui,
@@ -81,4 +87,10 @@ export const appDe: AppMessages = {
   analysisRun,
   tenantAccess,
   governance,
+  integrations,
+  findings,
+  workspace,
+  lab,
+  apiErrorCodes,
+  notificationText,
 };

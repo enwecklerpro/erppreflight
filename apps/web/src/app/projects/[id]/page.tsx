@@ -56,6 +56,8 @@ import { FullPreflightPanel } from '@/components/analysis/full-preflight-panel';
 import { ProjectTabLabel, RunFullPreflightLabel, RunProgressDisclosure } from '@/components/analysis/project-workspace-extras';
 import { ProjectContextForm } from '@/components/projects/project-context-form';
 import { LaunchedRunLink, RunHistoryRowExtras } from '@/components/analysis-run/run-links';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
+import { useErrorText, useFmt, useLabel, useT } from '@/i18n/client';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
@@ -63,6 +65,11 @@ export default function ProjectWorkspacePage() {
   const params = useParams();
   const projectId = (params?.id as string) || '';
   const queryClient = useQueryClient();
+  const t = useT();
+  const fmt = useFmt();
+  const statusLabel = useLabel();
+  const domainLabel = useEngineDomainLabel();
+  const errText = useErrorText();
 
   const [activeTab, setActiveTab] = useState<
     'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher' | 'preflight' | 'context'
@@ -96,9 +103,7 @@ export default function ProjectWorkspacePage() {
         fileName: `erppreflight-support-bundle-${project?.slug || projectId}-${new Date().toISOString().slice(0, 10)}.json`,
       });
     } catch (err) {
-      setDownloadError(
-        `Support bundle export failed: ${(err as Error)?.message || 'Server error'}`
-      );
+      setDownloadError(t('app.workspace.errors.supportBundleFailed', { error: errText(err, t('app.workspace.errors.serverError')) }));
     } finally {
       setExportingBundle(false);
     }
@@ -114,7 +119,7 @@ export default function ProjectWorkspacePage() {
     try {
       await action();
     } catch (err) {
-      setDownloadError(`${label} download failed: ${(err as Error)?.message || 'Server error'}`);
+      setDownloadError(t('app.workspace.errors.downloadFailed', { label, error: errText(err, t('app.workspace.errors.serverError')) }));
     } finally {
       setDownloadingKey(null);
     }
@@ -216,13 +221,17 @@ export default function ProjectWorkspacePage() {
     onSuccess: (data) => {
       setActiveAnalysisId(data.analysisId);
       setLaunchMessage(
-        `Analysis ${data.analysisId.slice(0, 8)} queued (${data.engineTypes?.length ?? selectedEngines.length} engine(s), ${selectedFileIds.length} file(s)). Status updates automatically.`
+        t('app.workspace.launcher.queued', {
+          id: data.analysisId.slice(0, 8),
+          engines: data.engineTypes?.length ?? selectedEngines.length,
+          files: selectedFileIds.length,
+        })
       );
       queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
     },
     onError: (err: Error) => {
       setActiveAnalysisId(null);
-      setLaunchMessage(`Launch failed: ${err?.message || 'Server error'}`);
+      setLaunchMessage(t('app.workspace.launcher.launchFailed', { error: errText(err, t('app.workspace.errors.serverError')) }));
     },
   });
 
@@ -271,14 +280,15 @@ export default function ProjectWorkspacePage() {
       const status = data?.quarantineStatus ?? data?.quarantine_status ?? data?.status;
       setUploadError(null);
       setUploadSuccess(
-        `Artifact "${file.name}" uploaded.${status ? ` Quarantine status: ${status}.` : ' Awaiting scan result.'}`
+        t('app.workspace.artifacts.uploaded', { name: file.name }) +
+          (status ? t('app.workspace.artifacts.quarantineStatus', { status }) : t('app.workspace.artifacts.awaitingScan'))
       );
       queryClient.invalidateQueries({ queryKey: ['projectArtifacts', projectId] });
       if (fileInputRef.current) fileInputRef.current.value = '';
     },
     onError: (err: any) => {
       setUploadSuccess(null);
-      setUploadError(err?.message || 'Failed to upload artifact. Ensure file format is valid.');
+      setUploadError(errText(err, t('app.workspace.artifacts.uploadErrorFallback')));
       if (fileInputRef.current) fileInputRef.current.value = '';
     },
   });
@@ -293,14 +303,12 @@ export default function ProjectWorkspacePage() {
     );
 
     if (!hasValidExt) {
-      setUploadError(
-        `Invalid file format: "${file.name}". Only .xml, .json, .csv, .zip, and .abap files are supported.`
-      );
+      setUploadError(t('app.workspace.artifacts.invalidFormat', { name: file.name }));
       return;
     }
 
     if (file.size > 100 * 1024 * 1024) {
-      setUploadError('File size exceeds the 100 MB limit.');
+      setUploadError(t('app.workspace.artifacts.tooLarge'));
       return;
     }
 
@@ -316,7 +324,7 @@ export default function ProjectWorkspacePage() {
   const handleLaunch = () => {
     setLaunchMessage(null);
     if (selectedFileIds.length === 0) {
-      setLaunchMessage('Select at least one CLEAN uploaded file to analyse.');
+      setLaunchMessage(t('app.workspace.launcher.selectFileFirst'));
       return;
     }
     launchMutation.mutate();
@@ -326,7 +334,7 @@ export default function ProjectWorkspacePage() {
     return (
       <div className="p-16 text-center text-xs text-muted-foreground animate-pulse">
         <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
-        Loading workspace metadata...
+        {t('app.workspace.loading')}
       </div>
     );
   }
@@ -335,15 +343,13 @@ export default function ProjectWorkspacePage() {
     return (
       <div className="p-12 text-center bg-card border border-border rounded-xl">
         <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
-        <h2 className="text-base font-bold text-foreground">Project Workspace Not Found</h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          The requested workspace does not exist or you lack permission to view it.
-        </p>
+        <h2 className="text-base font-bold text-foreground">{t('app.workspace.notFoundTitle')}</h2>
+        <p className="text-xs text-muted-foreground mt-1">{t('app.workspace.notFoundBody')}</p>
         <Link
           href="/projects"
           className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors"
         >
-          Return to Workspaces
+          {t('app.workspace.backToWorkspaces')}
         </Link>
       </div>
     );
@@ -367,7 +373,7 @@ export default function ProjectWorkspacePage() {
               </h1>
             </div>
             <p className="text-xs text-muted-foreground mt-1 font-mono">
-              Workspace ID: {project.id} • Target Release: {project.targetRelease || 'Not set'}
+              {t('app.workspace.meta', { id: project.id, release: project.targetRelease || t('app.workspace.notSet') })}
             </p>
           </div>
 
@@ -377,35 +383,35 @@ export default function ProjectWorkspacePage() {
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
             >
               <GitCompare className="h-3.5 w-3.5 text-cyan-500" />
-              What-If Simulation
+              {t('app.workspace.actions.simulation')}
             </Link>
             <Link
               href={`/projects/${project.id}/traceability`}
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
             >
               <Layers className="h-3.5 w-3.5 text-emerald-500" />
-              Traceability Matrix
+              {t('app.workspace.actions.traceability')}
             </Link>
             <Link
               href={`/projects/${project.id}/lab`}
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors"
             >
               <FlaskConical className="h-3.5 w-3.5 text-purple-500" />
-              Scenario Test Lab
+              {t('app.workspace.actions.lab')}
             </Link>
             <button
               type="button"
               onClick={handleExportDiagnosticBundle}
               disabled={exportingBundle}
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-card border border-border hover:bg-muted text-foreground text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
-              title="Generate sanitized enterprise support bundle (Part 18.18)"
+              title={t('app.workspace.actions.supportBundleHint')}
             >
               {exportingBundle ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
               ) : (
                 <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
               )}
-              Support Bundle
+              {t('app.workspace.actions.supportBundle')}
             </button>
             <button
               type="button"
@@ -421,7 +427,7 @@ export default function ProjectWorkspacePage() {
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
             >
               <Play className="h-3.5 w-3.5" />
-              Launch Analysis
+              {t('app.workspace.actions.launch')}
             </button>
           </div>
         </div>
@@ -429,14 +435,14 @@ export default function ProjectWorkspacePage() {
         {/* Tab Navigation */}
         <div className="flex border-b border-border mt-6 space-x-4 sm:space-x-6 text-xs font-medium overflow-x-auto">
           {[
-            { id: 'overview', label: 'Overview', icon: Layers },
-            { id: 'findings', label: 'Findings', icon: ShieldAlert },
-            { id: 'objects', label: 'Objects', icon: Boxes },
-            { id: 'sap-native', label: 'SAP Artifact Center', icon: FileCheck2 },
-            { id: 'simulation', label: 'What-If Simulation', icon: GitBranch },
-            { id: 'artifacts', label: 'Artifact Dropzone', icon: UploadCloud },
-            { id: 'history', label: 'Run History', icon: History },
-            { id: 'launcher', label: 'Analysis Launcher', icon: Play },
+            { id: 'overview', label: t('app.workspace.tabs.overview'), icon: Layers },
+            { id: 'findings', label: t('app.workspace.tabs.findings'), icon: ShieldAlert },
+            { id: 'objects', label: t('app.workspace.tabs.objects'), icon: Boxes },
+            { id: 'sap-native', label: t('app.workspace.tabs.sapNative'), icon: FileCheck2 },
+            { id: 'simulation', label: t('app.workspace.tabs.simulation'), icon: GitBranch },
+            { id: 'artifacts', label: t('app.workspace.tabs.artifacts'), icon: UploadCloud },
+            { id: 'history', label: t('app.workspace.tabs.history'), icon: History },
+            { id: 'launcher', label: t('app.workspace.tabs.launcher'), icon: Play },
             { id: 'preflight', label: <ProjectTabLabel tab="preflight" />, icon: FlaskConical },
             { id: 'context', label: <ProjectTabLabel tab="context" />, icon: GitBranch },
           ].map((tab) => {
@@ -473,7 +479,7 @@ export default function ProjectWorkspacePage() {
             onClick={() => setDownloadError(null)}
             className="font-semibold underline"
           >
-            Dismiss
+            {t('app.workspace.errors.dismiss')}
           </button>
         </div>
       )}
@@ -485,11 +491,11 @@ export default function ProjectWorkspacePage() {
             {/* Clean Core Health Card */}
             <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
               <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Clean Core Health Score
+                {t('app.workspace.overview.healthScore')}
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="text-3xl font-bold text-foreground">
-                  {isStatsLoading ? '…' : cleanCoreScore === null ? '—' : `${cleanCoreScore.toFixed(1)}%`}
+                  {isStatsLoading ? '…' : cleanCoreScore === null ? '—' : fmt.percent(cleanCoreScore / 100, 1)}
                 </span>
                 {cleanCoreScore !== null && (
                   <span
@@ -499,12 +505,12 @@ export default function ProjectWorkspacePage() {
                         : 'text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                     }`}
                   >
-                    {cleanCoreScore >= 85 ? 'Target Met (>85%)' : 'Needs Remediation'}
+                    {cleanCoreScore >= 85 ? t('app.workspace.overview.targetMet') : t('app.workspace.overview.needsRemediation')}
                   </span>
                 )}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Tier 1 / Tier 2 cloud extensibility compliance across workspace repository.
+                {t('app.workspace.overview.healthHint')}
               </p>
             </div>
 
@@ -515,7 +521,7 @@ export default function ProjectWorkspacePage() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Preflight Findings
+                  {t('app.workspace.overview.findings')}
                 </h3>
                 <ArrowRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
@@ -524,11 +530,11 @@ export default function ProjectWorkspacePage() {
                   {totalFindings}
                 </span>
                 <span className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 px-2 py-0.5 rounded flex items-center gap-1 border border-amber-200 dark:border-amber-800">
-                  {blockersCount} Blocker{blockersCount !== 1 ? 's' : ''} • {criticalsCount} Critical
+                  {t('app.workspace.overview.findingsBadge', { blockers: blockersCount, critical: criticalsCount })}
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                View cryptographic SHA-256 evidence ledger & Clean Core remediation &rarr;
+                {t('app.workspace.overview.findingsHint')}
               </p>
             </Link>
 
@@ -539,22 +545,22 @@ export default function ProjectWorkspacePage() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Object Inventory
+                  {t('app.workspace.overview.objects')}
                 </h3>
                 <ArrowRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-base font-semibold text-foreground">Open catalog</span>
+                <span className="text-base font-semibold text-foreground">{t('app.workspace.overview.openCatalog')}</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Browse virtualized catalog & Clean Core tier classifications &rarr;
+                {t('app.workspace.overview.objectsHint')}
               </p>
             </Link>
 
             {/* Staged Artifacts Card */}
             <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
               <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Staged Artifacts
+                {t('app.workspace.overview.staged')}
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="text-3xl font-bold text-foreground">
@@ -562,14 +568,14 @@ export default function ProjectWorkspacePage() {
                 </span>
                 {!isArtifactsLoading && !isArtifactsError && (
                   <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
-                    {cleanFiles.length} CLEAN
+                    {t('app.workspace.overview.cleanCount', { count: cleanFiles.length })}
                   </span>
                 )}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 {isArtifactsError
-                  ? 'File list unavailable — open the Artifact Dropzone to retry.'
-                  : 'Uploaded files; only CLEAN files can be analysed.'}
+                  ? t('app.workspace.overview.stagedUnavailable')
+                  : t('app.workspace.overview.stagedHint')}
               </p>
             </div>
           </div>
@@ -581,10 +587,10 @@ export default function ProjectWorkspacePage() {
                 <BookmarkCheck className="h-5 w-5 text-primary" />
                 <div>
                   <h3 className="text-sm font-bold text-foreground">
-                    Digital Project Baseline & Configuration Drift
+                    {t('app.workspace.baseline.title')}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Categorizes findings against the official signed baseline into accepted risks, new regressions, and resolved findings.
+                    {t('app.workspace.baseline.intro')}
                   </p>
                 </div>
               </div>
@@ -593,25 +599,25 @@ export default function ProjectWorkspacePage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
                     <CheckCircle2 className="size-3.5" />
-                    <span>Active Baseline: <span className="font-mono">{drift.baseline?.id?.slice(0, 8)}...</span></span>
+                    <span>{t('app.workspace.baseline.active')} <span className="font-mono">{drift.baseline?.id?.slice(0, 8)}...</span></span>
                   </span>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground border border-border shrink-0">
                     <Clock className="size-3.5" />
-                    <span>Baseline Date: {drift.baseline?.createdAt ? new Date(drift.baseline.createdAt).toLocaleDateString() : 'N/A'}</span>
+                    <span>{t('app.workspace.baseline.date', { date: fmt.date(drift.baseline?.createdAt) })}</span>
                   </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
                     <AlertCircle className="size-3.5" />
-                    No Baseline Set
+                    {t('app.workspace.baseline.none')}
                   </span>
                   <button
                     type="button"
                     onClick={() => setActiveTab('history')}
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                   >
-                    Select in Run History &rarr;
+                    {t('app.workspace.baseline.selectInHistory')}
                   </button>
                 </div>
               )}
@@ -621,43 +627,43 @@ export default function ProjectWorkspacePage() {
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-1 text-xs">
                 <div className="p-3.5 rounded-lg border border-border bg-muted/20">
                   <span className="text-muted-foreground font-semibold block text-[11px] uppercase tracking-wider">
-                    Known Baseline Risks
+                    {t('app.workspace.baseline.known')}
                   </span>
                   <span className="text-xl font-bold font-mono text-foreground mt-1 block">
                     {drift.driftSummary.knownBaselineRisks}
                   </span>
                   <span className="text-[11px] text-muted-foreground mt-0.5 block">
-                    Pre-existing accepted issues
+                    {t('app.workspace.baseline.knownHint')}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-lg border border-rose-200 dark:border-rose-900 bg-rose-50/40 dark:bg-rose-950/20">
                   <span className="text-rose-700 dark:text-rose-300 font-bold block text-[11px] uppercase tracking-wider">
-                    Newly Introduced Risks
+                    {t('app.workspace.baseline.introduced')}
                   </span>
                   <span className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400 mt-1 block">
                     +{drift.driftSummary.newlyIntroducedRisks}
                   </span>
                   <span className="text-[11px] text-rose-700/80 dark:text-rose-300/80 mt-0.5 block">
-                    Regression drift since baseline
+                    {t('app.workspace.baseline.introducedHint')}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20">
                   <span className="text-emerald-700 dark:text-emerald-300 font-bold block text-[11px] uppercase tracking-wider">
-                    Resolved Findings
+                    {t('app.workspace.baseline.resolved')}
                   </span>
                   <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 block">
                     {drift.driftSummary.resolvedRisks}
                   </span>
                   <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 mt-0.5 block">
-                    Successfully mitigated issues
+                    {t('app.workspace.baseline.resolvedHint')}
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-lg border border-border bg-muted/20">
                   <span className="text-muted-foreground font-semibold block text-[11px] uppercase tracking-wider">
-                    Score Delta
+                    {t('app.workspace.baseline.scoreDelta')}
                   </span>
                   <span className={`text-xl font-bold font-mono mt-1 block ${
                     drift.driftSummary.scoreDelta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
@@ -665,7 +671,7 @@ export default function ProjectWorkspacePage() {
                     {drift.driftSummary.scoreDelta >= 0 ? `+${drift.driftSummary.scoreDelta}%` : `${drift.driftSummary.scoreDelta}%`}
                   </span>
                   <span className="text-[11px] text-muted-foreground mt-0.5 block">
-                    Clean Core index progression
+                    {t('app.workspace.baseline.scoreDeltaHint')}
                   </span>
                 </div>
               </div>
@@ -685,10 +691,10 @@ export default function ProjectWorkspacePage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-foreground">
-                    Preflight Findings Ledger & Cryptographic Evidence
+                    {t('app.workspace.findingsTab.title')}
                   </h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Explore all detected violations, Clean Core deviations, and cryptographic proofs for {project.name}.
+                    {t('app.workspace.findingsTab.intro', { project: project.name })}
                   </p>
                 </div>
               </div>
@@ -697,37 +703,37 @@ export default function ProjectWorkspacePage() {
                 href={`/projects/${projectId}/findings`}
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors shadow-sm shrink-0"
               >
-                <span>Open Full Findings Ledger</span>
+                <span>{t('app.workspace.findingsTab.open')}</span>
                 <ExternalLink className="size-3.5" />
               </Link>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
               <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Blockers Detected</span>
+                <span className="text-xs font-semibold text-muted-foreground block">{t('app.workspace.findingsTab.blockers')}</span>
                 <span className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1 block">
                   {blockersCount}
                 </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Must be resolved before target release deployment
+                  {t('app.workspace.findingsTab.blockersHint')}
                 </span>
               </div>
               <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Critical Defects</span>
+                <span className="text-xs font-semibold text-muted-foreground block">{t('app.workspace.findingsTab.critical')}</span>
                 <span className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1 block">
                   {criticalsCount}
                 </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  High-risk Clean Core and architectural deviations
+                  {t('app.workspace.findingsTab.criticalHint')}
                 </span>
               </div>
               <div className="p-4 rounded-xl border border-border bg-muted/20">
-                <span className="text-xs font-semibold text-muted-foreground block">Total Findings</span>
+                <span className="text-xs font-semibold text-muted-foreground block">{t('app.workspace.findingsTab.total')}</span>
                 <span className="text-2xl font-bold text-foreground mt-1 block">
                   {totalFindings}
                 </span>
                 <span className="text-[11px] text-muted-foreground mt-1 block">
-                  Cryptographically hashed and evidence-linked findings
+                  {t('app.workspace.findingsTab.totalHint')}
                 </span>
               </div>
             </div>
@@ -740,16 +746,14 @@ export default function ProjectWorkspacePage() {
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-foreground">Object Inventory Explorer</h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Deep-dive into custom Z/Y-programs, decision tables, CDS views, and forms.
-              </p>
+              <h2 className="text-lg font-bold text-foreground">{t('app.workspace.objectsTab.title')}</h2>
+              <p className="text-xs text-muted-foreground mt-1">{t('app.workspace.objectsTab.intro')}</p>
             </div>
             <Link
               href={`/projects/${projectId}/objects`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors"
             >
-              Open Object Catalog
+              {t('app.workspace.objectsTab.open')}
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -775,10 +779,10 @@ export default function ProjectWorkspacePage() {
               <div>
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                   <UploadCloud className="h-5 w-5 text-primary" />
-                  Staged SAP Artifacts & Verification Pipeline
+                  {t('app.workspace.artifacts.title')}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Uploaded files are scanned and quarantined server-side; only files with status CLEAN can be analysed.
+                  {t('app.workspace.artifacts.intro')}
                 </p>
               </div>
             </div>
@@ -787,7 +791,7 @@ export default function ProjectWorkspacePage() {
           {/* Interactive Drop Area */}
           <div
             role="region"
-            aria-label="Artifact upload dropzone"
+            aria-label={t('app.workspace.artifacts.dropzone')}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragging(true);
@@ -821,7 +825,7 @@ export default function ProjectWorkspacePage() {
                   handleFileSelection(files[0]);
                 }
               }}
-              aria-label="Upload SAP artifact file"
+              aria-label={t('app.workspace.artifacts.fileInput')}
             />
 
             <div className="max-w-md mx-auto space-y-3">
@@ -836,11 +840,12 @@ export default function ProjectWorkspacePage() {
               <div>
                 <h4 className="text-sm font-semibold text-foreground">
                   {uploadMutation.isPending
-                    ? 'Uploading and scanning artifact...'
-                    : 'Drag & drop SAP artifacts here'}
+                    ? t('app.workspace.artifacts.uploading')
+                    : t('app.workspace.artifacts.dropHere')}
                 </h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Supported formats: <span className="font-mono font-medium">.xml, .json, .csv, .zip, .abap</span> (up to 100 MB)
+                  {t('app.workspace.artifacts.formats')} <span className="font-mono font-medium">.xml, .json, .csv, .zip, .abap</span>{' '}
+                  {t('app.workspace.artifacts.maxSize')}
                 </p>
               </div>
 
@@ -852,7 +857,7 @@ export default function ProjectWorkspacePage() {
                   className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-colors disabled:opacity-50"
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  {uploadMutation.isPending ? 'Processing...' : 'Browse files'}
+                  {uploadMutation.isPending ? t('app.workspace.artifacts.processing') : t('app.workspace.artifacts.browse')}
                 </button>
               </div>
 
@@ -863,7 +868,7 @@ export default function ProjectWorkspacePage() {
                 >
                   <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-semibold">Upload failed</p>
+                    <p className="font-semibold">{t('app.workspace.artifacts.uploadFailed')}</p>
                     <p className="mt-0.5">{uploadError}</p>
                   </div>
                 </div>
@@ -876,7 +881,7 @@ export default function ProjectWorkspacePage() {
                 >
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-semibold">Upload verified</p>
+                    <p className="font-semibold">{t('app.workspace.artifacts.uploadVerified')}</p>
                     <p className="mt-0.5">{uploadSuccess}</p>
                   </div>
                 </div>
@@ -889,59 +894,59 @@ export default function ProjectWorkspacePage() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-sm font-bold text-foreground">
-                  Workspace Artifacts Ledger ({artifacts.length})
+                  {t('app.workspace.artifacts.ledger', { count: artifacts.length })}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Verified customer files available for preflight analysis runs
+                  {t('app.workspace.artifacts.ledgerHint')}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => refetchArtifacts()}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted/50 transition-colors"
-                title="Refresh artifacts list"
+                title={t('app.workspace.artifacts.refreshHint')}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Refresh
+                {t('app.workspace.artifacts.refresh')}
               </button>
             </div>
 
             {isArtifactsLoading ? (
               <div className="p-8 text-center text-xs text-muted-foreground animate-pulse flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Loading staged artifacts...
+                {t('app.workspace.artifacts.loading')}
               </div>
             ) : isArtifactsError ? (
               <div role="alert" className="p-8 text-center text-xs border border-destructive/30 rounded-lg">
                 <AlertCircle className="h-5 w-5 text-destructive mx-auto mb-2" aria-hidden="true" />
-                <p className="font-semibold text-foreground">Could not load project files</p>
+                <p className="font-semibold text-foreground">{t('app.workspace.artifacts.loadFailed')}</p>
                 <p className="text-muted-foreground mt-1">
-                  {(artifactsError as Error)?.message || 'Network error'}
+                  {errText(artifactsError, t('app.workspace.errors.networkError'))}
                 </p>
                 <button
                   type="button"
                   onClick={() => refetchArtifacts()}
                   className="mt-3 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-lg"
                 >
-                  Retry
+                  {t('app.workspace.artifacts.retry')}
                 </button>
               </div>
             ) : artifacts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-xs border border-dashed border-border rounded-lg">
-                No artifacts staged yet. Use the dropzone above to upload SAP XML configurations, transports, or ABAP extracts.
+                {t('app.workspace.artifacts.empty')}
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-border text-muted-foreground font-medium">
-                      <th className="py-2.5 px-3">File Name</th>
-                      <th className="py-2.5 px-3">Size</th>
-                      <th className="py-2.5 px-3">Format</th>
-                      <th className="py-2.5 px-3">SHA-256 Checksum</th>
-                      <th className="py-2.5 px-3">Uploaded At</th>
-                      <th className="py-2.5 px-3">Quarantine Status</th>
-                      <th className="py-2.5 px-3 text-right">Actions</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colName')}</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colSize')}</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colFormat')}</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colChecksum')}</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colUploaded')}</th>
+                      <th className="py-2.5 px-3">{t('app.workspace.artifacts.colStatus')}</th>
+                      <th className="py-2.5 px-3 text-right">{t('app.workspace.artifacts.colActions')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -957,11 +962,11 @@ export default function ProjectWorkspacePage() {
                             </span>
                           </td>
                           <td className="py-3 px-3 text-muted-foreground font-mono">
-                            {artifact.sizeBytes !== null ? `${(artifact.sizeBytes / 1024).toFixed(1)} KB` : '—'}
+                            {artifact.sizeBytes !== null ? t('app.workspace.artifacts.sizeKb', { size: fmt.number(artifact.sizeBytes / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }) : '—'}
                           </td>
                           <td className="py-3 px-3">
                             <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">
-                              {artifact.detectedFormat || 'UNKNOWN'}
+                              {artifact.detectedFormat || t('app.workspace.artifacts.unknownFormat')}
                             </span>
                           </td>
                           <td className="py-3 px-3 font-mono text-muted-foreground text-[11px]">
@@ -974,48 +979,48 @@ export default function ProjectWorkspacePage() {
                             )}
                           </td>
                           <td className="py-3 px-3 text-muted-foreground whitespace-nowrap">
-                            {artifact.createdAt ? new Date(artifact.createdAt).toLocaleString() : '—'}
+                            {fmt.dateTime(artifact.createdAt)}
                           </td>
                           <td className="py-3 px-3">
                             {status === 'CLEAN' ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                                aria-label="Status: CLEAN"
+                                aria-label={t('app.workspace.artifacts.statusAria', { status: t('app.workspace.artifacts.status.CLEAN') })}
                               >
-                                <CheckCircle2 className="h-3 w-3" />
-                                CLEAN
+                                <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                                {t('app.workspace.artifacts.status.CLEAN')}
                               </span>
                             ) : status === 'QUARANTINED' ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
-                                aria-label="Status: QUARANTINED"
+                                aria-label={t('app.workspace.artifacts.statusAria', { status: t('app.workspace.artifacts.status.QUARANTINED') })}
                               >
-                                <ShieldAlert className="h-3 w-3" />
-                                QUARANTINED
+                                <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                                {t('app.workspace.artifacts.status.QUARANTINED')}
                               </span>
                             ) : status === 'REJECTED' ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
-                                aria-label="Status: REJECTED"
+                                aria-label={t('app.workspace.artifacts.statusAria', { status: t('app.workspace.artifacts.status.REJECTED') })}
                               >
-                                <XCircle className="h-3 w-3" />
-                                REJECTED
+                                <XCircle className="h-3 w-3" aria-hidden="true" />
+                                {t('app.workspace.artifacts.status.REJECTED')}
                               </span>
                             ) : status === 'SCANNING' ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                                aria-label="Status: SCANNING"
+                                aria-label={t('app.workspace.artifacts.statusAria', { status: t('app.workspace.artifacts.status.SCANNING') })}
                               >
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                SCANNING
+                                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                                {t('app.workspace.artifacts.status.SCANNING')}
                               </span>
                             ) : (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
-                                aria-label="Status: PENDING SCAN"
+                                aria-label={t('app.workspace.artifacts.statusAria', { status: t('app.workspace.artifacts.status.PENDING') })}
                               >
-                                <Clock className="h-3 w-3" />
-                                PENDING SCAN
+                                <Clock className="h-3 w-3" aria-hidden="true" />
+                                {t('app.workspace.artifacts.status.PENDING')}
                               </span>
                             )}
                           </td>
@@ -1032,11 +1037,11 @@ export default function ProjectWorkspacePage() {
                                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
                               >
                                 <Play className="h-3 w-3" />
-                                Run Preflight
+                                {t('app.workspace.artifacts.runPreflight')}
                               </button>
                             ) : (
                               <span className="text-[11px] text-muted-foreground italic">
-                                Unavailable
+                                {t('app.workspace.artifacts.unavailable')}
                               </span>
                             )}
                           </td>
@@ -1055,15 +1060,15 @@ export default function ProjectWorkspacePage() {
       {activeTab === 'history' && (
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
           <h3 className="text-sm font-bold text-foreground mb-4">
-            Analysis Execution Ledger
+            {t('app.workspace.history.title')}
           </h3>
           {isAnalysesLoading ? (
             <div className="p-8 text-center text-xs text-muted-foreground animate-pulse">
-              Loading run history...
+              {t('app.workspace.history.loading')}
             </div>
           ) : analyses.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground text-xs">
-              No analysis runs recorded yet for this workspace. Use the Analysis Launcher to trigger a run.
+              {t('app.workspace.history.empty')}
             </div>
           ) : (
             <div className="divide-y divide-border text-xs">
@@ -1074,24 +1079,28 @@ export default function ProjectWorkspacePage() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold font-mono text-foreground">{run.id.slice(0, 8)}...</span>
                       <span className="text-muted-foreground">
-                        • {new Date(run.createdAt).toLocaleString()}
+                        • {fmt.dateTime(run.createdAt)}
                       </span>
                       <RunHistoryRowExtras projectId={projectId} run={run} />
                       {(drift?.baseline?.id === run.id || (run as any).isBaseline) && (
                         <span
                           className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 inline-flex items-center gap-1"
-                          aria-label="Active Project Baseline"
+                          aria-label={t('app.workspace.history.activeBaseline')}
                         >
                           <ShieldCheck className="size-3 text-emerald-600 dark:text-emerald-400" />
-                          ACTIVE BASELINE
+                          {t('app.workspace.history.activeBaselineBadge')}
                         </span>
                       )}
                     </div>
                     <p className="text-muted-foreground mt-0.5">
-                      Evaluated {run.engineTypes?.length || 0} engine(s) • {run.findingsCount} finding(s) detected • Release: {run.targetRelease}
+                      {t('app.workspace.history.summary', {
+                        engines: run.engineTypes?.length || 0,
+                        findings: run.findingsCount ?? 0,
+                        release: run.targetRelease ?? '—',
+                      })}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <span
                       className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
                         run.status === 'COMPLETED'
@@ -1105,7 +1114,7 @@ export default function ProjectWorkspacePage() {
                           : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
                       }`}
                     >
-                      {run.status}
+                      {statusLabel('app.workspace.history.status', run.status)}
                     </span>
                     {(run.status === 'COMPLETED' || run.status === 'PARTIAL') && !String(run.kind ?? '').startsWith('LAB_') && (
                       <>
@@ -1116,10 +1125,10 @@ export default function ProjectWorkspacePage() {
                           aria-controls={`export-panel-${run.id}`}
                           data-testid={`open-exports-${run.id}`}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded border border-primary/40 bg-card hover:bg-muted text-foreground transition-colors"
-                          title="Export reports (PDF, XLSX, CSV, JSON, HTML, ZIP)"
+                          title={t('app.workspace.history.reportsHint')}
                         >
                           <Download className="size-3 text-primary" aria-hidden="true" />
-                          <span>Reports</span>
+                          <span>{t('app.workspace.history.reports')}</span>
                         </button>
                         <button
                           type="button"
@@ -1127,19 +1136,19 @@ export default function ProjectWorkspacePage() {
                             handleRunDownload(
                               `bundle-${run.id}`,
                               () => downloadReproducibilityBundle(run.id),
-                              'Reproducibility bundle'
+                              t('app.workspace.history.bundleLabel')
                             )
                           }
                           disabled={downloadingKey !== null}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                          title="Download reproducibility bundle (.zip)"
+                          title={t('app.workspace.history.bundleHint')}
                         >
                           {downloadingKey === `bundle-${run.id}` ? (
                             <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
                           ) : (
                             <Download className="size-3 text-primary" aria-hidden="true" />
                           )}
-                          <span>Bundle (.zip)</span>
+                          <span>{t('app.workspace.history.bundle')}</span>
                         </button>
                         <button
                           type="button"
@@ -1147,19 +1156,19 @@ export default function ProjectWorkspacePage() {
                             handleRunDownload(
                               `html-${run.id}`,
                               () => downloadOfflineHtmlReport(projectId, run.id),
-                              'Offline HTML report'
+                              t('app.workspace.history.htmlLabel')
                             )
                           }
                           disabled={downloadingKey !== null}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                          title="Download offline HTML report"
+                          title={t('app.workspace.history.htmlHint')}
                         >
                           {downloadingKey === `html-${run.id}` ? (
                             <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
                           ) : (
                             <FileText className="size-3 text-primary" aria-hidden="true" />
                           )}
-                          <span>HTML Report</span>
+                          <span>{t('app.workspace.history.html')}</span>
                         </button>
                         {drift?.baseline?.id !== run.id && !(run as any).isBaseline && (
                           <button
@@ -1167,10 +1176,10 @@ export default function ProjectWorkspacePage() {
                             onClick={() => baselineMutation.mutate(run.id)}
                             disabled={baselineMutation.isPending}
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded border border-border bg-card hover:bg-muted text-foreground transition-colors disabled:opacity-50"
-                            title="Set as digital project baseline"
+                            title={t('app.workspace.history.setBaselineHint')}
                           >
                             <BookmarkCheck className="size-3 text-primary" />
-                            <span>Set as Baseline</span>
+                            <span>{t('app.workspace.history.setBaseline')}</span>
                           </button>
                         )}
                       </>
@@ -1195,11 +1204,12 @@ export default function ProjectWorkspacePage() {
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-6">
           <div>
             <h3 className="text-base font-bold text-foreground">
-              Configure & Trigger Preflight Assessment
+              {t('app.workspace.launcher.title')}
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Select input files and deterministic preflight engines to execute against {project.name}
-              {project.targetRelease ? ` (target release ${project.targetRelease})` : ''}.
+              {project.targetRelease
+                ? t('app.workspace.launcher.introWithRelease', { project: project.name, release: project.targetRelease })
+                : t('app.workspace.launcher.intro', { project: project.name })}
             </p>
           </div>
 
@@ -1243,15 +1253,15 @@ export default function ProjectWorkspacePage() {
                 <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
               )}
               <span className="flex-1">
-                Analysis <span className="font-mono">{activeAnalysisId.slice(0, 8)}</span>:{' '}
-                <strong>{activeStatus ?? 'QUEUED'}</strong>
+                {t('app.workspace.launcher.analysis')} <span className="font-mono">{activeAnalysisId.slice(0, 8)}</span>:{' '}
+                <strong>{statusLabel('app.workspace.history.status', activeStatus ?? 'QUEUED')}</strong>
                 {activeStatus === 'COMPLETED' || activeStatus === 'PARTIAL'
-                  ? ` — ${activeAnalysis?.findingsCount ?? 0} finding(s). Findings have been refreshed.`
+                  ? t('app.workspace.launcher.doneSuffix', { count: activeAnalysis?.findingsCount ?? 0 })
                   : activeStatus === 'FAILED'
-                  ? ' — the analysis service reported a failure. Check Run History for details.'
+                  ? t('app.workspace.launcher.failedSuffix')
                   : isActiveAnalysisError
-                  ? ' — status could not be refreshed; retrying.'
-                  : ' — waiting for the analysis service…'}
+                  ? t('app.workspace.launcher.refreshErrorSuffix')
+                  : t('app.workspace.launcher.waitingSuffix')}
               </span>
               <LaunchedRunLink projectId={projectId} analysisId={activeAnalysisId} />
               {!isAnalysisRunning && (
@@ -1260,7 +1270,7 @@ export default function ProjectWorkspacePage() {
                   onClick={() => setActiveTab('history')}
                   className="font-semibold underline shrink-0"
                 >
-                  Run History
+                  {t('app.workspace.launcher.runHistory')}
                 </button>
               )}
             </div>
@@ -1270,23 +1280,23 @@ export default function ProjectWorkspacePage() {
 
           <fieldset>
             <legend className="text-xs font-bold text-foreground">
-              Select Input Files ({selectedFileIds.length} of {cleanFiles.length} CLEAN file(s) selected)
+              {t('app.workspace.launcher.files', { selected: selectedFileIds.length, total: cleanFiles.length })}
             </legend>
             {isArtifactsLoading ? (
               <div className="mt-3 h-16 rounded-lg bg-muted animate-pulse" aria-hidden="true" />
             ) : isArtifactsError ? (
               <div role="alert" className="mt-3 p-3 rounded-lg border border-destructive/30 text-xs flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-destructive shrink-0" aria-hidden="true" />
-                <span className="flex-1">Could not load project files.</span>
+                <span className="flex-1">{t('app.workspace.launcher.filesLoadFailed')}</span>
                 <button type="button" onClick={() => refetchArtifacts()} className="font-semibold underline">
-                  Retry
+                  {t('app.workspace.launcher.retry')}
                 </button>
               </div>
             ) : cleanFiles.length === 0 ? (
               <div className="mt-3 p-4 rounded-lg border border-dashed border-border text-xs text-muted-foreground flex flex-col sm:flex-row sm:items-center gap-3">
                 <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
                 <span className="flex-1">
-                  No CLEAN file is available. Upload an SAP artifact and wait for it to pass the quarantine scan before launching an analysis.
+                  {t('app.workspace.launcher.noCleanFile')}
                 </span>
                 <button
                   type="button"
@@ -1294,7 +1304,7 @@ export default function ProjectWorkspacePage() {
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-semibold shrink-0"
                 >
                   <UploadCloud className="h-3.5 w-3.5" aria-hidden="true" />
-                  Upload files
+                  {t('app.workspace.launcher.uploadFiles')}
                 </button>
               </div>
             ) : (
@@ -1319,7 +1329,7 @@ export default function ProjectWorkspacePage() {
                         {file.name}
                       </span>
                       <span className="font-mono text-[10px] text-muted-foreground">
-                        {file.detectedFormat || 'UNKNOWN'}
+                        {file.detectedFormat || t('app.workspace.artifacts.unknownFormat')}
                       </span>
                     </label>
                   );
@@ -1331,7 +1341,7 @@ export default function ProjectWorkspacePage() {
           <div>
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-foreground">
-                Select Preflight Engines ({selectedEngines.length} of {ALL_18_ENGINES.length} selected)
+                {t('app.workspace.launcher.engines', { selected: selectedEngines.length, total: ALL_18_ENGINES.length })}
               </label>
               <div className="space-x-2 text-[11px]">
                 <button
@@ -1339,7 +1349,7 @@ export default function ProjectWorkspacePage() {
                   onClick={() => setSelectedEngines(ALL_18_ENGINES.map((e) => e.id))}
                   className="text-primary hover:underline font-semibold"
                 >
-                  Select All
+                  {t('app.workspace.launcher.selectAll')}
                 </button>
                 <span className="text-muted-foreground">•</span>
                 <button
@@ -1347,7 +1357,7 @@ export default function ProjectWorkspacePage() {
                   onClick={() => setSelectedEngines([])}
                   className="text-muted-foreground hover:underline"
                 >
-                  Deselect All
+                  {t('app.workspace.launcher.deselectAll')}
                 </button>
               </div>
             </div>
@@ -1367,8 +1377,8 @@ export default function ProjectWorkspacePage() {
                     }`}
                   >
                     <div>
-                      <div className="text-foreground">{eng.name}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{eng.domain}</div>
+                      <div className="text-foreground" translate="no">{eng.name}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{domainLabel(eng.domain)}</div>
                     </div>
                     {selected && <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0 ml-2" />}
                   </button>
@@ -1381,10 +1391,10 @@ export default function ProjectWorkspacePage() {
             {(cleanFiles.length === 0 || selectedFileIds.length === 0 || selectedEngines.length === 0) && (
               <p className="text-[11px] text-muted-foreground" id="launch-requirements">
                 {cleanFiles.length === 0
-                  ? 'Launch disabled: upload at least one file that passes the quarantine scan (CLEAN).'
+                  ? t('app.workspace.launcher.disabledNoClean')
                   : selectedFileIds.length === 0
-                  ? 'Launch disabled: select at least one CLEAN input file.'
-                  : 'Launch disabled: select at least one engine.'}
+                  ? t('app.workspace.launcher.disabledNoFile')
+                  : t('app.workspace.launcher.disabledNoEngine')}
               </p>
             )}
             <button
@@ -1402,17 +1412,17 @@ export default function ProjectWorkspacePage() {
               {launchMutation.isPending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Queuing analysis...
+                  {t('app.workspace.launcher.queuing')}
                 </>
               ) : isAnalysisRunning ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Analysis in progress...
+                  {t('app.workspace.launcher.inProgress')}
                 </>
               ) : (
                 <>
                   <Play className="h-3.5 w-3.5" />
-                  Execute Preflight Run
+                  {t('app.workspace.launcher.execute')}
                 </>
               )}
             </button>
@@ -1423,7 +1433,7 @@ export default function ProjectWorkspacePage() {
       {activeTab === 'preflight' && <FullPreflightPanel projectId={projectId} />}
 
       {/* Tab: Project mode context (Part 01 §1.5) */}
-      {activeTab === 'context' && <ProjectContextForm key={project.updatedAt ?? project.id} project={project} />}
+      {activeTab === 'context' && <ProjectContextForm key={project.id} project={project} />}
     </div>
   );
 }

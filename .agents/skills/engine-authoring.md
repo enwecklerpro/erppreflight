@@ -141,6 +141,12 @@ Examples:
 - `API_CHANGE_GUARD_UNRELEASED_C1_CONTRACT`
 - `MFS_BLACKBOX_TELEGRAM_SEQUENCE_GAP`
 
+**German UI text is mandatory for every declared code.** After adding or changing a `RuleSpec`
+(title / remediation), run `python scripts/generate-rule-catalog-i18n.py` and add the German title
+and remediation to `apps/web/src/i18n/rule-catalog/de.ts`. CI fails otherwise
+(`tests/test_rule_catalog_i18n_export.py`, `apps/web/src/__tests__/rule-catalog-i18n.test.ts`).
+Engine output itself stays English and deterministic — the translation is display-only.
+
 ---
 
 ## 6. Cryptographic Evidence Schema & Pointer Resolution

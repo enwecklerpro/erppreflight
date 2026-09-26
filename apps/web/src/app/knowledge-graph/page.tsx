@@ -6,10 +6,13 @@ import { ObjectLookup } from '@/components/knowledge-graph/object-lookup';
 import { getRequestLocale } from '@/i18n/server';
 import { getT } from '@/i18n/translate';
 
-export const metadata: Metadata = {
-  title: 'Knowledge Graph — ERP Preflight',
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getT(await getRequestLocale());
+  return {
+    title: `${t('nav.knowledgeGraph')} — ERP Preflight`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function KnowledgeGraphPage() {
   const t = getT(await getRequestLocale());

@@ -14,6 +14,8 @@
  * - Clean HTTP 204 / empty payload guards
  */
 
+import { applyLocaleHeader } from './locale-header';
+
 export interface ApiErrorResponse {
   statusCode: number;
   message: string | string[];
@@ -310,11 +312,12 @@ export const resolveApiRootUrl = (path: string): string => {
 };
 
 /**
- * Attaches the active organization (X-Tenant-Id) and, for unsafe methods, the CSRF
- * token. Authentication itself is the HttpOnly session cookie (credentials: 'include').
+ * Attaches the active organization (X-Tenant-Id), the UI language (Accept-Language) and,
+ * for unsafe methods, the CSRF token. Authentication itself is the HttpOnly session cookie (credentials: 'include').
  */
 const applyBrowserHeaders = async (headers: Headers, method: string): Promise<void> => {
   if (typeof window === 'undefined') return;
+  applyLocaleHeader(headers);
   const tenantId = getStoredTenantId();
   if (tenantId && !headers.has('X-Tenant-Id')) {
     headers.set('X-Tenant-Id', tenantId);

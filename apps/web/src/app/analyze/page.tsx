@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleTitle } from '@/components/findings/rule-text';
 import * as React from 'react';
 import Link from 'next/link';
 import { LaunchedRunLink } from '@/components/analysis-run/run-links';
@@ -12,6 +13,7 @@ import { TargetReleaseEnum, type ProblemRouteResponse, type Severity } from '@er
 import { FormField, FormInput, FormSelect, FormTextarea } from '@/components/form';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useT } from '@/i18n/client';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { createProject, fetchProjects, fetchProjectFiles, type ProjectRecord } from '@/lib/api-client';
 import {
   fetchAnalysisFindings,
@@ -21,7 +23,7 @@ import {
   routeProblem,
   uploadProjectFile,
 } from '@/lib/api/analysis-orchestration';
-import { ErrorState, errorMessage } from '@/components/commercial/states';
+import { ErrorState, useCommercialErrorText } from '@/components/commercial/states';
 import { RouterSuggestions } from '@/components/analysis/router-suggestions';
 import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress-stepper';
 import { SeverityBadge } from '@/components/findings/severity-badge';
@@ -65,7 +67,10 @@ export default function AnalyzeRoute() {
 }
 
 function AnalyzePage() {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
+  const domainLabel = useEngineDomainLabel();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [route, setRoute] = React.useState<ProblemRouteResponse | null>(null);
@@ -457,7 +462,7 @@ function AnalyzePage() {
                       />
                       <span>
                         <span className="block font-semibold text-foreground">{e.engineName}</span>
-                        <span className="block text-[10px] text-muted-foreground">{e.domain}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
+                        <span className="block text-[10px] text-muted-foreground">{domainLabel(e.domain)}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
                       </span>
                     </label>
                   );
@@ -505,7 +510,7 @@ function AnalyzePage() {
                     <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 text-xs" data-testid="analyze-finding" data-rule={f.ruleId}>
                       <SeverityBadge severity={f.severity as Severity} size="sm" />
                       <span className="font-mono text-[11px]">{f.ruleId}</span>
-                      <span className="text-foreground">{f.title}</span>
+                      <RuleTitle ruleId={f.ruleId} title={f.title} className="text-foreground" />
                     </li>
                   ))}
                 </ul>
@@ -529,6 +534,8 @@ function AnalyzePage() {
 
 /** Inline project creation (TanStack Form + Zod). */
 function NewProjectForm({ onCreated }: { onCreated: (p: ProjectRecord) => void }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const [serverError, setServerError] = React.useState<string | null>(null);
   const schema = React.useMemo(
