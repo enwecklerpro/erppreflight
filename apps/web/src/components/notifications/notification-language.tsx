@@ -23,9 +23,13 @@ export function NotificationLanguage() {
   const errText = useErrorText();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: notificationLocaleKey, queryFn: ({ signal }) => fetchNotificationLocale(signal) });
+  // Optimistic choice, set synchronously in the change handler so the controlled radio
+  // never snaps back while the request is in flight; cleared when the server answers.
+  const [pending, setPending] = React.useState<'en' | 'de' | null>(null);
   const save = useMutation({
     mutationFn: (locale: 'en' | 'de') => saveNotificationLocale(locale),
     onSuccess: (data: NotificationLocaleState) => qc.setQueryData(notificationLocaleKey, data),
+    onSettled: () => setPending(null),
   });
 
   if (query.isLoading) {
@@ -40,7 +44,7 @@ export function NotificationLanguage() {
       />
     );
   }
-  const current = save.isPending && save.variables ? save.variables : query.data.locale;
+  const current = pending ?? query.data.locale;
 
   return (
     <section className="rounded-xl border border-border bg-card p-4" aria-labelledby="notification-language-title">
@@ -65,7 +69,10 @@ export function NotificationLanguage() {
                 lang={locale}
                 data-testid={`notification-locale-${locale}`}
                 checked={current === locale}
-                onChange={() => save.mutate(locale)}
+                onChange={() => {
+                  setPending(locale);
+                  save.mutate(locale);
+                }}
               />
               {t(`app.platformHardening.notificationLanguage.${locale}`)}
             </label>

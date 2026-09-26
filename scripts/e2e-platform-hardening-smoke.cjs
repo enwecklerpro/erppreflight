@@ -125,29 +125,30 @@ async function waitClean(token, projectId, fileId) {
       const live = await fetch(`${base}/health/liveness`);
       if (!live.ok) throw new Error(`${base} not live`);
     }
-    // forgot-password with an address that has no account: no e-mail, pure limiter traffic.
+    // Sign-in attempts for an address without an account (401): pure limiter traffic. The login
+    // rule has a 15-minute window and a per-IP budget 10x the per-address one, so reruns fit.
     const email = `ratelimit${R}@e2e.local`;
     let allowed = 0;
     let first429 = null;
     for (let i = 0; i < 2000; i++) {
-      const r = await call(API, 'POST', '/auth/password/forgot', { body: { email } });
+      const r = await call(API, 'POST', '/auth/login', { body: { email, password: 'Wrong-Password-1' } });
       if (r.status === 429) {
         first429 = r;
         break;
       }
-      if (r.status >= 300) throw new Error(`unexpected HTTP ${r.status} from instance 1`);
+      if (r.status !== 401) throw new Error(`unexpected HTTP ${r.status} from instance 1`);
       allowed++;
     }
     if (!first429) throw new Error('instance 1 never limited the address');
     // The budget was consumed ONLY on instance 1; instance 2 must refuse immediately.
-    const second = await call(API2, 'POST', '/auth/password/forgot', { body: { email } });
+    const second = await call(API2, 'POST', '/auth/login', { body: { email, password: 'Wrong-Password-1' } });
     const retryAfter = Number(second.headers.get('retry-after'));
     if (second.status !== 429 || !(retryAfter > 0)) {
       throw new Error(`instance 2 answered ${second.status} (Retry-After ${retryAfter}) after ${allowed} requests on instance 1 — limit is per process`);
     }
     // A different address from the same client still passes on instance 2 (per IP+e-mail budget).
-    const other = await call(API2, 'POST', '/auth/password/forgot', { body: { email: `other${R}@e2e.local` } });
-    if (other.status >= 300) throw new Error(`other address refused on instance 2: ${other.status}`);
+    const other = await call(API2, 'POST', '/auth/login', { body: { email: `other${R}@e2e.local`, password: 'Wrong-Password-1' } });
+    if (other.status !== 401) throw new Error(`other address refused on instance 2: ${other.status}`);
     console.log(`      budget ${allowed} on :${new URL(API).port}, then :${new URL(API2).port} -> 429, Retry-After ${retryAfter}s`);
   });
 
@@ -334,13 +335,17 @@ async function waitClean(token, projectId, fileId) {
       const sw = page.getByTestId('focused-finding-switch-org');
       await sw.waitFor({ timeout: 15000 });
       if (!/Zu Hardening owner/.test(await sw.innerText())) throw new Error(`switch button: ${await sw.innerText()}`);
-      await sw.click();
-      await page.waitForLoadState('load');
+      // The switch evicts the tenant cache and reloads the same deep link.
+      await Promise.all([page.waitForEvent('load', { timeout: 20000 }), sw.click()]);
+      await sw.waitFor({ state: 'detached', timeout: 15000 });
       await focused.getByText('FORM_FIELD_MISSING_IN_XML').first().waitFor({ timeout: 15000 });
-      await focused.getByText(XDP_NAME).first().waitFor({ timeout: 10000 });
-      await focused.getByText(/Kritisch|Critical/).first().waitFor({ timeout: 5000 });
+      const text = await focused.innerText();
+      if (!text.includes(XDP_NAME)) throw new Error(`evidence file name ${XDP_NAME} not shown`);
+      if (!/Kritisch|Critical/.test(text)) throw new Error('severity text not shown');
       await focused.getByRole('button', { name: 'Alle Befunde anzeigen' }).click();
-      await page.waitForURL((u) => !u.search.includes('finding='), { timeout: 10000 });
+      await page.waitForFunction(() => !window.location.search.includes('finding='), null, { timeout: 15000 });
+      for (let i = 0; i < 20 && (await focused.count()) > 0; i++) await sleep(500);
+      if ((await focused.count()) > 0) throw new Error('focused finding still shown after closing');
     });
 
     await step('10 notifications page: German assignment entry + notification language', async () => {
