@@ -141,13 +141,13 @@ export function Navbar() {
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" aria-hidden="true" />
             </div>
-            <span className="hidden sm:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
+            <span className="hidden sm:inline lg:hidden 2xl:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               {t('common.brand')}
             </span>
           </Link>
         </div>
 
-        <nav className="hidden lg:flex min-w-0 space-x-1" aria-label={t('nav.primary')}>
+        <nav className="hidden lg:flex shrink-0 gap-0.5" aria-label={t('nav.primary')}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const path = hrefPath(item.href);
@@ -158,13 +158,13 @@ export function Navbar() {
                 key={item.key}
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`flex items-center gap-1.5 px-2 xl:px-2.5 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 font-semibold'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
-                <Icon className="h-4 w-4" aria-hidden="true" />
+                <Icon className="hidden xl:block h-4 w-4" aria-hidden="true" />
                 <span>{item.label}</span>
               </Link>
             );

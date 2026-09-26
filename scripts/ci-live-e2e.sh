@@ -11,6 +11,7 @@
 #      tenant isolation, redaction at rest)
 #   -> scripts/e2e-ui-smoke.cjs (Chromium: signup -> project -> upload -> run -> finding)
 #   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
+#   -> scripts/e2e-i18n-smoke.cjs (EN/DE app localization, no raw keys, 375 px layout)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
@@ -211,6 +212,10 @@ log "running finding lifecycle + Test Lab smoke (scripts/e2e-findings-smoke.cjs)
 WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
   node scripts/e2e-findings-smoke.cjs "$ART/screenshots-findings" 2>&1 | tee "$ART/smoke-findings.log"
 FINDINGS=${PIPESTATUS[0]}
+log "running EN/DE localization smoke (scripts/e2e-i18n-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-i18n-smoke.cjs "$ART/screenshots-i18n" 2>&1 | tee "$ART/smoke-i18n.log"
+I18N=${PIPESTATUS[0]}
 # Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
@@ -239,8 +244,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up
