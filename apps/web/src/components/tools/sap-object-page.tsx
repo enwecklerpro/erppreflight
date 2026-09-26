@@ -197,8 +197,7 @@ export async function SapObjectPage({ kind, locale, slug }: { kind: SapPageKind;
           <Info className="size-4 shrink-0" aria-hidden="true" />
           {t('publicTools.sap.lowInfo', {
             failed:
-              d.gate.failed.map((c) => t(`publicTools.sap.gateChecks.${c}` as MessageKey)).join(', ') ||
-              t('publicTools.verdicts.RELEASED'),
+              d.gate.failed.map((c) => t(`publicTools.sap.gateChecks.${c}` as MessageKey)).join(', ') || '—',
           })}
         </p>
       ) : null}
