@@ -1,104 +1,105 @@
-import { AgentIdentityManager } from './identity';
-import { LocalDirectoryScanner } from './scanner';
 import * as os from 'os';
+import { AgentIdentity, AgentIdentityManager, AGENT_VERSION } from './identity';
+import { DeviceApiClient, DeviceApiError } from './client';
+import { JobRejectedError, executeJob, verifyJob } from './jobs';
 
 export interface DaemonConfig {
   intervalMs?: number;
-  apiUrl: string;
+  /** Run a single heartbeat/poll cycle and exit (used by `daemon --once` and tests). */
+  once?: boolean;
+  identityManager?: AgentIdentityManager;
+  log?: (msg: string) => void;
 }
 
+/**
+ * Outbound-only agent loop: signed heartbeat → receive signed jobs → verify →
+ * execute locally (with redaction) → submit signed results.
+ */
 export class AgentDaemon {
-  private isRunning: boolean = false;
-  private intervalMs: number;
-  private apiUrl: string;
-  private identityManager: AgentIdentityManager;
+  private running = false;
+  private readonly seenJobs = new Set<string>();
+  private readonly log: (msg: string) => void;
+  private readonly identityManager: AgentIdentityManager;
 
-  constructor(config: DaemonConfig) {
-    this.intervalMs = config.intervalMs || 10000;
-    this.apiUrl = config.apiUrl;
-    this.identityManager = new AgentIdentityManager();
+  constructor(private readonly config: DaemonConfig = {}) {
+    this.identityManager = config.identityManager ?? new AgentIdentityManager();
+    this.log = config.log ?? ((m) => console.log(`[${new Date().toISOString()}] ${m}`));
   }
 
-  async start(): Promise<void> {
+  async start(): Promise<{ cycles: number; jobsExecuted: number; jobsRejected: number }> {
     const identity = await this.identityManager.load();
-    if (!identity || !identity.apiKey) {
-      throw new Error('Agent not enrolled. Please enroll first.');
-    }
+    if (!identity) throw new Error('Agent not enrolled. Run: erp-preflight-agent enroll <apiUrl> <enrollmentToken>');
+    const client = new DeviceApiClient(identity);
+    const interval = this.config.intervalMs ?? identity.heartbeatIntervalSec * 1000;
+    this.running = true;
+    const stats = { cycles: 0, jobsExecuted: 0, jobsRejected: 0 };
+    this.log(`Agent ${identity.name} (${identity.deviceId}) polling ${identity.apiUrl} every ${Math.round(interval / 1000)}s (outbound only)`);
 
-    this.isRunning = true;
-    console.log(`Starting ERP Preflight Daemon on ${identity.hostname}...`);
-    console.log(`Polling ${this.apiUrl} every ${this.intervalMs}ms.`);
-
-    const shutdown = () => {
-      console.log('\nShutting down daemon...');
-      this.isRunning = false;
-      process.exit(0);
+    const stop = () => {
+      this.running = false;
     };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-
-    while (this.isRunning) {
-      try {
-        await this.poll(identity);
-      } catch (err: any) {
-        console.error(`[Daemon Error] ${err.message}`);
-      }
-      if (this.isRunning) {
-        await new Promise((resolve) => setTimeout(resolve, this.intervalMs));
-      }
+    if (!this.config.once) {
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
     }
+
+    while (this.running) {
+      try {
+        const r = await this.cycle(identity, client);
+        stats.jobsExecuted += r.executed;
+        stats.jobsRejected += r.rejected;
+      } catch (err: any) {
+        if (err instanceof DeviceApiError && (err.status === 401 || err.status === 403)) {
+          this.log(`Device credential rejected (${err.message}); the device may have been revoked. Stopping.`);
+          throw err;
+        }
+        this.log(`Poll failed: ${err.message}`);
+      }
+      stats.cycles++;
+      if (this.config.once) break;
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    return stats;
   }
 
-  private async poll(identity: any): Promise<void> {
-    const memUsage = process.memoryUsage();
-    const heartbeat = {
-      deviceId: identity.deviceId,
-      uptime: process.uptime(),
-      memory: {
-        rss: memUsage.rss,
-        heapTotal: memUsage.heapTotal,
-        heapUsed: memUsage.heapUsed,
-      },
-      cpuLoad: os.loadavg(),
-      timestamp: new Date().toISOString()
-    };
-
-    const res = await fetch(`${this.apiUrl}/agent-gate/heartbeat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${identity.apiKey}`
-      },
-      body: JSON.stringify(heartbeat)
+  async cycle(identity: AgentIdentity, client: DeviceApiClient): Promise<{ executed: number; rejected: number }> {
+    const mem = process.memoryUsage();
+    const hb = await client.request<{ jobs: Array<{ jobId: string; envelope: string; signature: string }> }>('POST', '/agent-api/heartbeat', {
+      agentVersion: AGENT_VERSION,
+      uptimeSec: Math.round(process.uptime()),
+      platform: `${process.platform}-${process.arch}`,
+      capabilities: ['SCAN_DIRECTORY', 'PROBE_URL', 'LOCAL_REDACTION'],
+      rssBytes: mem.rss,
+      loadAvg: os.loadavg(),
     });
-
-    if (!res.ok) {
-      console.error(`Heartbeat failed: HTTP ${res.status}`);
-      return;
-    }
-
-    const { tasks } = await res.json() as any;
-    if (tasks && tasks.length > 0) {
-      for (const task of tasks) {
-        if (task.type === 'scan') {
-          console.log(`Executing task ${task.id}: scan ${task.payload.dir}`);
-          const artifacts = LocalDirectoryScanner.scan({
-            rootDir: task.payload.dir,
-            redactSecrets: true
-          });
-          
-          await fetch(`${this.apiUrl}/agent-gate/tasks/${task.id}/complete`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${identity.apiKey}`
-            },
-            body: JSON.stringify({ artifactsCount: artifacts.length })
-          });
-          console.log(`Task ${task.id} completed.`);
+    let executed = 0;
+    let rejected = 0;
+    for (const j of hb.jobs || []) {
+      let job;
+      try {
+        job = verifyJob(identity, j.envelope, j.signature, this.seenJobs);
+      } catch (err: any) {
+        rejected++;
+        this.log(`Rejected job ${j.jobId}: ${err.message}`);
+        if (err instanceof JobRejectedError && !/signature/.test(err.message)) {
+          // Report rejections of authentic jobs so the operator sees why nothing ran.
+          await client.request('POST', `/agent-api/jobs/${j.jobId}/result`, { status: 'REJECTED', error: err.message }).catch(() => undefined);
         }
+        continue;
+      }
+      this.seenJobs.add(job.jobId);
+      this.log(`Executing signed job ${job.jobId} (${job.type})`);
+      try {
+        const outcome = await executeJob(job);
+        await client.request('POST', `/agent-api/jobs/${job.jobId}/result`, outcome);
+        executed++;
+        this.log(`Job ${job.jobId} completed`);
+      } catch (err: any) {
+        const status = err instanceof JobRejectedError ? 'REJECTED' : 'FAILED';
+        await client.request('POST', `/agent-api/jobs/${job.jobId}/result`, { status, error: String(err.message).slice(0, 900) }).catch(() => undefined);
+        this.log(`Job ${job.jobId} ${status}: ${err.message}`);
       }
     }
+    return { executed, rejected };
   }
 }

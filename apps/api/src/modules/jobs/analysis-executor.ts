@@ -150,7 +150,9 @@ export class AnalysisExecutor {
     private readonly storage: S3StorageService | undefined,
     private readonly analysisUrl: string,
     private readonly logger: Logger,
-    private readonly releasedObjects?: ReleasedObjectsSource
+    private readonly releasedObjects?: ReleasedObjectsSource,
+    /** Observability hook: engine call latency + outcome (C §57). */
+    private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void
   ) {}
 
   /**
@@ -287,6 +289,14 @@ export class AnalysisExecutor {
 
       for (const artifact of artifacts) {
         const label = `Engine '${engine}' on artifact '${artifact.fileName ?? artifact.storagePath ?? 'inline'}'`;
+        const callStarted = Date.now();
+        const observe = (outcome: EngineRunOutcome) => {
+          try {
+            this.onEngineCall?.(engine, outcome, Date.now() - callStarted);
+          } catch {
+            /* metrics must never break analysis */
+          }
+        };
         try {
           const knowledgeConfig = await this.knowledgeConfiguration(
             engine,
@@ -327,6 +337,7 @@ export class AnalysisExecutor {
           if (!res.ok) {
             const errText = await res.text();
             this.logger.error(`${label} failed [HTTP ${res.status}]: ${errText}`);
+            observe('FAILED');
             engineFailed++;
             continue;
           }
@@ -337,6 +348,7 @@ export class AnalysisExecutor {
             this.logger.error(
               `${label} reported FAILED: ${validated.errorMessage ?? 'no error message'} (diagnostic findings not persisted)`
             );
+            observe('FAILED');
             engineFailed++;
             continue;
           }
@@ -355,12 +367,15 @@ export class AnalysisExecutor {
             this.logger.warn(
               `${label} reported PARTIAL: ${validated.errorMessage ?? 'no error message'}`
             );
+            observe('PARTIAL');
             enginePartial++;
           } else {
+            observe('COMPLETED');
             engineCompleted++;
           }
         } catch (err: any) {
           this.logger.warn(`${label} execution failed: ${err?.message ?? err}`);
+          observe('FAILED');
           engineFailed++;
         }
       }

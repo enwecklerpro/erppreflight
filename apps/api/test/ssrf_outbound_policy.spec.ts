@@ -156,6 +156,29 @@ describe('SSRF outbound policy (webhooks & landscape probes)', () => {
   describe('WebhooksService', () => {
     const orgId = '11111111-1111-4111-8111-111111111111';
 
+    /** Minimal in-memory webhook tables for the delivery pipeline. */
+    function webhookDb(url: string) {
+      const deliveries = new Map<string, any>();
+      return {
+        deliveries,
+        query: vi.fn(async (sql: string, params: any[] = []) => {
+          if (sql.startsWith('SELECT id FROM webhooks')) return { rows: [{ id: 'wh-1' }] };
+          if (sql.includes('INSERT INTO webhook_deliveries')) {
+            deliveries.set(params[0], { id: params[0], event_id: params[3], event_type: 'ping', payload: JSON.parse(params[4]), status: 'PENDING', attempts: 0, max_attempts: 1 });
+            return { rows: [] };
+          }
+          if (sql.includes('FROM webhook_deliveries d JOIN webhooks w')) {
+            return { rows: [{ ...deliveries.get(params[1]), webhook_id: 'wh-1', url, secret: 'whsec_x', webhook_status: 'ACTIVE' }] };
+          }
+          if (sql.startsWith('UPDATE webhook_deliveries')) {
+            const d = deliveries.get(params[1]);
+            if (d) Object.assign(d, { status: params[2], attempts: params[3], last_error: params[5] });
+          }
+          return { rows: [] };
+        }),
+      };
+    }
+
     it('rejects registration of internal webhook targets with a generic 400', async () => {
       restores.push(__setDnsLookupForTests(async () => [{ address: '172.18.0.4', family: 4 }]));
       const db = { query: vi.fn() };
@@ -172,16 +195,13 @@ describe('SSRF outbound policy (webhooks & landscape probes)', () => {
       restores.push(__setDnsLookupForTests(async () => [{ address: '169.254.169.254', family: 4 }]));
       const transport = vi.fn();
       restores.push(__setOutboundTransportForTests(transport));
-      const db = {
-        query: vi.fn().mockResolvedValueOnce({
-          rows: [{ id: 'wh-1', url: 'https://legacy.example.com/hook', secret: 'whsec_x' }],
-        }),
-      };
+      const db = webhookDb('https://legacy.example.com/hook');
       const service = new WebhooksService(db as any, { subscribe: () => {} } as any);
       const res = await service.sendTestPing(orgId, 'wh-1');
       expect(res.success).toBe(false);
       expect((res as any).error).not.toMatch(/169\.254/);
       expect(transport).not.toHaveBeenCalled();
+      expect([...db.deliveries.values()][0].status).toBe('DEAD');
     });
 
     it('treats redirects as failed deliveries (redirects are never followed)', async () => {
@@ -192,14 +212,11 @@ describe('SSRF outbound policy (webhooks & landscape probes)', () => {
         headers: { location: 'http://169.254.169.254/' },
       });
       restores.push(__setOutboundTransportForTests(transport));
-      const db = {
-        query: vi.fn().mockResolvedValueOnce({
-          rows: [{ id: 'wh-1', url: 'https://hooks.example.com/hook', secret: 'whsec_x' }],
-        }),
-      };
+      const db = webhookDb('https://hooks.example.com/hook');
       const service = new WebhooksService(db as any, { subscribe: () => {} } as any);
       const res = await service.sendTestPing(orgId, 'wh-1');
       expect(res.success).toBe(false);
+      expect(res.httpStatus).toBe(302);
       expect(transport).toHaveBeenCalledTimes(1);
     });
   });

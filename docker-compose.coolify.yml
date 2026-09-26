@@ -167,6 +167,10 @@ services:
       PYTHONUNBUFFERED: 1
       SERVICE_VERSION: "1.0.0"
       CORS_ORIGINS: "http://api:3001,http://web:3000,http://localhost:3001,http://localhost:3000,https://erppreflight.com,https://www.erppreflight.com,https://api.erppreflight.com,http://erppreflight.com,http://api.erppreflight.com"
+      # Opt-in tracing (no-op when empty)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: erppreflight-analysis
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s
@@ -245,6 +249,25 @@ services:
       # Prometheus scrape token for GET /api/v1/metrics (endpoint disabled when empty)
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
+      # Observability & enterprise integrations (see .env.coolify.example / docs/runbooks/observability.md)
+      ENABLE_API_REFERENCE: ${ENABLE_API_REFERENCE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-erppreflight-api}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      SSO_REDIRECT_BASE_URL: ${SSO_REDIRECT_BASE_URL:-}
+      SSO_DNS_SERVERS: ${SSO_DNS_SERVERS:-}
+      MASTER_ENCRYPTION_KEY_PREVIOUS: ${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
+      CONNECTOR_ALLOW_PRIVATE_NETWORKS: ${CONNECTOR_ALLOW_PRIVATE_NETWORKS:-false}
+      WEBHOOK_ALLOW_PRIVATE_NETWORKS: ${WEBHOOK_ALLOW_PRIVATE_NETWORKS:-false}
+      SSO_ALLOW_PRIVATE_NETWORKS: ${SSO_ALLOW_PRIVATE_NETWORKS:-false}
+      AGENT_JOB_SIGNING_KEY: ${AGENT_JOB_SIGNING_KEY:-}
+      AGENT_UPDATE_MANIFEST_STABLE: ${AGENT_UPDATE_MANIFEST_STABLE:-}
+      AGENT_UPDATE_MANIFEST_BETA: ${AGENT_UPDATE_MANIFEST_BETA:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       # E-mail delivery & account lifecycle (see .env.coolify.example)

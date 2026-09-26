@@ -40,6 +40,7 @@ export const de: Messages = {
     matrix: 'Release-Matrix',
     landscapes: 'Landschaften',
     agentGate: 'Agent Gate',
+    integrations: 'Integrationen',
     settings: 'Einstellungen',
     admin: 'Administration',
     analyze: 'Analysieren',

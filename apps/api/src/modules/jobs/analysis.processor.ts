@@ -8,6 +8,7 @@ import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ReleasedObjectsProvider } from '../knowledge-graph/released-objects.provider';
+import { TelemetryService } from '../telemetry/telemetry.service';
 import {
   AnalysisExecutor,
   AnalysisRunResult,
@@ -61,7 +62,8 @@ export class AnalysisProcessor extends WorkerHost {
     @Optional() private readonly usage?: UsageService,
     @Optional() private readonly retention?: RetentionService,
     @Optional() private readonly outbox?: OutboxService,
-    @Optional() private readonly releasedObjects?: ReleasedObjectsProvider
+    @Optional() private readonly releasedObjects?: ReleasedObjectsProvider,
+    @Optional() private readonly telemetry?: TelemetryService
   ) {
     super();
     this.analysisUrl =
@@ -72,7 +74,8 @@ export class AnalysisProcessor extends WorkerHost {
       this.storageService,
       this.analysisUrl,
       this.logger,
-      this.releasedObjects
+      this.releasedObjects,
+      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms)
     );
   }
 
@@ -86,6 +89,7 @@ export class AnalysisProcessor extends WorkerHost {
     result: AnalysisRunResult | null,
     error?: string
   ): Promise<void> {
+    await this.recordOutcomeMetrics(data, result);
     if (!this.outbox) return;
     const { analysisId, organizationId, projectId, userId, engineTypes, targetRelease } = data;
     try {
@@ -127,6 +131,26 @@ export class AnalysisProcessor extends WorkerHost {
       });
     } catch (err: any) {
       this.logger.warn(`Could not record analysis outcome event for ${analysisId}: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Business metrics (C §57): analyses by final status and emitted findings by severity. Never throws. */
+  private async recordOutcomeMetrics(data: AnalysisJobData, result: AnalysisRunResult | null): Promise<void> {
+    if (!this.telemetry) return;
+    try {
+      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL');
+      if (!result || result.totalFindings === 0) return;
+      const res = await this.db.query(
+        `SELECT severity, COUNT(*)::int AS n FROM findings
+          WHERE analysis_id = $1 AND organization_id = $2 GROUP BY severity`,
+        [data.analysisId, data.organizationId],
+        { tenantId: data.organizationId }
+      );
+      for (const r of res.rows ?? []) {
+        this.telemetry.incrementFindings(String(r.severity), Number(r.n));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not record analysis metrics for ${data.analysisId}: ${err?.message ?? err}`);
     }
   }
 

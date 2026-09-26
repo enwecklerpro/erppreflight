@@ -44,6 +44,7 @@ export const en = {
     matrix: 'Release Matrix',
     landscapes: 'Landscapes',
     agentGate: 'Agent Gate',
+    integrations: 'Integrations',
     settings: 'Settings',
     admin: 'Admin',
     analyze: 'Analyze',

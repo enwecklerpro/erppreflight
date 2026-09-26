@@ -1,115 +1,142 @@
 #!/usr/bin/env node
+import * as fs from 'fs';
+import * as path from 'path';
 import { LocalDirectoryScanner } from './scanner';
 import { ErpPreflightClient } from './client';
-import { AgentIdentityManager } from './identity';
+import { AgentIdentityManager, AGENT_VERSION, normalizeApiBase } from './identity';
 import { AgentDaemon } from './daemon';
 import { SapLandscapeProber } from './probe';
-import { SignedUpdateVerifier } from './updater';
-import * as path from 'path';
+import { SignedUpdateVerifier, UpdateManifest } from './updater';
+
+function flag(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function usage() {
+  console.log(`ERP Preflight Local Agent v${AGENT_VERSION}
+
+Usage:
+  erp-preflight-agent enroll <apiUrl> <enrollmentToken> [--name <deviceName>]
+      Generate a device key pair locally and enroll it with a single-use token.
+  erp-preflight-agent status
+      Show the enrolled identity and check API reachability.
+  erp-preflight-agent daemon [--once] [--interval <seconds>]
+      Outbound-only loop: signed heartbeats, signed job verification, local execution.
+  erp-preflight-agent scan <directory>
+      Scan SAP artifacts locally (SHA-256 + secret redaction); nothing is uploaded.
+  erp-preflight-agent probe <sapUrl>
+      Probe an on-premise SAP NetWeaver ICM endpoint (TLS always validated).
+  erp-preflight-agent check-update [--channel stable]
+      Fetch the signed update manifest and verify its signature.
+  erp-preflight-agent verify-update <file> <manifest.json>
+      Verify an update artifact against a signed manifest ({manifest, signature}).
+
+Environment:
+  ERP_PREFLIGHT_AGENT_HOME        Identity directory (default ~/.erppreflight)
+  ERP_PREFLIGHT_AGENT_SCAN_ROOTS  Directories jobs may scan (path-delimiter separated)`);
+}
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0] || 'help';
+  const identityManager = new AgentIdentityManager();
 
-  console.log('ERP Preflight — Local On-Premise Extraction & Ingestion Agent v0.1.0\n');
-
-  if (command === 'status') {
-    const apiUrl = process.env.ERP_PREFLIGHT_API_URL || 'http://localhost:3001';
-    
-    const identityManager = new AgentIdentityManager();
-    const identity = await identityManager.load();
-    const apiKey = identity?.apiKey || process.env.ERP_PREFLIGHT_API_KEY;
-
-    if (identity) {
-      console.log(`Identity loaded: Device ID ${identity.deviceId} on ${identity.hostname}`);
-    } else {
-      console.log('No local identity found. Device is not enrolled.');
+  switch (command) {
+    case 'enroll': {
+      const [apiUrl, token] = [args[1], args[2]];
+      if (!apiUrl || !token) {
+        console.error('Usage: erp-preflight-agent enroll <apiUrl> <enrollmentToken> [--name <deviceName>]');
+        process.exit(2);
+      }
+      const identity = await identityManager.enroll(apiUrl, token, flag(args, '--name'));
+      console.log(`Enrolled device ${identity.deviceId} for organization ${identity.organizationId}`);
+      console.log(`Device key fingerprint: ${identity.publicKeyFingerprint}`);
+      console.log(`Identity stored in ${identityManager.identityFile} (mode 0600)`);
+      return;
     }
-
-    const client = new ErpPreflightClient({ apiUrl, apiKey });
-    console.log(`Checking connection to: ${apiUrl}...`);
-    const ping = await client.ping();
-    if (ping.healthy) {
-      console.log(`✅ Status: CONNECTED [HTTP ${ping.status}]`);
-    } else {
-      console.log(`❌ Status: UNREACHABLE (${ping.message})`);
+    case 'status': {
+      const identity = await identityManager.load();
+      const apiUrl = identity?.apiUrl || (process.env.ERP_PREFLIGHT_API_URL ? normalizeApiBase(process.env.ERP_PREFLIGHT_API_URL) : '');
+      if (identity) {
+        console.log(`Device:      ${identity.name} (${identity.deviceId})`);
+        console.log(`Org:         ${identity.organizationId}`);
+        console.log(`Fingerprint: ${identity.publicKeyFingerprint}`);
+      } else {
+        console.log('Device is not enrolled.');
+      }
+      if (apiUrl) {
+        const ping = await new ErpPreflightClient({ apiUrl }).ping();
+        console.log(`API ${apiUrl}: ${ping.healthy ? 'REACHABLE' : `UNREACHABLE (${ping.message})`}`);
+        if (!ping.healthy) process.exit(1);
+      }
+      return;
     }
-  } else if (command === 'enroll') {
-    const apiUrl = args[1];
-    const pairingToken = args[2];
-    if (!apiUrl || !pairingToken) {
-      console.error('Usage: erp-preflight-agent enroll <apiUrl> <pairingToken>');
-      process.exit(1);
+    case 'daemon': {
+      const interval = flag(args, '--interval');
+      const stats = await new AgentDaemon({ once: args.includes('--once'), intervalMs: interval ? Number(interval) * 1000 : undefined }).start();
+      console.log(`Daemon stopped after ${stats.cycles} cycle(s): ${stats.jobsExecuted} job(s) executed, ${stats.jobsRejected} rejected`);
+      return;
     }
-    const identityManager = new AgentIdentityManager();
-    try {
-      const identity = await identityManager.enroll(apiUrl, pairingToken);
-      console.log(`✅ Successfully enrolled device! Device ID: ${identity.deviceId}`);
-    } catch (err: any) {
-      console.error(`❌ Enrollment failed: ${err.message}`);
-      process.exit(1);
+    case 'scan': {
+      const dir = args[1] || '.';
+      const artifacts = LocalDirectoryScanner.scan({ rootDir: dir, redactSecrets: true });
+      console.log(`Found ${artifacts.length} SAP artifact(s) in ${path.resolve(dir)} (nothing uploaded):`);
+      for (const a of artifacts) {
+        console.log(`  ${a.relativePath}  ${a.sizeBytes} B  sha256=${a.sha256.slice(0, 16)}…${a.redactedCount ? `  [${a.redactedCount} secret(s) redacted]` : ''}`);
+      }
+      return;
     }
-  } else if (command === 'scan') {
-    const targetDir = args[1] || '.';
-    console.log(`Scanning directory: ${targetDir} for SAP artifacts...`);
-    const artifacts = LocalDirectoryScanner.scan({
-      rootDir: targetDir,
-      redactSecrets: true,
-    });
-
-    console.log(`Found ${artifacts.length} SAP technical artifacts:`);
-    for (const art of artifacts) {
-      const red = art.redactedCount > 0 ? ` [${art.redactedCount} secrets scrubbed]` : '';
-      console.log(`  - ${art.relativePath} (${art.extension}, ${art.sizeBytes} bytes, SHA-256: ${art.sha256.substring(0, 12)}...)${red}`);
+    case 'probe': {
+      if (!args[1]) {
+        console.error('Usage: erp-preflight-agent probe <sapUrl>');
+        process.exit(2);
+      }
+      const r = await SapLandscapeProber.probe(args[1]);
+      console.log(JSON.stringify(r, null, 2));
+      if (!r.isReachable) process.exit(1);
+      return;
     }
-  } else if (command === 'daemon') {
-    const apiUrl = process.env.ERP_PREFLIGHT_API_URL || 'http://localhost:3001';
-    const daemon = new AgentDaemon({ apiUrl, intervalMs: 10000 });
-    await daemon.start();
-  } else if (command === 'probe') {
-    const sapUrl = args[1];
-    if (!sapUrl) {
-      console.error('Usage: erp-preflight-agent probe <sapUrl>');
-      process.exit(1);
+    case 'check-update': {
+      const identity = await identityManager.load();
+      if (!identity) throw new Error('Agent not enrolled (the signing key is pinned at enrollment)');
+      const channel = flag(args, '--channel') || 'stable';
+      const res = await fetch(`${identity.apiUrl}/agent-api/updates/${encodeURIComponent(channel)}`);
+      if (res.status === 404) {
+        console.log(`No update published on channel '${channel}'. Running ${AGENT_VERSION}.`);
+        return;
+      }
+      if (!res.ok) throw new Error(`Update check failed: HTTP ${res.status}`);
+      const body = (await res.json()) as { manifest: UpdateManifest; signature: string };
+      const valid = SignedUpdateVerifier.verifyManifest(body.manifest, body.signature, identity.jobSigningPublicKey);
+      if (!valid) {
+        console.error('Update manifest signature INVALID — update refused.');
+        process.exit(1);
+      }
+      console.log(`Signed update available: ${body.manifest.version} (sha256 ${body.manifest.sha256}) — current ${AGENT_VERSION}`);
+      console.log(`Download ${body.manifest.url} and run: erp-preflight-agent verify-update <file> <manifest.json>`);
+      return;
     }
-    console.log(`Probing SAP landscape at ${sapUrl}...`);
-    const result = await SapLandscapeProber.probe(sapUrl);
-    if (result.isReachable) {
-      console.log(`✅ Probe successful!`);
-      console.log(`  Latency: ${result.latencyMs}ms`);
-      console.log(`  TLS Valid: ${result.isTlsValid}`);
-      if (result.sapSid) console.log(`  SAP SID: ${result.sapSid}`);
-      if (result.serverHeader) console.log(`  Server: ${result.serverHeader}`);
-    } else {
-      console.log(`❌ Probe failed: ${result.error}`);
+    case 'verify-update': {
+      const [file, manifestFile] = [args[1], args[2]];
+      if (!file || !manifestFile) {
+        console.error('Usage: erp-preflight-agent verify-update <file> <manifest.json>');
+        process.exit(2);
+      }
+      const identity = await identityManager.load();
+      if (!identity) throw new Error('Agent not enrolled (the signing key is pinned at enrollment)');
+      const { manifest, signature } = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+      const r = await SignedUpdateVerifier.verifyFile(path.resolve(file), manifest, signature, identity.jobSigningPublicKey);
+      if (!r.ok) {
+        console.error(`Update verification FAILED: ${r.reason}. Never execute this file.`);
+        process.exit(1);
+      }
+      console.log(`Update ${manifest.version} verified: signature valid, SHA-256 matches.`);
+      return;
     }
-  } else if (command === 'verify-update') {
-    const file = args[1];
-    const expectedSha256 = args[2];
-    if (!file || !expectedSha256) {
-      console.error('Usage: erp-preflight-agent verify-update <file> <expectedSha256>');
-      process.exit(1);
-    }
-    console.log(`Verifying update file ${file}...`);
-    const isValid = await SignedUpdateVerifier.verifyFile(path.resolve(file), expectedSha256);
-    if (isValid) {
-      console.log(`✅ Update verified successfully (SHA-256 matches).`);
-    } else {
-      console.error(`❌ Update verification failed! File corrupt or tampered.`);
-      process.exit(1);
-    }
-  } else {
-    console.log('Usage:');
-    console.log('  erp-preflight-agent status                                Test connection to ERP Preflight SaaS/API');
-    console.log('  erp-preflight-agent enroll <apiUrl> <pairingToken>        Enroll device with ERP Preflight SaaS');
-    console.log('  erp-preflight-agent scan <directory>                      Scan local SAP artifacts and verify cryptographic hashes');
-    console.log('  erp-preflight-agent daemon                                Run enterprise agent in background daemon mode with heartbeats');
-    console.log('  erp-preflight-agent probe <sapUrl>                        Test on-premise SAP landscape NetWeaver connectivity');
-    console.log('  erp-preflight-agent verify-update <file> <expectedSha256> Verify integrity of an agent bundle');
-    console.log('');
-    console.log('Environment Variables:');
-    console.log('  ERP_PREFLIGHT_API_URL   Base API URL (default: http://localhost:3001)');
-    console.log('  ERP_PREFLIGHT_API_KEY   Tenant Ingestion API Key (fallback if not enrolled)');
+    default:
+      usage();
+      if (command !== 'help' && command !== '--help') process.exit(2);
   }
 }
 
