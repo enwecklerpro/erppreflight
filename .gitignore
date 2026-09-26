@@ -51,3 +51,6 @@ playwright-report/
 
 # Committed E2E test fixture (secret-redaction boundary test)
 !tests/e2e/fixtures/boundary/*.log
+
+# Local agent worktrees (never commit)
+.claude/worktrees/
