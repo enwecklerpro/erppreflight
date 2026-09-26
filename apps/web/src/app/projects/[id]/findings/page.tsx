@@ -17,10 +17,23 @@ import {
 } from '../../../../components/findings/finding-columns';
 import { FindingDetailRow } from '../../../../components/findings/finding-detail-row';
 import { useTableUrlSync } from '../../../../hooks/useTableUrlSync';
+import { useT } from '@/i18n/client';
+import {
+  findingLifecycleFilters,
+  withLifecycleColumns,
+} from '../../../../components/findings/finding-lifecycle-columns';
+import { FindingsBulkActions } from '../../../../components/findings/findings-bulk-actions';
 
 function ProjectFindingsContent() {
   const params = useParams();
   const projectId = (params?.id as string) || '';
+  const t = useT();
+  // Finding lifecycle (Part 01 §1.7): status / owner / due columns and server-side filters.
+  const columns = React.useMemo(() => withLifecycleColumns(findingColumns, t), [t]);
+  const facetedFilters = React.useMemo(
+    () => [...findingLifecycleFilters(t), ...findingFacetedFilters],
+    [t]
+  );
 
   // URL synchronization hook for table filters, sorts, search and pagination
   const { state: urlState, tableProps } = useTableUrlSync(50);
@@ -101,6 +114,7 @@ function ProjectFindingsContent() {
             </span>
           </div>
           <span className="text-muted-foreground">Counts below refer to the current page.</span>
+          <span className="text-muted-foreground">{t('findingLifecycle.table.latestOnlyNote')}</span>
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200 dark:border-red-900 shadow-xs">
             <span className="font-semibold">Blockers:</span>
             <span className="font-bold font-mono">{blockerCount}</span>
@@ -118,12 +132,13 @@ function ProjectFindingsContent() {
 
       {/* Main Virtualized Findings Grid */}
       <DataTable
-        columns={findingColumns}
+        columns={columns}
         data={findings}
         tableProps={tableProps}
         pageCount={pagination?.totalPages ?? 0}
         rowCount={pagination?.total ?? 0}
-        facetedFilters={findingFacetedFilters}
+        facetedFilters={facetedFilters}
+        bulkActions={(table) => <FindingsBulkActions table={table} />}
         searchColumnId="title"
         searchPlaceholder="Filter by title, rule ID, or description..."
         renderExpandedRow={(row) => <FindingDetailRow finding={row.original} />}

@@ -77,12 +77,11 @@ describe('translator', () => {
   it('every message is valid ICU syntax (renders without throwing)', () => {
     for (const locale of ['en', 'de'] as const) {
       const t = createTranslator(locale);
-      const flat = flatten(locale === 'en' ? en : de);
-      for (const key of Object.keys(flat)) {
+      for (const [key, message] of Object.entries(flatten(locale === 'en' ? en : de))) {
         if (key.includes('[') || key.startsWith('engines.')) continue;
-        // Supply every placeholder the message declares ({count}, {seq}, {key}, …).
+        // Supply every placeholder the message declares (e.g. {status}, {date}).
         const vars: Record<string, string | number> = { count: 1, language: 'x' };
-        for (const m of flat[key].match(/\{(\w+)\}/g) ?? []) vars[m.slice(1, -1)] ??= 'x';
+        for (const p of message.match(/\{(\w+)\}/g) ?? []) vars[p.slice(1, -1)] ??= 'x';
         expect(() => t(key as never, vars), `${locale} ${key}`).not.toThrow();
         expect(t(key as never, vars), `${locale} ${key}`).not.toBe(key);
       }

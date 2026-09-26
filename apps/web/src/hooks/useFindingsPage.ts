@@ -19,6 +19,9 @@ export function buildFindingsQueryParams(
 ): FindingsQueryParams {
   const severity = state.filters.severity;
   const engine = state.filters.engineType;
+  const status = state.filters.status;
+  const assignee = state.filters.assignee?.[0];
+  const due = state.filters.due?.[0];
   return {
     projectId: projectId || undefined,
     page: Math.max(1, state.page),
@@ -26,6 +29,11 @@ export function buildFindingsQueryParams(
     search: state.search || undefined,
     severity: severity && severity.length === 1 ? severity[0] : undefined,
     engine: engine && engine.length === 1 ? engine[0] : undefined,
+    // Finding lifecycle filters are evaluated server-side (multi-status allowed).
+    status: status && status.length > 0 ? status.join(',') : undefined,
+    assignee: assignee || undefined,
+    due: due || undefined,
+    latest: projectId ? true : undefined,
   };
 }
 
@@ -34,12 +42,16 @@ export function useFindingsPage(
   projectId?: string
 ) {
   const params = buildFindingsQueryParams(state, projectId);
-  const filters: Omit<FindingFilters, 'projectId'> = {
+  const filters: Omit<FindingFilters, 'projectId'> & { status?: string; assignee?: string; due?: string; latest?: boolean } = {
     page: params.page,
     limit: params.pageSize,
     search: params.search,
     severity: params.severity as FindingFilters['severity'],
     engineType: params.engine as FindingFilters['engineType'],
+    status: params.status,
+    assignee: params.assignee,
+    due: params.due,
+    latest: params.latest,
   };
   return useQuery<FindingsPage, Error>({
     queryKey: projectId
