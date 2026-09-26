@@ -1,0 +1,1605 @@
+{
+  "_generated": "scripts/generate-rule-catalog-i18n.py — do not edit by hand",
+  "rules": {
+    "ACCT_ARCHIVE_REJECTED": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Account Determination Preflight",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Account Determination Preflight (JSON, CSV) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "ACCT_DET_ACCOUNT_BLOCKED_POSTING": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "remediation": "Remove the posting block in FS00 (chart of accounts or company code level) or point the determination entry to an unblocked account.",
+      "title": "Determined G/L account is blocked for posting"
+    },
+    "ACCT_DET_ACCOUNT_NOT_IN_COMPANY_CODE": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "remediation": "Extend the G/L account to the company code (FS00 / 'Manage G/L Account Master Data') before go-live.",
+      "title": "Determined account not created in the company code"
+    },
+    "ACCT_DET_CONFLICTING_RULES": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "remediation": "Remove the duplicate / conflicting OBYC or VKOA entries so each condition key resolves to exactly one account.",
+      "title": "Conflicting determination entries for the same key"
+    },
+    "ACCT_DET_MISSING_ACCOUNT": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "remediation": "Maintain the missing entry in OBYC (MM: transaction key / valuation class) or VKOA (SD: sales org / account key) — in the cloud via the corresponding SSCUI — so postings do not fail with 'account determination error'.",
+      "title": "No G/L account determined for a required combination"
+    },
+    "ACCT_INSUFFICIENT_INPUT": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Account Determination Preflight",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Account Determination Preflight (JSON, CSV) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "ACCT_INVALID_INPUT": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Account Determination Preflight",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Account Determination Preflight (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "ACCT_PARSE_ERROR": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Account Determination Preflight",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Account Determination Preflight (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "ACCT_PAYLOAD_TOO_LARGE": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Account Determination Preflight",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Account Determination Preflight (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "API_ARCHIVE_REJECTED": {
+      "engine": "API_CHANGE_GUARD",
+      "inputArgs": {
+        "engineName": "API Change Guard",
+        "formats": "JSON, XML, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by API Change Guard (JSON, XML, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "API_BREAKING_ENDPOINT_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Restore the path or publish a new major API version; migrate every consumer in the integration registry before retiring the old path.",
+      "title": "Endpoint removed"
+    },
+    "API_BREAKING_ENTITYSET_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Re-expose the entity set in the service definition / binding or version the OData service.",
+      "title": "OData entity set removed"
+    },
+    "API_BREAKING_ENTITY_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Restore the entity type or introduce a new service version; adapt consumer mappings.",
+      "title": "OData entity type removed"
+    },
+    "API_BREAKING_ENUM_RESTRICTED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the removed enum values accepted (map them server-side) or version the API.",
+      "title": "Enum values removed"
+    },
+    "API_BREAKING_FIELD_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the property (mark deprecated) until all consumers stop reading it, or version the API.",
+      "title": "Property / field removed"
+    },
+    "API_BREAKING_MAX_LENGTH_DECREASED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the previous MaxLength; shorter limits reject existing consumer data.",
+      "title": "Maximum length decreased"
+    },
+    "API_BREAKING_OPERATION_REMOVED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Keep the HTTP operation (deprecate first) or version the API; update consumers before removal.",
+      "title": "Operation removed"
+    },
+    "API_BREAKING_REQUIRED_PARAM_ADDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Make the new parameter optional with a server-side default, or version the operation.",
+      "title": "New required parameter"
+    },
+    "API_BREAKING_REQUIRED_PROPERTY_ADDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Make the property optional (nullable / default value) so existing payloads remain valid.",
+      "title": "New required property"
+    },
+    "API_BREAKING_TYPE_CHANGED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Revert to the previous type or add a new property with the new type; incompatible conversions break deserialisation in consumers.",
+      "title": "Incompatible type change"
+    },
+    "API_DEPRECATION_WARNING": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Plan consumer migration to the successor before the announced removal date.",
+      "title": "Element marked deprecated"
+    },
+    "API_INSUFFICIENT_INPUT": {
+      "engine": "API_CHANGE_GUARD",
+      "inputArgs": {
+        "engineName": "API Change Guard",
+        "formats": "JSON, XML, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by API Change Guard (JSON, XML, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "API_INVALID_INPUT": {
+      "engine": "API_CHANGE_GUARD",
+      "inputArgs": {
+        "engineName": "API Change Guard",
+        "formats": "JSON, XML, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by API Change Guard (JSON, XML, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "API_NON_BREAKING_ENDPOINT_ADDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "No action for existing consumers; document the new endpoint.",
+      "title": "Endpoint added"
+    },
+    "API_NON_BREAKING_ENUM_EXPANDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Verify consumers handle unknown enum values gracefully.",
+      "title": "Enum values added"
+    },
+    "API_NON_BREAKING_MAX_LENGTH_INCREASED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "Check that consumers storing the value have sufficient field length.",
+      "title": "Maximum length increased"
+    },
+    "API_NON_BREAKING_OPERATION_ADDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "No action for existing consumers; document the new operation.",
+      "title": "Operation added"
+    },
+    "API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED": {
+      "engine": "API_CHANGE_GUARD",
+      "remediation": "No action; consumers must tolerate unknown properties (tolerant reader).",
+      "title": "Optional property added"
+    },
+    "API_PARSE_ERROR": {
+      "engine": "API_CHANGE_GUARD",
+      "inputArgs": {
+        "engineName": "API Change Guard",
+        "formats": "JSON, XML, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by API Change Guard (JSON, XML, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "API_PAYLOAD_TOO_LARGE": {
+      "engine": "API_CHANGE_GUARD",
+      "inputArgs": {
+        "engineName": "API Change Guard",
+        "formats": "JSON, XML, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by API Change Guard (JSON, XML, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "CLEAN_CORE_ARCHIVE_REJECTED": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "inputArgs": {
+        "engineName": "Clean Core Object Guard",
+        "formats": "ABAP, ZIP, JSON"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Clean Core Object Guard (ABAP, ZIP, JSON) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "CLEAN_CORE_DIRECT_DB_ACCESS": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Replace the SELECT on the standard table with the released (C1) CDS view named as successor (e.g. MARA -> I_Product); if none is released, request one via the Customer Influence portal or read via a released API.",
+      "title": "Direct read of an SAP standard table"
+    },
+    "CLEAN_CORE_DIRECT_DB_MUTATION": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Never INSERT/UPDATE/MODIFY/DELETE SAP tables: use the released RAP business object (EML MODIFY ENTITIES) or released API of the owning application; direct writes bypass validations and are blocked in ABAP Cloud.",
+      "title": "Direct write to an SAP standard table"
+    },
+    "CLEAN_CORE_DYNAMIC_CALL_UNVERIFIABLE": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Dynamic targets (FROM (lv_tab), CALL FUNCTION lv_fm, CALL METHOD (…)) cannot be checked statically. Replace them with static calls, or restrict the possible values to released objects and document the allow-list; ABAP Cloud checks dynamic targets only at runtime.",
+      "title": "Dynamic call target cannot be verified"
+    },
+    "CLEAN_CORE_INSUFFICIENT_INPUT": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "inputArgs": {
+        "engineName": "Clean Core Object Guard",
+        "formats": "ABAP, ZIP, JSON"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Clean Core Object Guard (ABAP, ZIP, JSON) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "CLEAN_CORE_INVALID_INPUT": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "inputArgs": {
+        "engineName": "Clean Core Object Guard",
+        "formats": "ABAP, ZIP, JSON"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Clean Core Object Guard (ABAP, ZIP, JSON) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "CLEAN_CORE_OBJECT_RELEASED": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "No action: the object is released (C1) in the knowledge snapshot used for this analysis.",
+      "title": "Object is released for cloud development"
+    },
+    "CLEAN_CORE_OBSOLETE_SYNTAX": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Refactor the statement as described in the finding; it is not part of the ABAP Cloud language version.",
+      "title": "Obsolete or cloud-forbidden ABAP statement"
+    },
+    "CLEAN_CORE_PARSE_ERROR": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "inputArgs": {
+        "engineName": "Clean Core Object Guard",
+        "formats": "ABAP, ZIP, JSON"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Clean Core Object Guard (ABAP, ZIP, JSON) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "CLEAN_CORE_PAYLOAD_TOO_LARGE": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "inputArgs": {
+        "engineName": "Clean Core Object Guard",
+        "formats": "ABAP, ZIP, JSON"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Clean Core Object Guard (ABAP, ZIP, JSON) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "CLEAN_CORE_UNRELEASED_API": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Replace the call with the released successor named in the finding (Cloudification Repository). Function modules absent from the released list must be treated as unreleased until SAP releases them.",
+      "title": "Call to a function module not released for cloud development"
+    },
+    "CLEAN_CORE_UNRELEASED_CLASS": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Replace the class with the released successor (e.g. CL_BCS -> CL_BCS_MAIL_MESSAGE); SAP GUI / ALV classes have no ABAP Cloud equivalent and require a Fiori UI.",
+      "title": "Use of a class not released for cloud development"
+    },
+    "CLEAN_CORE_UNRELEASED_OBJECT": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "remediation": "Verify the object's release state in ADT (Properties > API State) or the Cloudification Repository; use the released successor or a custom CDS view on released views.",
+      "title": "Reference to an object not in the released-object snapshot"
+    },
+    "CP_ARCHIVE_REJECTED": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "inputArgs": {
+        "engineName": "Change Pointer Coverage Auditor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Change Pointer Coverage Auditor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "CP_CUSTOM_FIELD_OMITTED_BD52": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Add the custom (YY1_/ZZ) field to BD52 for the message type and extend the IDoc segment / mapping so the value is distributed.",
+      "title": "Custom field omitted from BD52"
+    },
+    "CP_FIELD_DD04L_CHGFLAG_MISSING": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "In SE11 set 'Change document' on the data element (DD04L-LOGFLAG) of the field and regenerate the change document object (SCDO).",
+      "title": "Data element not change-document relevant"
+    },
+    "CP_FIELD_FILTERED_BD53": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Review the reduced message type in BD53 and select the field if downstream systems need it.",
+      "title": "Field filtered by reduced message type (BD53)"
+    },
+    "CP_FIELD_NOT_CONFIGURED_BD52": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Add the table/field to the message type's change document object in BD52 (table TBD62); otherwise changes to the field never create change pointers.",
+      "title": "Expected field not linked in BD52"
+    },
+    "CP_GLOBAL_DEACTIVATED": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Run BD61 in the sending client, set 'Change pointers activated - generally' and transport the customizing (table TBDA1).",
+      "title": "Change pointers globally deactivated (BD61)"
+    },
+    "CP_INSUFFICIENT_INPUT": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "inputArgs": {
+        "engineName": "Change Pointer Coverage Auditor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Change Pointer Coverage Auditor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "CP_INVALID_INPUT": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "inputArgs": {
+        "engineName": "Change Pointer Coverage Auditor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Change Pointer Coverage Auditor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "CP_MSG_TYPE_DEACTIVATED": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Activate change pointers for the message type in BD50 (table TBDA2) and transport the entry.",
+      "title": "Message type change pointers inactive (BD50)"
+    },
+    "CP_PARSE_ERROR": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "inputArgs": {
+        "engineName": "Change Pointer Coverage Auditor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Change Pointer Coverage Auditor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "CP_PAYLOAD_TOO_LARGE": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "inputArgs": {
+        "engineName": "Change Pointer Coverage Auditor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Change Pointer Coverage Auditor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "CP_RUNTIME_UNPROCESSED_BACKLOG": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "remediation": "Schedule / repair report RBDMIDOC (BD21) for the message type, check SM37 job logs, and clean up processed pointers with RBDCPCLR2.",
+      "title": "Unprocessed change pointer backlog (BDCP2)"
+    },
+    "DECOM_ACTIVE_RFC_DEPENDENCY": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "In SM59 switch the listed destinations to a dedicated communication user with least-privilege roles before deactivation.",
+      "title": "RFC destinations log on with the user"
+    },
+    "DECOM_ARCHIVE_REJECTED": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Safe Decommission Preflight",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Safe Decommission Preflight (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "DECOM_INSUFFICIENT_INPUT": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Safe Decommission Preflight",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Safe Decommission Preflight (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "DECOM_INVALID_INPUT": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Safe Decommission Preflight",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Safe Decommission Preflight (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "DECOM_LOCKED_USER_CALL_FLOOD": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "Identify the calling system from SM20/SM21 (terminal / RFC caller) and update its credentials or disable the interface before archiving.",
+      "title": "Locked user still receives logon attempts"
+    },
+    "DECOM_PARSE_ERROR": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Safe Decommission Preflight",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Safe Decommission Preflight (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "DECOM_PAYLOAD_TOO_LARGE": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "inputArgs": {
+        "engineName": "Safe Decommission Preflight",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Safe Decommission Preflight (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "DECOM_RECENT_ACTIVITY_DETECTED": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "Lock dialog logon and observe for 14–30 days (SM20 / ST03N) before deleting or archiving.",
+      "title": "User active within the grace period"
+    },
+    "DECOM_SAFE_FOR_ARCHIVING": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "Follow the decommissioning runbook: lock in SU01, set validity end, remove roles, archive with SARA. The verdict is limited to the supplied USR02/TBTCO/RFCDES/SWWWIHEAD extracts and evaluation date.",
+      "title": "No dependencies found in the supplied extracts"
+    },
+    "DECOM_SCHEDULED_JOB_DEPENDENCY": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "In SM37 change the step user of the listed jobs to a technical (system-type) user before locking the account; released periodic jobs fail otherwise.",
+      "title": "Background jobs run under the user"
+    },
+    "DECOM_USER_NOT_FOUND": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "Check the user ID and client; export the complete USR02 for the client and re-run.",
+      "title": "Candidate user absent from USR02"
+    },
+    "DECOM_WORKFLOW_AGENT_DEPENDENCY": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "remediation": "Forward the open work items in SWIA / SBWP and update agent determination (rules / org assignment).",
+      "title": "Open workflow items assigned to the user"
+    },
+    "ECC_ARCHIVE_REJECTED": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "inputArgs": {
+        "engineName": "ECC2Cloud Navigator",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by ECC2Cloud Navigator (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "ECC_BAPI_RFC_MODERNIZATION_FOUND": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Re-point the integration to the listed released OData/SOAP API (Communication Arrangement) before cut-over.",
+      "title": "Released API successor for BAPI/RFC interface"
+    },
+    "ECC_BAPI_RFC_UNRELEASED_BLOCKER": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Unreleased RFC/BAPI calls are not permitted from outside in S/4HANA Cloud; migrate the caller to a released API (api.sap.com) or wrap the logic in a custom released OData service.",
+      "title": "Unreleased BAPI / RFC interface"
+    },
+    "ECC_IDOC_MODERNIZATION_EVENT_MESH": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Replace the IDoc with the listed business event (SAP Event Mesh / Advanced Event Mesh) or released API and adapt the middleware mapping.",
+      "title": "IDoc interface has an event / API successor"
+    },
+    "ECC_IDOC_UNSUPPORTED_BLOCKER": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Redesign the integration with a released API or event; the IDoc basic type cannot be used in the target edition.",
+      "title": "IDoc type not supported in the cloud target"
+    },
+    "ECC_INSUFFICIENT_INPUT": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "inputArgs": {
+        "engineName": "ECC2Cloud Navigator",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by ECC2Cloud Navigator (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "ECC_INVALID_INPUT": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "inputArgs": {
+        "engineName": "ECC2Cloud Navigator",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by ECC2Cloud Navigator (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "ECC_PARSE_ERROR": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "inputArgs": {
+        "engineName": "ECC2Cloud Navigator",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by ECC2Cloud Navigator (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "ECC_PAYLOAD_TOO_LARGE": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "inputArgs": {
+        "engineName": "ECC2Cloud Navigator",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by ECC2Cloud Navigator (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "ECC_TCODE_CUSTOM_CODE_REVIEW": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Re-implement the custom dynpro as a RAP-based Fiori Elements app in ABAP Cloud (tier 1) or a BTP side-by-side extension; run the Clean Core Object Guard on its source.",
+      "title": "Custom Z/Y transaction needs Clean Core review"
+    },
+    "ECC_TCODE_NO_EQUIVALENT_BLOCKER": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "The transaction (e.g. SE38, SM30-based maintenance) has no cloud equivalent; move the use case to ADT / ABAP Cloud development, key-user apps or SAP BTP.",
+      "title": "Classic transaction prohibited in S/4HANA Cloud"
+    },
+    "ECC_TCODE_OBSOLETE_REDESIGN": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Run a fit-to-standard workshop for the process behind the transaction; map it to the named successor concept or a standard Fiori app, otherwise to a BTP extension.",
+      "title": "Transaction requires process redesign or is not in the cloud catalog"
+    },
+    "ECC_TCODE_SUCCESSOR_FOUND": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "remediation": "Plan user adoption of the listed Fiori successor app and assign the business role/catalog; retire the classic transaction from roles.",
+      "title": "Fiori / cloud successor available for transaction"
+    },
+    "EXT_ARCHIVE_REJECTED": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "inputArgs": {
+        "engineName": "Extension Impact Guard",
+        "formats": "JSON"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Extension Impact Guard (JSON) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "EXT_CYCLIC_DEPENDENCY_DETECTED": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Break the cycle: move shared fields into a separate interface CDS view (or extend the released C1 view once), let the consumers depend on it one-directionally, and transport the collection in dependency order.",
+      "title": "Cyclic extension dependency"
+    },
+    "EXT_DELETE_BLOCKED_ACTIVE_CONSUMERS": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Remove or re-point every active consumer (form templates, CDS views, APIs, app variants) before deleting the object in 'Custom Fields' / 'Custom CDS Views'; delete consumers first, then the object.",
+      "title": "Deletion blocked by active consumers"
+    },
+    "EXT_HIGH_BLAST_RADIUS_WARNING": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Plan regression tests for every impacted form, CDS view and API; gate the transport with a test sign-off.",
+      "title": "High change blast radius"
+    },
+    "EXT_INSUFFICIENT_INPUT": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "inputArgs": {
+        "engineName": "Extension Impact Guard",
+        "formats": "JSON"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Extension Impact Guard (JSON) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "EXT_INVALID_INPUT": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "inputArgs": {
+        "engineName": "Extension Impact Guard",
+        "formats": "JSON"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Extension Impact Guard (JSON) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "EXT_MODIFICATION_BREAKING_CONSUMERS": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Review field mappings of all downstream consumers and adapt them in the same software collection before transporting the modification.",
+      "title": "Modification impacts downstream consumers"
+    },
+    "EXT_PARSE_ERROR": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "inputArgs": {
+        "engineName": "Extension Impact Guard",
+        "formats": "JSON"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Extension Impact Guard (JSON) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "EXT_PAYLOAD_TOO_LARGE": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "inputArgs": {
+        "engineName": "Extension Impact Guard",
+        "formats": "JSON"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Extension Impact Guard (JSON) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "EXT_SAFE_TO_DELETE": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Deletion is safe with respect to the supplied inventory only; confirm the inventory is complete for the target system, then delete via Key-User Extensibility and transport the deletion.",
+      "title": "No active consumers in the supplied graph"
+    },
+    "EXT_TARGET_OBJECT_NOT_FOUND": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "remediation": "Check the technical name of 'target_object' (case-sensitive) and re-export the extension inventory so it contains the object and all its consumers; no impact verdict was produced.",
+      "title": "Requested extension object absent from the dependency graph"
+    },
+    "FIELD_ARCHIVE_REJECTED": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "inputArgs": {
+        "engineName": "Custom Field Flow Doctor",
+        "formats": "JSON"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Custom Field Flow Doctor (JSON) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "FIELD_BADI_REQUIRED_NOT_FOUND": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "Implement and publish the listed Cloud BAdI in the 'Custom Logic' app so the field value is copied into the target context (e.g. BADI_FINS_ACDOC_EXT_PERSISTENCE for journal entry items).",
+      "title": "Required Cloud BAdI implementation missing"
+    },
+    "FIELD_INSUFFICIENT_INPUT": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "inputArgs": {
+        "engineName": "Custom Field Flow Doctor",
+        "formats": "JSON"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Custom Field Flow Doctor (JSON) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "FIELD_INVALID_INPUT": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "inputArgs": {
+        "engineName": "Custom Field Flow Doctor",
+        "formats": "JSON"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Custom Field Flow Doctor (JSON) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "FIELD_MISSING_TARGET_CONTEXT": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "In the 'Custom Fields' app open the field, tab 'UIs and Reports' / 'Business Scenarios', and enable it for the target business context; publish the field again.",
+      "title": "Custom field not enabled in target business context"
+    },
+    "FIELD_NAME_INVALID_PREFIX": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "Key-user custom fields must use the YY1_ prefix (developer extensibility: ZZ1_). Recreate the field in the 'Custom Fields' app with a compliant technical name and migrate data before transport.",
+      "title": "Custom field name violates key-user naming"
+    },
+    "FIELD_PARSE_ERROR": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "inputArgs": {
+        "engineName": "Custom Field Flow Doctor",
+        "formats": "JSON"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Custom Field Flow Doctor (JSON) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "FIELD_PAYLOAD_TOO_LARGE": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "inputArgs": {
+        "engineName": "Custom Field Flow Doctor",
+        "formats": "JSON"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Custom Field Flow Doctor (JSON) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "FIELD_PROPAGATION_BLOCKED": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "Activate the SAP-delivered business scenario for the hop (Custom Fields > Business Scenarios) or route the value through the supported intermediate document contexts.",
+      "title": "Custom field cannot propagate across this hop"
+    },
+    "FIELD_PROPAGATION_REQUIRES_BADI": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "Keep the BAdI implementation under regression test; it must be re-validated after every upgrade.",
+      "title": "Propagation relies on custom BAdI logic"
+    },
+    "FIELD_TYPE_MISMATCH": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "remediation": "Align type and length of the custom field in both business contexts (a key-user field cannot change type after publishing — create a new field and migrate), otherwise values are truncated or rejected.",
+      "title": "Incompatible field type or length across a propagation hop"
+    },
+    "FIORI_403_ARCHIVE_REJECTED": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "inputArgs": {
+        "engineName": "Fiori 403 Root-Cause Doctor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Fiori 403 Root-Cause Doctor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "FIORI_403_INSUFFICIENT_INPUT": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "inputArgs": {
+        "engineName": "Fiori 403 Root-Cause Doctor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Fiori 403 Root-Cause Doctor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "FIORI_403_INSUFFICIENT_TELEMETRY": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Capture an SU53 trace, the /IWFND/ERROR_LOG entry and the SICF status for the failing request and re-run; the supplied data did not identify a root cause.",
+      "title": "Root cause not determinable from supplied telemetry"
+    },
+    "FIORI_403_INVALID_INPUT": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "inputArgs": {
+        "engineName": "Fiori 403 Root-Cause Doctor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Fiori 403 Root-Cause Doctor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "FIORI_403_PARSE_ERROR": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "inputArgs": {
+        "engineName": "Fiori 403 Root-Cause Doctor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Fiori 403 Root-Cause Doctor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "FIORI_403_PAYLOAD_TOO_LARGE": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "inputArgs": {
+        "engineName": "Fiori 403 Root-Cause Doctor",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Fiori 403 Root-Cause Doctor (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "FIORI_AUTH_OBJECT_MISSING": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Add the failing authorization object values (e.g. S_SERVICE for the service hash, S_START) to the user's PFCG role — via the Fiori business catalog / IAM app in the cloud — and regenerate the profile.",
+      "title": "Authorization check failed (SU53)"
+    },
+    "FIORI_CLOUD_CONNECTOR_DENIED": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Expose the backend resource path in the Cloud Connector access control and fix principal propagation (trust / CN mapping).",
+      "title": "Denied by SAP Cloud Connector"
+    },
+    "FIORI_CSRF_TOKEN_INVALID": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Fetch a token with 'X-CSRF-Token: Fetch' on a GET/HEAD, then send the token and session cookies with the POST/PUT/PATCH/DELETE; check that proxies / Web Dispatcher keep the session cookie.",
+      "title": "CSRF token missing or invalid on modifying request"
+    },
+    "FIORI_GATEWAY_SERVICE_NOT_ACTIVATED": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Register and activate the OData service in /IWFND/MAINT_SERVICE (V2) or /IWFND/V4_ADMIN (V4) and assign the correct system alias.",
+      "title": "Gateway service not registered / no system alias"
+    },
+    "FIORI_ICF_INACTIVE": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Activate the service node and its parents in SICF (or /IWFND/MAINT_SERVICE > ICF Node > Activate).",
+      "title": "ICF service node inactive (SICF)"
+    },
+    "FIORI_UCON_DENIED": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "remediation": "Add the service / RFC function to the UCON communication assembly (UCONCOCKPIT) allowlist or move it out of the logging phase correctly.",
+      "title": "Blocked by UCON / RFC allowlist"
+    },
+    "FORM_ARCHIVE_REJECTED": {
+      "engine": "FORM_DOCTOR",
+      "inputArgs": {
+        "engineName": "FormDoctor",
+        "formats": "XML, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by FormDoctor (XML, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "FORM_BINDING_PATH_MISMATCH": {
+      "engine": "FORM_DOCTOR",
+      "remediation": "Update the field's Binding > Data Binding (dataRef) in the XDP template to the suggested runtime XML path, or align the form interface / CDS data provider so the element appears at the bound path.",
+      "title": "Field binding path does not match runtime XML"
+    },
+    "FORM_FIELD_HIDDEN_IN_LAYOUT": {
+      "engine": "FORM_DOCTOR",
+      "remediation": "In Adobe LiveCycle Designer set the field's Presence to 'Visible' (Object > Field) if it must print; otherwise document the intentional suppression.",
+      "title": "Bound field hidden in layout"
+    },
+    "FORM_FIELD_MISSING_IN_XML": {
+      "engine": "FORM_DOCTOR",
+      "remediation": "Expose the element in the form's data provider (extend the CDS view / Gateway form data service used by Output Management) or remove the unbacked binding from the XDP template.",
+      "title": "Bound field absent from runtime XML"
+    },
+    "FORM_INSUFFICIENT_INPUT": {
+      "engine": "FORM_DOCTOR",
+      "inputArgs": {
+        "engineName": "FormDoctor",
+        "formats": "XML, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by FormDoctor (XML, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "FORM_INVALID_INPUT": {
+      "engine": "FORM_DOCTOR",
+      "inputArgs": {
+        "engineName": "FormDoctor",
+        "formats": "XML, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by FormDoctor (XML, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "FORM_LEGACY_SAPSCRIPT_DETECTED": {
+      "engine": "FORM_DOCTOR",
+      "remediation": "SAPscript is not available in ABAP Cloud / S/4HANA Cloud. Redesign the document as an Adobe Form (XDP) using Output Management (BRFplus determination) or use the SAP-delivered form template.",
+      "title": "Legacy SAPscript detected"
+    },
+    "FORM_LEGACY_SMARTFORM_DETECTED": {
+      "engine": "FORM_DOCTOR",
+      "remediation": "Smart Forms are unsupported in S/4HANA Cloud Public Edition. Rebuild the layout as an Adobe Form (XDP) on a released form data provider, or adopt the SAP-delivered output form template.",
+      "title": "Legacy Smart Form detected"
+    },
+    "FORM_PARSE_ERROR": {
+      "engine": "FORM_DOCTOR",
+      "inputArgs": {
+        "engineName": "FormDoctor",
+        "formats": "XML, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by FormDoctor (XML, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "FORM_PAYLOAD_TOO_LARGE": {
+      "engine": "FORM_DOCTOR",
+      "inputArgs": {
+        "engineName": "FormDoctor",
+        "formats": "XML, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by FormDoctor (XML, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "GAP_RADAR_ARCHIVE_REJECTED": {
+      "engine": "SAP_GAP_RADAR",
+      "inputArgs": {
+        "engineName": "SAP Gap Radar",
+        "formats": "JSON, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by SAP Gap Radar (JSON, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "GAP_RADAR_BLOCKED_CLEAN_CORE_VIOLATION": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Direct table writes / modifications are not possible in the cloud; redesign against released APIs, RAP business objects or BAdIs.",
+      "title": "Requirement implies a Clean Core violation (tier 11)"
+    },
+    "GAP_RADAR_INSUFFICIENT_INPUT": {
+      "engine": "SAP_GAP_RADAR",
+      "inputArgs": {
+        "engineName": "SAP Gap Radar",
+        "formats": "JSON, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by SAP Gap Radar (JSON, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "GAP_RADAR_INVALID_INPUT": {
+      "engine": "SAP_GAP_RADAR",
+      "inputArgs": {
+        "engineName": "SAP Gap Radar",
+        "formats": "JSON, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by SAP Gap Radar (JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "GAP_RADAR_KNOWN_PRODUCT_GAP": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Track the SAP roadmap item, raise an influence request, or cover the gap with a BTP extension.",
+      "title": "Known product gap (tier 11)"
+    },
+    "GAP_RADAR_PARSE_ERROR": {
+      "engine": "SAP_GAP_RADAR",
+      "inputArgs": {
+        "engineName": "SAP Gap Radar",
+        "formats": "JSON, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by SAP Gap Radar (JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "GAP_RADAR_PAYLOAD_TOO_LARGE": {
+      "engine": "SAP_GAP_RADAR",
+      "inputArgs": {
+        "engineName": "SAP Gap Radar",
+        "formats": "JSON, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by SAP Gap Radar (JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "GAP_RADAR_SUPPORTED_BUSINESS_EVENT": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Subscribe to the released business event via SAP Event Mesh / Advanced Event Mesh (Enterprise Event Enablement).",
+      "title": "Requirement met by business events (tier 8)"
+    },
+    "GAP_RADAR_SUPPORTED_CONFIGURATION": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Configure via the SSCUI / Central Business Configuration activity; record it in the configuration workbook.",
+      "title": "Requirement met by configuration (tier 2)"
+    },
+    "GAP_RADAR_SUPPORTED_DEVELOPER_EXTENSIBILITY": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Implement in ABAP Cloud (RAP / released BAdI) in a tier-1 software component; no classic enhancements.",
+      "title": "Requirement met by developer extensibility (tier 4/7)"
+    },
+    "GAP_RADAR_SUPPORTED_KEY_USER": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Implement with Custom Fields / Custom Logic / Custom CDS Views apps and transport via Software Collections.",
+      "title": "Requirement met by key-user extensibility (tier 3)"
+    },
+    "GAP_RADAR_SUPPORTED_RELEASED_API": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Use the released OData/SOAP API with a Communication Arrangement.",
+      "title": "Requirement met by released API (tier 6)"
+    },
+    "GAP_RADAR_SUPPORTED_RELEASED_CDS": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Consume the released (C1) CDS view; never read the underlying tables.",
+      "title": "Requirement met by released CDS views (tier 5)"
+    },
+    "GAP_RADAR_SUPPORTED_SIDE_BY_SIDE": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Build the extension on SAP BTP (CAP / Build Apps) using released APIs and events.",
+      "title": "Requirement met side-by-side on SAP BTP (tier 9)"
+    },
+    "GAP_RADAR_SUPPORTED_STANDARD": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Activate the SAP Best Practices scope item; do not build custom objects for this requirement.",
+      "title": "Requirement met by standard scope item (tier 1)"
+    },
+    "GAP_RADAR_SUPPORTED_WORKAROUND": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Document the workaround, its owner and an exit plan; re-check at every release.",
+      "title": "Requirement only met by a workaround (tier 10)"
+    },
+    "GAP_RADAR_UNKNOWN_REQUIREMENT": {
+      "engine": "SAP_GAP_RADAR",
+      "remediation": "Refine the requirement statement (process, object, integration point) and re-run, or assess manually.",
+      "title": "Requirement could not be classified (tier 12)"
+    },
+    "IAM_ARCHIVE_REJECTED": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "inputArgs": {
+        "engineName": "IAM Cost Optimizer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by IAM Cost Optimizer (JSON, CSV) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "IAM_INSUFFICIENT_INPUT": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "inputArgs": {
+        "engineName": "IAM Cost Optimizer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by IAM Cost Optimizer (JSON, CSV) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "IAM_INVALID_INPUT": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "inputArgs": {
+        "engineName": "IAM Cost Optimizer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by IAM Cost Optimizer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "IAM_LICENSE_TIER_INFLATION_DRIVER": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "remediation": "Move the tier-raising app into a separate, narrowly assigned role so the remaining users stay on the lower (Core / Self-Service) tier.",
+      "title": "Single app raises the role's license tier"
+    },
+    "IAM_PARSE_ERROR": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "inputArgs": {
+        "engineName": "IAM Cost Optimizer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by IAM Cost Optimizer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "IAM_PAYLOAD_TOO_LARGE": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "inputArgs": {
+        "engineName": "IAM Cost Optimizer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by IAM Cost Optimizer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "IAM_PERMANENT_EMERGENCY_ROLE": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "remediation": "Delimit the emergency / firefighter role assignment (SU01 / Identity Provisioning) and route access through an approved emergency access process with logging.",
+      "title": "Emergency role assigned without end date"
+    },
+    "IAM_REDUNDANT_CATALOG_DETECTED": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "remediation": "Remove the redundant business catalog from the role (PFCG / 'Maintain Business Roles'); its apps are already granted by the superset catalog.",
+      "title": "Catalog fully contained in another catalog of the role"
+    },
+    "IAM_UNUSED_CRITICAL_AUTHORIZATION": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "remediation": "Revoke the unused critical authorization object from the role or provide it via firefighter / PAM access only.",
+      "title": "Critical authorization never used"
+    },
+    "MFS_ARCHIVE_REJECTED": {
+      "engine": "MFS_BLACKBOX",
+      "inputArgs": {
+        "engineName": "MFS BlackBox",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by MFS BlackBox (JSON, CSV) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "MFS_CORRUPTED_TELEGRAM": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Check the PLC / MFS telegram structure definition (/SCWM/MFS telegram structures) and the log export; corrupted records were excluded from the reconstruction.",
+      "title": "Malformed telegram record"
+    },
+    "MFS_DUPLICATE_TELEGRAM_SEND": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Investigate missing / late ACKs that trigger retransmission; tune the resend interval and max retries in the channel configuration.",
+      "title": "Duplicate telegram retransmission (retry storm)"
+    },
+    "MFS_FIRST_CAUSAL_DIVERGENCE": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Start the root-cause analysis at the referenced telegram; later anomalies are likely consequences.",
+      "title": "First causal divergence in the incident timeline"
+    },
+    "MFS_IMPOSSIBLE_TOPOLOGY_JUMP": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Verify the conveyor segment / communication point definitions against the physical layout and check for missed scanner reads between the two points.",
+      "title": "HU moved between non-adjacent conveyor points"
+    },
+    "MFS_INSUFFICIENT_INPUT": {
+      "engine": "MFS_BLACKBOX",
+      "inputArgs": {
+        "engineName": "MFS BlackBox",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by MFS BlackBox (JSON, CSV) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "MFS_INVALID_INPUT": {
+      "engine": "MFS_BLACKBOX",
+      "inputArgs": {
+        "engineName": "MFS BlackBox",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by MFS BlackBox (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "MFS_MISSING_ACK_TIMEOUT": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Check PLC connectivity and the channel's ACK timeout; unacknowledged moves leave warehouse tasks open.",
+      "title": "Telegram not acknowledged within timeout"
+    },
+    "MFS_OUT_OF_ORDER_SEQUENCE": {
+      "engine": "MFS_BLACKBOX",
+      "remediation": "Check the communication channel's sequence number handling and resend buffer (/SCWM/MFS_CP_CHANNEL monitoring); lost telegrams must be resynchronised with the PLC.",
+      "title": "Telegram sequence out of order or with gaps"
+    },
+    "MFS_PARSE_ERROR": {
+      "engine": "MFS_BLACKBOX",
+      "inputArgs": {
+        "engineName": "MFS BlackBox",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by MFS BlackBox (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "MFS_PAYLOAD_TOO_LARGE": {
+      "engine": "MFS_BLACKBOX",
+      "inputArgs": {
+        "engineName": "MFS BlackBox",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by MFS BlackBox (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "OPD_ARCHIVE_REJECTED": {
+      "engine": "OPD_GUARD",
+      "inputArgs": {
+        "engineName": "OPD Guard",
+        "formats": "JSON, XML, CSV, XLSX"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by OPD Guard (JSON, XML, CSV, XLSX) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "OPD_CHANNEL_INACTIVE": {
+      "engine": "OPD_GUARD",
+      "remediation": "Change the Channel decision table result to a supported channel (EMAIL, PRINT, EDI, XML, IDOC, PORTAL) and make sure the channel is active for the output type in SPRO > Output Control > Define Business Rules.",
+      "title": "Determined output channel is inactive or unsupported"
+    },
+    "OPD_DETERMINATION_STEP_MISSING": {
+      "engine": "OPD_GUARD",
+      "remediation": "In 'Output Parameter Determination' (BRFplus, app 'Output Parameter Determination'), add a decision table row for the failing step that matches the document's condition values, or add a trailing wildcard ('*') fallback row. Re-run the determination simulation for the document type.",
+      "title": "Output determination step has no matching rule"
+    },
+    "OPD_INSUFFICIENT_INPUT": {
+      "engine": "OPD_GUARD",
+      "inputArgs": {
+        "engineName": "OPD Guard",
+        "formats": "JSON, XML, CSV, XLSX"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by OPD Guard (JSON, XML, CSV, XLSX) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "OPD_INVALID_INPUT": {
+      "engine": "OPD_GUARD",
+      "inputArgs": {
+        "engineName": "OPD Guard",
+        "formats": "JSON, XML, CSV, XLSX"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by OPD Guard (JSON, XML, CSV, XLSX) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "OPD_PARSE_ERROR": {
+      "engine": "OPD_GUARD",
+      "inputArgs": {
+        "engineName": "OPD Guard",
+        "formats": "JSON, XML, CSV, XLSX"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by OPD Guard (JSON, XML, CSV, XLSX) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "OPD_PAYLOAD_TOO_LARGE": {
+      "engine": "OPD_GUARD",
+      "inputArgs": {
+        "engineName": "OPD Guard",
+        "formats": "JSON, XML, CSV, XLSX"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by OPD Guard (JSON, XML, CSV, XLSX) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "OPD_PRINTER_QUEUE_NOT_FOUND": {
+      "engine": "OPD_GUARD",
+      "remediation": "Maintain a Printer decision table row returning a valid print queue (app 'Maintain Print Queues' / SAP Cloud Print Manager, or SPAD output device on-premise).",
+      "title": "PRINT channel without a print queue"
+    },
+    "OPD_RELEVANCE_SUPPRESSED": {
+      "engine": "OPD_GUARD",
+      "remediation": "Confirm the Output Relevance table intentionally returns FALSE for this document status; otherwise correct the relevance condition.",
+      "title": "Output generation suppressed by relevance rule"
+    },
+    "OPD_UNREACHABLE_RULE": {
+      "engine": "OPD_GUARD",
+      "remediation": "Reorder the decision table so specific condition rows precede broader wildcard rows (BRFplus evaluates first-match), or delete the redundant row.",
+      "title": "Decision table row shadowed by an earlier row"
+    },
+    "REFRESH_ARCHIVE_REJECTED": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "inputArgs": {
+        "engineName": "System Refresh Delta Guard",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by System Refresh Delta Guard (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "REFRESH_CRITICAL_JOB_SCHEDULED": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Suspend released jobs (BTCTRNS1) after the copy and only re-release reviewed jobs.",
+      "title": "Sensitive production jobs released in the copy"
+    },
+    "REFRESH_INPUT_SID_MISMATCH": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Re-extract from the refreshed (target) system; checks against the wrong system are meaningless.",
+      "title": "Extract SID differs from the refreshed target SID"
+    },
+    "REFRESH_INSUFFICIENT_INPUT": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "inputArgs": {
+        "engineName": "System Refresh Delta Guard",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by System Refresh Delta Guard (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "REFRESH_INVALID_INPUT": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "inputArgs": {
+        "engineName": "System Refresh Delta Guard",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by System Refresh Delta Guard (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "REFRESH_ISOLATION_VERIFIED": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "No action; the verdict covers exactly the supplied RFC, SCOT, logical-system, job and printer extracts.",
+      "title": "Isolation verified for the supplied sections"
+    },
+    "REFRESH_LOGICAL_SYSTEM_UNADJUSTED": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Run BDLS for the client to convert the production logical system names and re-check ALE partner profiles (WE20).",
+      "title": "Logical system names not converted (BDLS)"
+    },
+    "REFRESH_PARSE_ERROR": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "inputArgs": {
+        "engineName": "System Refresh Delta Guard",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by System Refresh Delta Guard (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "REFRESH_PAYLOAD_TOO_LARGE": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "inputArgs": {
+        "engineName": "System Refresh Delta Guard",
+        "formats": "JSON, CSV, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by System Refresh Delta Guard (JSON, CSV, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "REFRESH_PRODUCTION_PRINTER_ACTIVE": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Lock or re-point production output devices in SPAD to test devices.",
+      "title": "Production printers active in the copy"
+    },
+    "REFRESH_RFC_TARGETS_PRODUCTION": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Re-point or lock the listed SM59 destinations (post-copy automation / BDLS + RFC import) before releasing the system; production calls from a copy corrupt productive data.",
+      "title": "RFC destinations still point to production"
+    },
+    "REFRESH_SCOT_OUTBOUND_ACTIVE": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "remediation": "Deactivate the SMTP node or configure a catch-all redirect in SCOT/SOST before restarting jobs.",
+      "title": "Outbound mail active without redirection"
+    },
+    "SC_ARCHIVE_REJECTED": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "inputArgs": {
+        "engineName": "Software Collection Dependency Guard",
+        "formats": "JSON, XML, ZIP"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Software Collection Dependency Guard (JSON, XML, ZIP) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "SC_CIRCULAR_DEPENDENCY": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "remediation": "Merge the interdependent items into one collection or move the shared prerequisite objects into a foundation collection imported first; circular collections cannot be imported in any order.",
+      "title": "Circular dependency between software collections"
+    },
+    "SC_DANGLING_FIELD_REFERENCE": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "remediation": "Add the referenced custom field to an exported collection or confirm it exists in the target tenant; otherwise the import fails activation.",
+      "title": "Item references a field that is not exported or present"
+    },
+    "SC_DRAFT_ITEM_INCLUDED": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "remediation": "Publish the item in its key-user app (Custom Fields / Custom Logic / Custom CDS Views) before export; draft items are not transported.",
+      "title": "Unpublished (draft) item in collection"
+    },
+    "SC_INSUFFICIENT_INPUT": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "inputArgs": {
+        "engineName": "Software Collection Dependency Guard",
+        "formats": "JSON, XML, ZIP"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Software Collection Dependency Guard (JSON, XML, ZIP) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "SC_INVALID_INPUT": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "inputArgs": {
+        "engineName": "Software Collection Dependency Guard",
+        "formats": "JSON, XML, ZIP"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Software Collection Dependency Guard (JSON, XML, ZIP) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "SC_MISSING_PREREQUISITE": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "remediation": "Add the prerequisite collection to the export, or import it into the target tenant first ('Import Collection'), then re-run the preflight.",
+      "title": "Prerequisite collection neither exported nor in target"
+    },
+    "SC_PARSE_ERROR": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "inputArgs": {
+        "engineName": "Software Collection Dependency Guard",
+        "formats": "JSON, XML, ZIP"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Software Collection Dependency Guard (JSON, XML, ZIP) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "SC_PAYLOAD_TOO_LARGE": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "inputArgs": {
+        "engineName": "Software Collection Dependency Guard",
+        "formats": "JSON, XML, ZIP"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Software Collection Dependency Guard (JSON, XML, ZIP) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "SC_SCHEMA_VALIDATION_FAILED": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "remediation": "Re-export the software collection from 'Export Software Collection'; the named collection/item entry is missing mandatory attributes (id, type, status) and was excluded from the dependency analysis.",
+      "title": "Collection or item entry violates the export schema"
+    },
+    "SPRO_ARCHIVE_REJECTED": {
+      "engine": "SPRO2CLOUD",
+      "inputArgs": {
+        "engineName": "SPRO2Cloud",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by SPRO2Cloud (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "SPRO_INSUFFICIENT_INPUT": {
+      "engine": "SPRO2CLOUD",
+      "inputArgs": {
+        "engineName": "SPRO2Cloud",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by SPRO2Cloud (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "SPRO_INVALID_INPUT": {
+      "engine": "SPRO2CLOUD",
+      "inputArgs": {
+        "engineName": "SPRO2Cloud",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by SPRO2Cloud (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "SPRO_MAPPING_EXACT": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "Re-create the setting in the target tenant via the mapped SSCUI in 'Manage Your Solution' > Configure Your Solution, under the listed scope item; no redesign required.",
+      "title": "IMG activity has an exact cloud SSCUI equivalent"
+    },
+    "SPRO_MAPPING_NEEDS_REVIEW": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "The activity is not in the curated SPRO→SSCUI catalog snapshot. Assess it manually; custom Z/Y tables can be rebuilt as Custom Business Objects or ABAP Cloud tables with a maintenance app.",
+      "title": "Uncataloged / custom configuration needs manual review"
+    },
+    "SPRO_MAPPING_NOT_AVAILABLE": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "Treat as a cloud parity gap: adopt the standard process, move the requirement to a side-by-side extension on SAP BTP, or reconsider the Private Edition.",
+      "title": "IMG activity not available in S/4HANA Cloud Public Edition"
+    },
+    "SPRO_MAPPING_PARTIAL": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "Use the mapped SSCUI for the supported parameters; re-implement the restricted sub-parameters with key-user extensibility or document them as a fit-to-standard deviation.",
+      "title": "IMG activity only partially available in cloud"
+    },
+    "SPRO_MAPPING_PROCESS_REDESIGN": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "Redesign the process on the cloud successor concept named in the finding (e.g. Output Management instead of NACE); plan it as a migration work package with business sign-off.",
+      "title": "Legacy configuration concept requires process redesign"
+    },
+    "SPRO_MAPPING_SCOPE_DEPENDENT": {
+      "engine": "SPRO2CLOUD",
+      "remediation": "Activate the listed scope items in Central Business Configuration before configuring the SSCUI; check licensing for the scope item.",
+      "title": "Cloud setting requires scope item activation"
+    },
+    "SPRO_PARSE_ERROR": {
+      "engine": "SPRO2CLOUD",
+      "inputArgs": {
+        "engineName": "SPRO2Cloud",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by SPRO2Cloud (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "SPRO_PAYLOAD_TOO_LARGE": {
+      "engine": "SPRO2CLOUD",
+      "inputArgs": {
+        "engineName": "SPRO2Cloud",
+        "formats": "CSV, JSON, TEXT"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by SPRO2Cloud (CSV, JSON, TEXT) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "TR_ARCHIVE_REJECTED": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "inputArgs": {
+        "engineName": "Transport Dependency Analyzer",
+        "formats": "JSON, CSV, XML"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Transport Dependency Analyzer (JSON, CSV, XML) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "TR_CALL_DEPENDENCY_SEQUENCE_RISK": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "remediation": "Import the transport containing the referenced object first (adjust the STMS import queue / planned sequence) or bundle caller and callee in one transport of copies.",
+      "title": "Caller imported before the object it references"
+    },
+    "TR_CIRCULAR_DEPENDENCY_DETECTED": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "remediation": "Merge the mutually dependent requests into one transport of copies; circular requests have no valid import order.",
+      "title": "Circular dependency between transports"
+    },
+    "TR_CUSTOMIZING_AHEAD_OF_STRUCTURE": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "remediation": "Import the workbench request that creates/changes the table structure before the customizing request carrying its table entries (E071K).",
+      "title": "Customizing imported before its DDIC structure"
+    },
+    "TR_INSUFFICIENT_INPUT": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "inputArgs": {
+        "engineName": "Transport Dependency Analyzer",
+        "formats": "JSON, CSV, XML"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Transport Dependency Analyzer (JSON, CSV, XML) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "TR_INVALID_INPUT": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "inputArgs": {
+        "engineName": "Transport Dependency Analyzer",
+        "formats": "JSON, CSV, XML"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Transport Dependency Analyzer (JSON, CSV, XML) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "TR_OBJECT_COLLISION": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "remediation": "Consolidate the object's changes into one transport (or use ChaRM / cross-system object lock, CSOL); otherwise the later import silently overwrites the earlier version.",
+      "title": "Object locked in multiple concurrent transports"
+    },
+    "TR_OVERTAKER_DOWNGRADE_RISK": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "remediation": "Do not import the older transport after the newer one (overtaker); re-sequence the queue or remove the object from the older request.",
+      "title": "Older object version overtakes a newer one"
+    },
+    "TR_PARSE_ERROR": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "inputArgs": {
+        "engineName": "Transport Dependency Analyzer",
+        "formats": "JSON, CSV, XML"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Transport Dependency Analyzer (JSON, CSV, XML) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "TR_PAYLOAD_TOO_LARGE": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "inputArgs": {
+        "engineName": "Transport Dependency Analyzer",
+        "formats": "JSON, CSV, XML"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Transport Dependency Analyzer (JSON, CSV, XML) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "WF_ARCHIVE_REJECTED": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "inputArgs": {
+        "engineName": "Workflow Stuck Explainer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "ARCHIVE_REJECTED",
+      "remediation": "The archive exceeded the 100:1 expansion ratio, 500 MB total size, entry-count or 2-level nesting limit, or contained path traversal / encrypted members. Upload a flat, unencrypted archive of the export files. No verdict was produced. Re-export the artifact in one of the formats accepted by Workflow Stuck Explainer (JSON, CSV) and re-run the analysis.",
+      "title": "Archive rejected by ingestion safety limits"
+    },
+    "WF_BACKGROUND_TASK_FAILED": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Analyse the exception in SWI1 / SWWLOGHIST, correct the data or method, then restart the item via SWPR / SWIA 'Restart after error'.",
+      "title": "Background step ended in error"
+    },
+    "WF_CONTAINER_BINDING_ERROR": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Fix the binding in the workflow builder (SWDD) or the task container; correct the instance data and restart the item.",
+      "title": "Container element empty or binding failed"
+    },
+    "WF_DEADLINE_BREACHED": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Escalate per the deadline configuration, forward to a substitute and review the deadline job (SWWDHEX / SWWDEADL).",
+      "title": "Deadline / SLA exceeded"
+    },
+    "WF_DEADLOCK_DETECTED": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Break the wait cycle: complete or logically delete one item (SWIA) and redesign the conditions / fork so the steps do not wait on each other.",
+      "title": "Circular wait between work items"
+    },
+    "WF_EVENT_LINKAGE_DEACTIVATED": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Reactivate the linkage in SWE2 (and check why it was deactivated — error feedback 'deactivate linkage').",
+      "title": "Event type linkage deactivated"
+    },
+    "WF_INSUFFICIENT_INPUT": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "inputArgs": {
+        "engineName": "Workflow Stuck Explainer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INSUFFICIENT_INPUT",
+      "remediation": "Supply every input the engine's contract marks as required (see the engine catalog entry). No verdict was produced. Re-export the artifact in one of the formats accepted by Workflow Stuck Explainer (JSON, CSV) and re-run the analysis.",
+      "title": "Required input missing"
+    },
+    "WF_INVALID_INPUT": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "inputArgs": {
+        "engineName": "Workflow Stuck Explainer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "INVALID_INPUT",
+      "remediation": "Provide the artifact type documented for this engine; unrelated or structurally invalid documents are rejected. No verdict was produced. Re-export the artifact in one of the formats accepted by Workflow Stuck Explainer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact does not match the engine input contract"
+    },
+    "WF_PARSE_ERROR": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "inputArgs": {
+        "engineName": "Workflow Stuck Explainer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PARSE_ERROR",
+      "remediation": "Fix the syntax error at the reported line/column (or re-export the file unmodified from SAP). No verdict was produced. Re-export the artifact in one of the formats accepted by Workflow Stuck Explainer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact could not be parsed"
+    },
+    "WF_PAYLOAD_TOO_LARGE": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "inputArgs": {
+        "engineName": "Workflow Stuck Explainer",
+        "formats": "JSON, CSV"
+      },
+      "inputRule": "PAYLOAD_TOO_LARGE",
+      "remediation": "Split the export (e.g. per package, company code or date range) so each upload stays under the service payload limit. No verdict was produced. Re-export the artifact in one of the formats accepted by Workflow Stuck Explainer (JSON, CSV) and re-run the analysis.",
+      "title": "Artifact exceeds the size limit"
+    },
+    "WF_STUCK_NO_AGENT": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "remediation": "Forward the work item in SWIA; then fix the agent rule (PFAC / 'Manage Workflows' responsibility rules) and the org assignment (PPOME) so it resolves to at least one active user.",
+      "title": "Work item READY without any possible agent"
+    }
+  }
+}
