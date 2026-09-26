@@ -18,6 +18,7 @@ import {
   ReleasedObjectsConfiguration,
 } from '../knowledge-graph/released-objects.provider';
 import { AnalysisProgressTracker } from './analysis-progress';
+import { RunCancellation, isCancellationError } from './run-cancellation';
 import { correlate, type EngineCallRecord, type PreflightSummary } from './orchestration/correlation';
 import { buildRegressionTests, REGRESSION_TEST_VERSION, type TestSourceFinding } from './orchestration/regression-tests';
 
@@ -67,6 +68,8 @@ export interface AnalysisRunInput {
   stages?: EngineType[][];
   concurrency?: number;
   kind?: 'STANDARD' | 'FULL_PREFLIGHT';
+  /** Cooperative cancellation (tests inject one; otherwise created per run, polling analyses.cancel_requested_at). */
+  cancellation?: RunCancellation;
 }
 
 export interface EngineAssignmentInput {
@@ -76,10 +79,14 @@ export interface EngineAssignmentInput {
 }
 
 export type EngineRunOutcome = 'COMPLETED' | 'PARTIAL' | 'FAILED';
+/** Final status of a run: an engine outcome aggregate, or CANCELLED (cooperative cancellation). */
+export type AnalysisFinalStatus = EngineRunOutcome | 'CANCELLED';
 
 export interface AnalysisRunResult {
-  finalStatus: EngineRunOutcome;
+  finalStatus: AnalysisFinalStatus;
   totalFindings: number;
+  /** Findings reported by engines before a cancellation; never persisted (not published). */
+  discardedFindings?: number;
   engineOutcomes: Record<string, EngineRunOutcome>;
   /** Per engine x artifact call outcome (orchestration summary input). */
   calls?: EngineCallRecord[];
@@ -91,6 +98,27 @@ interface WorkUnit {
   engine: EngineType;
   artifact: PreparedArtifact;
   companions: Array<{ configKey: string; artifact: PreparedArtifact }>;
+}
+
+/**
+ * Findings an engine call reported, held in memory until the run passes its publish gate
+ * (so a cancelled run never publishes partial findings, and the persisted order is the
+ * deterministic work-unit order instead of the parallel completion order).
+ */
+interface PendingFindings {
+  order: number;
+  engine: EngineType;
+  findings: Array<Record<string, any>>;
+  lifecycle: {
+    artifactName: string | null;
+    sourceFileId: string | null;
+    engineVersion: string | null;
+    ruleVersions: Record<string, string>;
+    knowledgeSnapshotId: string | null;
+  } | null;
+  call: EngineCallRecord;
+  /** The call COMPLETED: its (engine, artifact) pair counts as evaluated once the findings are stored. */
+  markEvaluated: string | null;
 }
 
 type AnalysisFindingRow = TestSourceFinding & { technicalDetails: Record<string, unknown> | null };
@@ -328,13 +356,67 @@ export class AnalysisExecutor {
   }
 
   async run(input: AnalysisRunInput): Promise<AnalysisRunResult> {
+    const cancellation =
+      input.cancellation ?? new RunCancellation(this.db, input.organizationId, input.analysisId, this.logger);
+    try {
+      return await this.runWithCancellation(input, cancellation);
+    } finally {
+      cancellation.stop();
+    }
+  }
+
+  /**
+   * Finalises a cancelled run: status CANCELLED (only while the run has not been published),
+   * the executing stage is marked CANCELLED, engine calls made so far are kept for the run
+   * detail, findings reported so far are discarded (they were never persisted).
+   */
+  private async finishCancelled(
+    input: AnalysisRunInput,
+    progress: AnalysisProgressTracker | null,
+    calls: EngineCallRecord[],
+    discardedFindings: number
+  ): Promise<AnalysisRunResult> {
+    const { analysisId, organizationId } = input;
+    await this.db
+      .query(
+        `UPDATE analyses
+            SET status = 'CANCELLED', cancelled_at = COALESCE(cancelled_at, NOW()), completed_at = COALESCE(completed_at, NOW()),
+                orchestration = COALESCE(orchestration, '{}'::jsonb) || $3::jsonb
+          WHERE id = $1 AND organization_id = $2 AND status IN ('QUEUED', 'RUNNING') AND published_at IS NULL`,
+        [analysisId, organizationId, JSON.stringify({ calls: calls.slice(0, 500), cancelled: { discardedFindings } })],
+        { tenantId: organizationId }
+      )
+      .catch((err: any) => this.logger.warn(`Could not finalise cancelled analysis ${analysisId}: ${err?.message ?? err}`));
+    const tracker = progress ?? (await AnalysisProgressTracker.resume(this.db, organizationId, analysisId, this.logger));
+    await tracker.cancel(
+      discardedFindings > 0
+        ? `Cancelled on request; ${discardedFindings} finding(s) reported before the stop were discarded (not published).`
+        : 'Cancelled on request.',
+      { discardedFindings }
+    );
+    const engineOutcomes: Record<string, EngineRunOutcome> = {};
+    for (const c of calls) engineOutcomes[c.engine] = c.outcome;
+    this.logger.log(`Analysis ${analysisId} cancelled after ${calls.length} engine call(s); ${discardedFindings} finding(s) discarded`);
+    return { finalStatus: 'CANCELLED', totalFindings: 0, discardedFindings, engineOutcomes, calls };
+  }
+
+  private async runWithCancellation(input: AnalysisRunInput, cancellation: RunCancellation): Promise<AnalysisRunResult> {
     const { analysisId, organizationId, projectId, targetRelease } = input;
 
+    // A run cancelled while it was queued (or before a BullMQ retry) never starts.
+    if (await cancellation.check()) {
+      return this.finishCancelled(input, null, [], 0);
+    }
     const runningRes = await this.db.query(
-      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2 RETURNING created_at`,
+      `UPDATE analyses SET status = 'RUNNING', started_at = COALESCE(started_at, NOW())
+        WHERE id = $1 AND organization_id = $2 AND status <> 'CANCELLED' RETURNING created_at`,
       [analysisId, organizationId],
       { tenantId: organizationId }
     );
+    if (!runningRes?.rows?.length && (await cancellation.check())) {
+      return this.finishCancelled(input, null, [], 0);
+    }
+    cancellation.start();
     // Time-based rules (e.g. decommission recency) need a stable reference date. Use the
     // analysis creation date so re-runs of the same analysis stay reproducible; an
     // evaluation date inside the artifact or the requested configuration still wins.
@@ -352,9 +434,11 @@ export class AnalysisExecutor {
         throw new Error(`Analysis ${analysisId} has no resolvable artifacts to analyse`);
       }
     } catch (err: any) {
+      if (await cancellation.check()) return this.finishCancelled(input, progress, [], 0);
       await progress.fail(String(err?.message ?? err), 'PARSING');
       throw err;
     }
+    if (await cancellation.check()) return this.finishCancelled(input, progress, [], 0);
     await progress.complete('PARSING', {
       artifacts: artifacts.length,
       bytes: artifacts.reduce((n, a) => n + (a.rawContent?.length ?? 0), 0),
@@ -366,7 +450,10 @@ export class AnalysisExecutor {
     const concurrency = input.stages?.length ? Math.max(1, Math.min(8, input.concurrency ?? 4)) : 1;
 
     let totalFindings = 0;
+    let reportedFindings = 0;
     const calls: EngineCallRecord[] = [];
+    const pending: PendingFindings[] = [];
+    const unitOrder = new Map<WorkUnit, number>(units.map((u, i) => [u, i]));
     const perEngine = new Map<EngineType, { completed: number; partial: number; failed: number; units: number }>();
     for (const u of units) {
       const s = perEngine.get(u.engine) ?? { completed: 0, partial: 0, failed: 0, units: 0 };
@@ -386,11 +473,24 @@ export class AnalysisExecutor {
       parallel: concurrency > 1,
     });
 
-    for (let stageIdx = 0; stageIdx < stages.length; stageIdx++) {
+    for (let stageIdx = 0; stageIdx < stages.length && !cancellation.cancelled; stageIdx++) {
       const stageUnits = stages[stageIdx];
       await runPool(stageUnits, concurrency, async (unit) => {
-        const record = await this.executeUnit(unit, input, evaluationDate, knowledgeCache, recordedSnapshots, lifecycleRun);
-        totalFindings += record.persisted;
+        // Cancellation is checked between engine steps; the in-flight call is aborted via the signal.
+        if (cancellation.cancelled) return;
+        const record = await this.executeUnit(
+          unit,
+          input,
+          evaluationDate,
+          knowledgeCache,
+          recordedSnapshots,
+          lifecycleRun,
+          cancellation,
+          unitOrder.get(unit) ?? 0
+        );
+        if (!record) return; // aborted by cancellation
+        reportedFindings += record.pending?.findings.length ?? 0;
+        if (record.pending) pending.push(record.pending);
         calls.push(record.call);
         const s = perEngine.get(unit.engine)!;
         if (record.call.outcome === 'COMPLETED') s.completed++;
@@ -402,9 +502,51 @@ export class AnalysisExecutor {
           total: units.length,
           stage: stageIdx + 1,
           lastEngine: unit.engine,
-          findings: totalFindings,
+          findings: reportedFindings,
         });
       });
+    }
+
+    // --- Publish gate: past this point the run can no longer be cancelled ------------------
+    if (cancellation.cancelled || (await cancellation.check())) {
+      return this.finishCancelled(input, progress, calls, reportedFindings);
+    }
+    const gate = await this.db.query(
+      `UPDATE analyses SET published_at = NOW()
+        WHERE id = $1 AND organization_id = $2 AND cancel_requested_at IS NULL AND status <> 'CANCELLED'
+        RETURNING id`,
+      [analysisId, organizationId],
+      { tenantId: organizationId }
+    );
+    if (!gate?.rows?.length && (await cancellation.check())) {
+      return this.finishCancelled(input, progress, calls, reportedFindings);
+    }
+    cancellation.stop();
+    pending.sort((a, b) => a.order - b.order);
+    for (const p of pending) {
+      try {
+        const persisted = await this.persistFindings(
+          organizationId,
+          projectId,
+          analysisId,
+          p.engine,
+          p.findings,
+          lifecycleRun && p.lifecycle ? { run: lifecycleRun, ...p.lifecycle } : undefined
+        );
+        p.call.findings = persisted;
+        totalFindings += persisted;
+        if (lifecycleRun && p.markEvaluated !== null) this.lifecycle.markEvaluated(lifecycleRun, p.engine, p.markEvaluated);
+      } catch (err: any) {
+        // A storage failure fails this engine call only (its transaction rolled back), as before.
+        this.logger.warn(`Persisting findings of '${p.engine}' for analysis ${analysisId} failed: ${err?.message ?? err}`);
+        const s = perEngine.get(p.engine)!;
+        if (p.call.outcome === 'COMPLETED') s.completed--;
+        else if (p.call.outcome === 'PARTIAL') s.partial--;
+        if (p.call.outcome !== 'FAILED') s.failed++;
+        p.call.outcome = 'FAILED';
+        p.call.findings = 0;
+        p.call.error = `Persisting findings failed: ${String(err?.message ?? err)}`.slice(0, 300);
+      }
     }
 
     let completedCalls = 0;
@@ -480,15 +622,31 @@ export class AnalysisExecutor {
     try {
       const tests = buildRegressionTests(findingRows, targetRelease);
       if (tests.length === 0) {
-        await progress.skip('GENERATING_TESTS', 'No evidence-backed BLOCKER/CRITICAL/MAJOR finding to derive a regression test from.');
+        await progress.skip(
+          'GENERATING_TESTS',
+          'No evidence-backed BLOCKER/CRITICAL/MAJOR finding to derive a regression test from.',
+          'NO_ELIGIBLE_FINDINGS'
+        );
       } else {
         await progress.start('GENERATING_TESTS', { eligible: tests.length });
         await this.db.withTenantTransaction(organizationId, async (client) => {
           for (const t of tests) {
             await client.query(
-              `INSERT INTO tests (id, organization_id, project_id, finding_id, title, test_type, steps, expected_result, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')`,
-              [uuidv4(), organizationId, projectId, t.findingId, t.title, t.testType, JSON.stringify(t.steps), t.expectedResult]
+              `INSERT INTO tests (id, organization_id, project_id, finding_id, title, test_type, steps, expected_result, status,
+                                  analysis_id, generator_version)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', $9, $10)`,
+              [
+                uuidv4(),
+                organizationId,
+                projectId,
+                t.findingId,
+                t.title,
+                t.testType,
+                JSON.stringify(t.steps),
+                t.expectedResult,
+                analysisId,
+                REGRESSION_TEST_VERSION,
+              ]
             );
           }
         });
@@ -504,7 +662,7 @@ export class AnalysisExecutor {
     await progress.start('FINALIZING');
     await this.lifecycle.finishRun(lifecycleRun);
     await this.db.query(
-      `UPDATE analyses SET status = $1, completed_at = NOW() WHERE id = $2 AND organization_id = $3`,
+      `UPDATE analyses SET status = $1, completed_at = NOW() WHERE id = $2 AND organization_id = $3 AND status <> 'CANCELLED'`,
       [finalStatus, analysisId, organizationId],
       { tenantId: organizationId }
     );
@@ -559,14 +717,21 @@ export class AnalysisExecutor {
     return stages;
   }
 
+  /**
+   * One engine x artifact call. Findings are NOT persisted here: they are returned as
+   * PendingFindings and published after the run passed its publish gate. Returns null
+   * when the call was aborted by a cancellation.
+   */
   private async executeUnit(
     unit: WorkUnit,
     input: AnalysisRunInput,
     evaluationDate: string | undefined,
     knowledgeCache: Map<string, ReleasedObjectsConfiguration | null>,
     recordedSnapshots: Set<string>,
-    lifecycleRun?: LifecycleRunContext
-  ): Promise<{ call: EngineCallRecord; persisted: number }> {
+    lifecycleRun: LifecycleRunContext | undefined,
+    cancellation: RunCancellation,
+    order: number
+  ): Promise<{ call: EngineCallRecord; pending: PendingFindings | null } | null> {
     const { analysisId, organizationId, projectId, targetRelease } = input;
     const { engine, artifact } = unit;
     const label = `Engine '${engine}' on artifact '${artifact.fileName ?? artifact.storagePath ?? 'inline'}'`;
@@ -580,8 +745,10 @@ export class AnalysisExecutor {
       rulesEvaluated: 0,
       durationMs: 0,
       error: null,
+      engineVersion: null,
     };
-    let persisted = 0;
+    let pending: PendingFindings | null = null;
+    let aborted = false;
     try {
       const knowledgeConfig = await this.knowledgeConfiguration(engine, artifact, input, knowledgeCache, recordedSnapshots);
       const companionConfig: Record<string, unknown> = {};
@@ -618,36 +785,35 @@ export class AnalysisExecutor {
           'X-Tenant-Id': organizationId,
         },
         body: JSON.stringify(wirePayload),
+        signal: cancellation.signal,
       });
 
       if (!res.ok) {
         const errText = await res.text();
         this.logger.error(`${label} failed [HTTP ${res.status}]: ${errText}`);
         call.error = `HTTP ${res.status}`;
-        return { call, persisted };
+        return { call, pending };
       }
 
       const validated = AnalysisJobResponseSchema.parse(await res.json());
       call.rulesEvaluated = validated.metrics?.rulesEvaluated ?? 0;
+      call.engineVersion = engineVersionOf(validated.metrics);
 
       if (validated.status === 'FAILED') {
         this.logger.error(
           `${label} reported FAILED: ${validated.errorMessage ?? 'no error message'} (diagnostic findings not persisted)`
         );
         call.error = (validated.errorMessage ?? 'engine reported FAILED').slice(0, 300);
-        return { call, persisted };
+        return { call, pending };
       }
 
       if (validated.findings.length > 0) {
-        persisted = await this.persistFindings(
-          organizationId,
-          projectId,
-          analysisId,
+        pending = {
+          order,
           engine,
-          validated.findings,
-          lifecycleRun
+          findings: validated.findings as Array<Record<string, any>>,
+          lifecycle: lifecycleRun
             ? {
-                run: lifecycleRun,
                 artifactName: artifact.fileName ?? artifact.storagePath ?? 'inline',
                 sourceFileId: artifact.fileId,
                 engineVersion: engineVersionOf(validated.metrics),
@@ -656,13 +822,14 @@ export class AnalysisExecutor {
                   (knowledgeConfig as { released_objects?: { snapshotId?: string } })[RELEASED_OBJECTS_CONFIG_KEY]
                     ?.snapshotId ?? null,
               }
-            : undefined
-        );
-      }
-      if (validated.status === 'COMPLETED' && lifecycleRun) {
+            : null,
+          call,
+          markEvaluated: validated.status === 'COMPLETED' ? artifact.fileName ?? artifact.storagePath ?? 'inline' : null,
+        };
+      } else if (validated.status === 'COMPLETED' && lifecycleRun) {
         this.lifecycle.markEvaluated(lifecycleRun, engine, artifact.fileName ?? artifact.storagePath ?? 'inline');
       }
-      call.findings = persisted;
+      call.findings = validated.findings.length;
 
       if (validated.status === 'PARTIAL') {
         this.logger.warn(`${label} reported PARTIAL: ${validated.errorMessage ?? 'no error message'}`);
@@ -672,17 +839,24 @@ export class AnalysisExecutor {
         call.outcome = 'COMPLETED';
       }
     } catch (err: any) {
-      this.logger.warn(`${label} execution failed: ${err?.message ?? err}`);
-      call.error = String(err?.message ?? err).slice(0, 300);
+      if (isCancellationError(err, cancellation)) {
+        aborted = true;
+      } else {
+        this.logger.warn(`${label} execution failed: ${err?.message ?? err}`);
+        call.error = String(err?.message ?? err).slice(0, 300);
+      }
     } finally {
       call.durationMs = Date.now() - started;
-      try {
-        this.onEngineCall?.(engine, call.outcome, call.durationMs);
-      } catch {
-        /* metrics must never break analysis */
+      if (!aborted) {
+        try {
+          this.onEngineCall?.(engine, call.outcome, call.durationMs);
+        } catch {
+          /* metrics must never break analysis */
+        }
       }
     }
-    return { call, persisted };
+    if (aborted) return null;
+    return { call, pending };
   }
 
   /** Findings of this analysis with their evidence pointers (for correlation + tests). */

@@ -69,7 +69,7 @@ export class TelemetryService {
     this.httpDuration.observe(`method="${escapeLabel(method.toUpperCase())}",status_class="${statusClass}"`, durationMs / 1000);
   }
 
-  incrementAnalyses(status: 'COMPLETED' | 'FAILED' | 'QUEUED' | 'PARTIAL') {
+  incrementAnalyses(status: 'COMPLETED' | 'FAILED' | 'QUEUED' | 'PARTIAL' | 'CANCELLED') {
     this.analysesTotal.set(status, (this.analysesTotal.get(status) || 0) + 1);
   }
 

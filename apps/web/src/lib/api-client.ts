@@ -81,7 +81,7 @@ export interface TriggerAnalysisPayload {
   fileIds: string[];
 }
 
-export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL';
+export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL' | 'CANCELLED';
 
 export const ACTIVE_ANALYSIS_STATUSES: ReadonlySet<string> = new Set(['QUEUED', 'RUNNING']);
 
@@ -103,6 +103,10 @@ export interface AnalysisRecord {
   findingsCount: number;
   createdAt: string;
   completedAt: string | null;
+  /** STANDARD | FULL_PREFLIGHT | LAB_REGRESSION | LAB_SCENARIO (migration 018/020). */
+  kind?: string;
+  rerunOfAnalysisId?: string | null;
+  cancelRequestedAt?: string | null;
 }
 
 export interface FindingsPagination {

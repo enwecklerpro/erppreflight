@@ -116,6 +116,16 @@ export const analyses = pgTable('analyses', {
   orchestration: jsonb('orchestration').default({}).notNull(),
   problemStatement: text('problem_statement'),
   routingId: uuid('routing_id'),
+  /** Run lifecycle (migration 020, section C §15/§16): exact inputs, rerun link, cancellation, timing. */
+  inputs: jsonb('inputs').default({}).notNull(),
+  rerunOfAnalysisId: uuid('rerun_of_analysis_id'),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
+  cancelRequestedBy: uuid('cancel_requested_by').references(() => users.id, { onDelete: 'set null' }),
+  cancelReason: text('cancel_reason'),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  errorMessage: text('error_message'),
 });
 
 export const findings = pgTable('findings', {
@@ -176,4 +186,10 @@ export const tests = pgTable('tests', {
   expectedResult: text('expected_result').notNull(),
   status: varchar('status', { length: 50 }).default('PENDING').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  /** Generated-test provenance + promotion into the Test Lab (migration 020). FKs in SQL only. */
+  analysisId: uuid('analysis_id'),
+  generatorVersion: varchar('generator_version', { length: 40 }),
+  regressionTestCaseId: uuid('regression_test_case_id'),
+  promotedAt: timestamp('promoted_at', { withTimezone: true }),
+  promotedBy: uuid('promoted_by').references(() => users.id, { onDelete: 'set null' }),
 });

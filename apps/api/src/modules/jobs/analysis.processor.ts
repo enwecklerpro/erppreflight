@@ -18,6 +18,7 @@ import {
   resolveArtifactType,
 } from './analysis-executor';
 import { AuditService } from '../audit/audit.service';
+import { recordAnalysisError, recordAnalysisInputs } from './analysis-inputs';
 import { UsageService } from '../usage/usage.service';
 import { RetentionService } from '../retention/retention.service';
 
@@ -143,7 +144,7 @@ export class AnalysisProcessor extends WorkerHost {
   private async recordOutcomeMetrics(data: AnalysisJobData, result: AnalysisRunResult | null): Promise<void> {
     if (!this.telemetry) return;
     try {
-      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL');
+      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL' | 'CANCELLED');
       if (!result || result.totalFindings === 0) return;
       const res = await this.db.query(
         `SELECT severity, COUNT(*)::int AS n FROM findings
@@ -191,16 +192,21 @@ export class AnalysisProcessor extends WorkerHost {
         stages: data.stages,
         kind: data.kind,
       });
+      if (result.finalStatus === 'CANCELLED') {
+        await this.recordCancelled(data, result);
+        return;
+      }
       await this.emitOutcome(data, result);
     } catch (err: any) {
       this.logger.error(`Analysis job ${analysisId} failed: ${err?.message ?? err}`);
       await this.db
         .query(
-          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
+          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2 AND status <> 'CANCELLED'`,
           [analysisId, organizationId],
           { tenantId: organizationId }
         )
         .catch(() => {});
+      await recordAnalysisError(this.db, organizationId, analysisId, err);
       await this.audit?.recordSafe({
         organizationId,
         action: 'analysis.failed',
@@ -217,6 +223,46 @@ export class AnalysisProcessor extends WorkerHost {
       throw err;
     }
     await this.recordRunOutcome(data, result);
+  }
+
+  /**
+   * A cooperatively cancelled run (section C §15): system audit event with the discarded
+   * finding count, an `analysis.cancelled` domain event for webhooks, metrics. No
+   * completion notification, no retention purge (the inputs stay available for a rerun).
+   */
+  private async recordCancelled(data: AnalysisJobData, result: AnalysisRunResult): Promise<void> {
+    const { analysisId, organizationId, projectId } = data;
+    await this.audit?.recordSafe({
+      organizationId,
+      action: 'analysis.cancelled',
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: {
+        projectId,
+        finalizedBy: 'worker',
+        engineCalls: result.calls?.length ?? 0,
+        discardedFindings: result.discardedFindings ?? 0,
+      },
+    });
+    try {
+      this.telemetry?.incrementAnalyses('CANCELLED');
+    } catch {
+      /* metrics never fail a job */
+    }
+    if (this.outbox) {
+      try {
+        await this.outbox.recordEvent(organizationId, 'analysis.cancelled', 'ANALYSIS', analysisId, {
+          analysisId,
+          projectId,
+          triggeredBy: data.userId ?? null,
+          engineTypes: data.engineTypes,
+          status: 'CANCELLED',
+          discardedFindings: result.discardedFindings ?? 0,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Could not record analysis.cancelled event for ${analysisId}: ${err?.message ?? err}`);
+      }
+    }
   }
 
   /**
@@ -309,6 +355,14 @@ export class AnalysisProcessor extends WorkerHost {
       [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
       { tenantId: organizationId }
     );
+    const configuration = await applyDataPolicy(this.db, organizationId, {});
+    await recordAnalysisInputs(this.db, organizationId, analysisId, {
+      files,
+      requestedConfiguration: {},
+      effectiveConfiguration: configuration,
+      assignmentMode: 'CROSS',
+      trigger: 'SCHEDULED',
+    });
     await this.usage?.recordSafe(organizationId, 'ANALYSIS_RUN', 1, {
       resourceType: 'ANALYSIS',
       resourceId: analysisId,
@@ -331,7 +385,7 @@ export class AnalysisProcessor extends WorkerHost {
       engineTypes,
       targetRelease,
       files,
-      configuration: await applyDataPolicy(this.db, organizationId, {}),
+      configuration,
     });
   }
 }

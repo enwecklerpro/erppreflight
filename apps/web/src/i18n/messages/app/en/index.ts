@@ -34,6 +34,7 @@ import { objects } from './objects';
 import { changesets } from './changesets';
 import { traceability } from './traceability';
 import { magicLink } from './magicLink';
+import { analysisRun } from './analysisRun';
 
 export const appEn = {
   ui,
@@ -76,6 +77,7 @@ export const appEn = {
   changesets,
   traceability,
   magicLink,
+  analysisRun,
 };
 
 export type AppMessages = typeof appEn;

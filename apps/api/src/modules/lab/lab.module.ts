@@ -9,6 +9,8 @@ import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module'
 import { RegressionLabController } from './regression/regression-lab.controller';
 import { REGRESSION_LAB_QUEUE, RegressionLabService } from './regression/regression-lab.service';
 import { RegressionLabProcessor } from './regression/regression-lab.processor';
+import { GeneratedTestsController } from './generated-tests.controller';
+import { GeneratedTestsService } from './generated-tests.service';
 
 @Module({
   imports: [
@@ -18,8 +20,8 @@ import { RegressionLabProcessor } from './regression/regression-lab.processor';
     KnowledgeGraphModule,
     BullModule.registerQueue({ name: REGRESSION_LAB_QUEUE }),
   ],
-  controllers: [LabController, RegressionLabController],
-  providers: [LabService, RegressionLabService, RegressionLabProcessor],
-  exports: [LabService, RegressionLabService],
+  controllers: [LabController, RegressionLabController, GeneratedTestsController],
+  providers: [LabService, RegressionLabService, RegressionLabProcessor, GeneratedTestsService],
+  exports: [LabService, RegressionLabService, GeneratedTestsService],
 })
 export class LabModule {}

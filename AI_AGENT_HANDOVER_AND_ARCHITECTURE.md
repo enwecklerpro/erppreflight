@@ -85,7 +85,7 @@ H:/erppreflight/
 │   │   ├── src/modules/{knowledge-graph,release-intelligence,notifications}/  # Cloudification sync, watches (014)
 │   │   ├── src/modules/{connectors,sso,partners}/      # 9 connector types, work items, local-agent API, OIDC + SCIM, partner grants (015)
 │   │   ├── src/modules/findings/, lab/regression/      # finding lifecycle, Test Lab (017)
-│   │   ├── src/modules/{router,analyses}/              # Problem Router, SSE progress, Full Project Preflight (018)
+│   │   ├── src/modules/{router,analyses}/              # Problem Router, SSE progress, Full Project Preflight (018); run detail, cancel, rerun (020)
 │   │   ├── src/modules/public-tools/                   # free tools + programmatic SEO gate
 │   │   └── src/observability/      # Pino logger, OTel tracing, Sentry-protocol reporter, Scalar API reference
 │   │
@@ -112,7 +112,7 @@ H:/erppreflight/
 │   │   ├── src/schema/             # 6 modular schema definitions (core, platform, templates, etc.)
 │   │   ├── src/schema.ts           # Master export for the Drizzle tables + $inferSelect/$inferInsert
 │   │   ├── src/client.ts           # pg.Pool with withTenantTransaction & getDrizzle() helper
-│   │   ├── migrations/             # 19 SQL migrations (001 to 019; 010 = RLS runtime role) — NOT under src/
+│   │   ├── migrations/             # 20 SQL migrations (001 to 020; 010 = RLS runtime role) — NOT under src/
 │   │   └── src/rls.ts              # PostgreSQL app.current_tenant_id RLS integration
 │   │
 │   ├── schemas/                    # Shared Zod contracts (@erppreflight/schemas)
@@ -309,11 +309,12 @@ Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from
 pnpm install
 
 # Database migrations: there is NO root `db:migrate` script.
-# Migrations (packages/database/migrations/001..019) run automatically when the API starts
+# Migrations (packages/database/migrations/001..020) run automatically when the API starts
 # (AUTO_MIGRATE=true). 001-009 core platform; 010 RLS runtime role erppreflight_app; 011 account lifecycle;
 # 012 billing/usage/retention; 013 knowledge articles; 014 knowledge graph + release intelligence;
 # 015 connectors/identity/partner; 016 billing_events RLS; 017 finding lifecycle + Test Lab;
-# 018 analysis orchestration; 019 knowledge content workflow; 025 magic-link sign-in (MAGIC_LINK token purpose).
+# 018 analysis orchestration; 019 knowledge content workflow; 020 analysis run lifecycle (inputs, cancel,
+# rerun link, Test Lab runs as analyses, generated-test promotion); 025 magic-link sign-in (MAGIC_LINK token purpose).
 # Verify: PG_ADMIN_URL=postgres://<user>:<pw>@localhost:5432 bash scripts/ci-migration-check.sh
 
 # Local infrastructure only (Postgres/pgvector, Redis, MinIO, ClamAV) from the production compose,
@@ -383,6 +384,9 @@ WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-i18n-smoke.cj
 # Cookie-only browser session (no JWT in web storage), cookie flags, CSRF 403/2xx, logout revocation,
 # magic link end to end (single use, superseded, expired via DATABASE_URL, 2FA continuation)
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... DATABASE_URL=... node scripts/e2e-session-security-smoke.cjs   # pnpm smoke:session-security, 14 steps
+# Analysis run lifecycle: detail page, cancel queued + running run, rerun (identical inputs, immutability),
+# Test Lab runs in the history, generated-test promotion, VIEWER 403, cross-tenant 404, EN/DE + 375 px — 16 steps
+WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analysis-lifecycle-smoke.cjs   # pnpm smoke:analysis-lifecycle
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -423,6 +427,28 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 | **Pricing page data** | `apps/web/src/lib/plans.ts` | Reads `GET /api/v1/billing/plans` (PLAN_CATALOG from `@erppreflight/schemas` + configured prices). If the API is unreachable, limits come from PLAN_CATALOG and prices are withheld ("Contact sales"). Never hard-code prices in the web app. |
 | **Legal operator data** | env `NEXT_PUBLIC_LEGAL_*` (see `.env.coolify.example`) | Read by `lib/legal.ts`; never hard-code company data. |
 | **Deploy or modify Hostinger VPS containers** | `docker-compose.coolify.yml` (repo root) & `infra/docker/` | Edit the **root** compose file (Coolify deployment) or the Dockerfiles. Keep `.env.coolify.example` in sync with every `${VAR}` the compose file reads. |
+
+### 6.0 Analysis run lifecycle, analysis detail page and the Test Lab model (migration 020)
+
+**Endpoints** (`apps/api/src/modules/analyses/analysis-lifecycle.*`, all tenant-scoped, foreign ids = 404):
+
+| Endpoint | Guards | Behaviour |
+|---|---|---|
+| `GET /api/v1/analyses/:id/detail` | JWT + tenant | Everything the detail page shows: status, timing (`created/started/completed`, queue wait), recorded inputs (artifacts with SHA-256 + size at launch, current state, "changed/deleted" flags), requested + effective configuration, knowledge snapshot (seq, content SHA-256, superseded flag), engine calls (outcome, findings, rules, duration, engine version, error), telemetry totals, lineage (rerun of / reruns), cancellation, lab results, generated-test counts, `permissions` for the caller. |
+| `POST /api/v1/analyses/:id/cancel` `{reason?}` | role ≠ VIEWER/AUDITOR (`RolesGuard`), `@Audited analysis.cancel_requested` | QUEUED: BullMQ job removed (job id = analysis id) → `CANCELLED` at once. RUNNING: `cancel_requested_at` stamped; the worker stops at the next engine step and aborts the in-flight analysis-service `fetch` (`RunCancellation`: DB flag polled every second + in-process signal) → `CANCELLED`. Idempotent (`ALREADY_CANCELLED` / `ALREADY_REQUESTED`), 409 `ANALYSIS_NOT_CANCELLABLE` for finished runs, 409 `ANALYSIS_FINALIZING` once results are being published. Final transition writes `analysis.cancelled` (audit + outbox event) and a `CANCELLED` progress stage. |
+| `POST /api/v1/analyses/:id/rerun` | role ≠ VIEWER/AUDITOR, verified e-mail, `@RequireEntitlement('RUN_ANALYSIS')`, `@Metered ANALYSIS_RUN`, `@Audited analysis.rerun_queued` | New run with the identical recorded inputs (artifacts re-resolved: must still be CLEAN in the project, else 409 `RERUN_INPUTS_UNAVAILABLE`; engines, target release, requested configuration — the current data policy is applied on top; planner assignments/stages), `rerun_of_analysis_id` = source, knowledge snapshot in force now recorded (`previousKnowledgeSnapshotId` in the response). 409 `ANALYSIS_STILL_ACTIVE` for queued/running sources. 409 `ANALYSIS_RERUN_IN_PROGRESS` while a rerun of the same source is still queued/running (unique partial index `uq_analyses_active_rerun`, so double clicks / concurrent requests cannot queue it twice or consume quota twice). The source run and its findings are never touched. Lab runs re-run the same test cases / scenario. |
+| `GET /api/v1/lab/generated-tests?projectId=` (or `?analysisId=`), `GET /lab/generated-tests/:id`, `POST /lab/generated-tests/:id/promote` | JWT + tenant; promote needs finding write role, `@Audited lab.generated_test_promoted` | Generated regression test specifications and their promotion into the Test Lab (idempotent). |
+
+**State machine** (pure, unit-tested: `analysis-lifecycle.state.ts`): `QUEUED → RUNNING → (publish gate) → COMPLETED | PARTIAL | FAILED`; `QUEUED → CANCELLED`; `RUNNING (+cancel request) → CANCELLED`; any terminal state → rerun creates a new `QUEUED` run. **Publish gate:** the executor keeps engine results in memory and persists findings only after `UPDATE analyses SET published_at = NOW() … WHERE cancel_requested_at IS NULL` succeeded — a cancelled run therefore never publishes partial findings, and findings are written in deterministic work-unit order. Cancel requests after the gate are rejected (409). Guarded terminal writes (`status <> 'CANCELLED'`) make "cancel wins / publish wins" race-free. Every new run stores `analyses.inputs` (schema `AnalysisInputsSchema`, version 1), `knowledge_snapshot_id` (latest PUBLISHED at creation), `started_at`, and on failure `error_message`.
+
+**Test Lab model (P6).** There are three kinds of test artefacts, with explicit links:
+1. `tests` — *generated regression test specifications* written by the analysis GENERATING_TESTS stage (steps + expected result, one per evidence-backed BLOCKER/CRITICAL/MAJOR finding). Now carry `analysis_id` and `generator_version`.
+2. `regression_test_cases` / `regression_test_runs` — the *executable* Test Lab (engine + rule + fixture artifact with SHA-256, expected outcome, runs, baseline, schedules).
+3. `synthetic_scenarios` — the scenario lab (synthetic payloads).
+Promotion turns (1) into (2) through the same code path as "finding → regression test" (`RegressionLabService.createFromFinding`), links both rows (`tests.regression_test_case_id` ↔ `regression_test_cases.generated_test_id`, unique ⇒ idempotent) and marks the generated test `PROMOTED`. The analysis detail page lists the generated tests of the run (promote button, "In Test Lab" + last run verdict); the Test Lab page lists all generated tests of the project and each promoted case shows "From run …" (its `originAnalysisId`).
+Every Test Lab execution is recorded as an analysis (`LabAnalysisRecorder`): one `analyses` row per manual run, batch run, schedule firing or rerun, `kind = LAB_REGRESSION` (regression cases) or `LAB_SCENARIO` (scenario runs inside a project), inputs = test case ids / scenario id + fixture artifacts, stage progress, per-test engine calls in `orchestration.calls`, verdict summary in `orchestration.lab`; `regression_test_runs.analysis_id` links each test run. Status: every test executed → COMPLETED (FAILED verdicts are results, not errors), some errors → PARTIAL, all errors → FAILED. Lab runs never write `findings` rows, so every "latest analysis of a project" query (dashboard at-risk, drift default, work-item verification, traceability, SAP import, findings stats) reads only `kind IN ('STANDARD','FULL_PREFLIGHT')`; a lab run can't be the project baseline. Lab runs are cancellable between tests (and the in-flight engine call is aborted).
+
+**Web:** `/projects/[id]/analyses/[analysisId]` (`components/analysis-run/*`, dictionary `app.analysisRun`, API client `lib/api/analysis-lifecycle.ts`). Linked from the project run history (Details + Test Lab badge), the project launcher and `/analyze` after a launch, the reports hub (per report) and notifications (`analysis.completed|failed`, `finding.critical` now deep-link to the run). Cancel and re-run use confirm dialogs (TanStack Form + Zod for the reason).
 
 ### 6.1 Internationalization (EN/DE, next-intl)
 

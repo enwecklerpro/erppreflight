@@ -37,6 +37,7 @@ import { fetchProject } from '@/lib/api-client';
 import { SeverityBadge } from '@/components/findings/severity-badge';
 import { ConfidenceBadge } from '@/components/findings/confidence-badge';
 import { RegressionTestsPanel } from '@/components/findings/regression-tests-panel';
+import { GeneratedTestsPanel } from '@/components/analysis-run/generated-tests-panel';
 import {
   ScenarioDomain,
   ScenarioFailureType,
@@ -397,6 +398,9 @@ export default function ScenarioTestLabPage() {
 
       {/* Regression tests generated from findings (Part 05 §5.5) */}
       <RegressionTestsPanel projectId={projectId} />
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <GeneratedTestsPanel projectId={projectId} variant="project" />
+      </div>
 
       {/* Saved Scenarios Drawer / Slide-Down */}
       {showSavedDrawer && (

@@ -69,6 +69,8 @@ export interface EngineCallRecord {
   rulesEvaluated: number;
   durationMs: number;
   error?: string | null;
+  /** Engine version reported by the analysis service for this call (run detail / reproducibility). */
+  engineVersion?: string | null;
 }
 
 export interface CorrelationGroup {

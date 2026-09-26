@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { LaunchedRunLink } from '@/components/analysis-run/run-links';
 import { useSearchParams } from 'next/navigation';
 import { useForm } from '@tanstack/react-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -510,6 +511,7 @@ function AnalyzePage() {
                 </ul>
               )}
               <div className="flex flex-wrap gap-3 text-xs">
+                <LaunchedRunLink projectId={launched.projectId} analysisId={launched.analysisId} />
                 <Link href={`/projects/${launched.projectId}/findings`} className="font-semibold text-primary underline">
                   {t('analyze.viewFindings')}
                 </Link>

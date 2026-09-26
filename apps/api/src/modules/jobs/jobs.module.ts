@@ -8,6 +8,7 @@ import { RetentionModule } from '../retention/retention.module';
 import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
 import { EngineCatalogService } from './orchestration/engine-catalog.service';
 import { ArtifactProfilerService } from './orchestration/artifact-profiler.service';
+import { AnalysisJobControlService } from './analysis-job-control.service';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { ArtifactProfilerService } from './orchestration/artifact-profiler.servi
     KnowledgeGraphModule,
   ],
   controllers: [JobsController],
-  providers: [JobsService, AnalysisProcessor, EngineCatalogService, ArtifactProfilerService],
-  exports: [JobsService, EngineCatalogService, ArtifactProfilerService],
+  providers: [JobsService, AnalysisProcessor, EngineCatalogService, ArtifactProfilerService, AnalysisJobControlService],
+  exports: [JobsService, EngineCatalogService, ArtifactProfilerService, AnalysisJobControlService],
 })
 export class JobsModule {}

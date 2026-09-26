@@ -348,7 +348,7 @@ export class WorkItemsService {
       `WITH target AS (SELECT fingerprint, project_id FROM findings WHERE organization_id = $1 AND id = $2),
             latest AS (
               SELECT a.id, a.completed_at FROM analyses a, target t
-               WHERE a.organization_id = $1 AND a.project_id = t.project_id AND a.status = 'COMPLETED'
+               WHERE a.organization_id = $1 AND a.project_id = t.project_id AND a.status = 'COMPLETED' AND a.kind IN ('STANDARD', 'FULL_PREFLIGHT')
                ORDER BY a.completed_at DESC NULLS LAST LIMIT 1)
        SELECT latest.id AS analysis_id, latest.completed_at,
               EXISTS (SELECT 1 FROM findings f, target t WHERE f.organization_id = $1 AND f.analysis_id = latest.id AND f.fingerprint = t.fingerprint) AS present

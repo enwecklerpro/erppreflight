@@ -12,6 +12,7 @@
 #   -> scripts/e2e-ui-smoke.cjs (Chromium: signup -> project -> upload -> run -> finding)
 #   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
 #   -> scripts/e2e-i18n-smoke.cjs (EN/DE app localization, no raw keys, 375 px layout)
+#   -> scripts/e2e-analysis-lifecycle-smoke.cjs (run detail, cancel, rerun, Test Lab runs in history)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
 #   -> scripts/e2e-session-security-smoke.cjs (HttpOnly cookie session, CSRF, logout, magic link)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
@@ -226,6 +227,10 @@ log "running session security smoke (scripts/e2e-session-security-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" \
   node scripts/e2e-session-security-smoke.cjs "$ART/screenshots-session" 2>&1 | tee "$ART/smoke-session.log"
 SESSION=${PIPESTATUS[0]}
+log "running analysis lifecycle smoke (scripts/e2e-analysis-lifecycle-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-analysis-lifecycle-smoke.cjs "$ART/screenshots-lifecycle" 2>&1 | tee "$ART/smoke-lifecycle.log"
+LIFECYCLE=${PIPESTATUS[0]}
 # Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
@@ -254,8 +259,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up

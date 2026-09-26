@@ -79,7 +79,7 @@ export const AnalysisStageEnum = z.enum([
 export type AnalysisStage = z.infer<typeof AnalysisStageEnum>;
 export const ANALYSIS_STAGES: readonly AnalysisStage[] = AnalysisStageEnum.options;
 
-export const StageStateEnum = z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'SKIPPED']);
+export const StageStateEnum = z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'SKIPPED', 'CANCELLED']);
 export type StageState = z.infer<typeof StageStateEnum>;
 
 export const StageSnapshotSchema = z.object({
@@ -102,7 +102,7 @@ export const AnalysisProgressSchema = z.object({
 });
 export type AnalysisProgress = z.infer<typeof AnalysisProgressSchema>;
 
-export const ProgressEventStatusEnum = z.enum(['STARTED', 'PROGRESS', 'COMPLETED', 'FAILED', 'SKIPPED']);
+export const ProgressEventStatusEnum = z.enum(['STARTED', 'PROGRESS', 'COMPLETED', 'FAILED', 'SKIPPED', 'CANCELLED']);
 export const AnalysisProgressEventSchema = z.object({
   id: z.number().int(),
   analysisId: z.string().uuid(),
@@ -224,7 +224,7 @@ export type FullPreflightRequest = z.infer<typeof FullPreflightRequestSchema>;
 
 export const AnalysisListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
-  kind: z.enum(['STANDARD', 'FULL_PREFLIGHT']).optional(),
+  kind: z.enum(['STANDARD', 'FULL_PREFLIGHT', 'LAB_REGRESSION', 'LAB_SCENARIO']).optional(),
 });
 
 // ---------------------------------------------------------------------------

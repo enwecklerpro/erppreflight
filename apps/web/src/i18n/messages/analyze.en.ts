@@ -99,6 +99,16 @@ export const analyzeEn = {
       COMPLETED: 'Done',
       FAILED: 'Failed',
       SKIPPED: 'Skipped',
+      CANCELLED: 'Cancelled',
+    },
+    reasons: {
+      CANCELLED:
+        '{count, plural, =0 {Cancelled on request.} one {Cancelled on request; # finding reported before the stop was discarded (not published).} other {Cancelled on request; # findings reported before the stop were discarded (not published).}}',
+      LAB_CANCELLED: 'Cancelled on request after {done} of {total} test(s).',
+      NO_ELIGIBLE_FINDINGS: 'No evidence-backed blocker, critical or major finding to derive a regression test from.',
+      LAB_FIXTURES_PER_TEST: 'Fixture artifacts are fetched and hashed per test.',
+      LAB_NO_FINDINGS: 'Test Lab runs compare engine results with expected outcomes; no findings are stored.',
+      LAB_NOT_APPLICABLE: 'Not applicable to Test Lab runs.',
     },
     rulesDetail: '{done} of {total} engine runs',
     testsDetail: '{count} regression test(s) generated',

@@ -71,6 +71,7 @@ export class RegressionLabController {
       passed: result?.passed ?? null,
       failed: result?.failed ?? null,
       errored: result?.errored ?? null,
+      analysisId: result?.analysisId ?? null,
     }),
   })
   async batchRun(@CurrentTenant() tenantId: string, @Req() req: any, @Body() body: unknown) {
@@ -91,6 +92,7 @@ export class RegressionLabController {
       runId: result?.id ?? null,
       status: result?.status ?? null,
       findingResolved: result?.findingResolved ?? false,
+      analysisId: result?.analysisId ?? null,
     }),
   })
   async run(

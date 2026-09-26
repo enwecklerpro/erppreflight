@@ -145,6 +145,9 @@ export class ProjectsService {
     }
 
     const analysis = analysisRes.rows[0];
+    if (typeof analysis.kind === 'string' && analysis.kind.startsWith('LAB_')) {
+      throw new BadRequestException('Test Lab runs produce no findings and cannot be the project baseline.');
+    }
     if (analysis.status && analysis.status.toUpperCase() !== 'COMPLETED') {
       throw new BadRequestException(
         `Only COMPLETED analysis runs can be marked as the official project baseline. Current status is '${analysis.status}'.`
@@ -213,7 +216,8 @@ export class ProjectsService {
       comparisonAnalysis = compRes.rows[0];
     } else {
       const latestRes = await this.db.query(
-        `SELECT * FROM analyses WHERE organization_id = $1 AND project_id = $2 ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM analyses WHERE organization_id = $1 AND project_id = $2
+            AND kind IN ('STANDARD', 'FULL_PREFLIGHT') AND status <> 'CANCELLED' ORDER BY created_at DESC LIMIT 1`,
         [organizationId, projectId]
       );
       comparisonAnalysis = latestRes.rows[0];
