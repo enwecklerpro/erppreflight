@@ -136,6 +136,16 @@ export const findings = pgTable('findings', {
   technicalDetails: jsonb('technical_details').default({}).notNull(),
   fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  // Part 04 §4.10 reproducibility fields (migration 017). FKs live in SQL only (avoids schema import cycles).
+  engineVersion: varchar('engine_version', { length: 50 }),
+  ruleVersion: varchar('rule_version', { length: 80 }),
+  knowledgeSnapshotId: uuid('knowledge_snapshot_id'),
+  targetRelease: varchar('target_release', { length: 50 }),
+  sourceFileId: uuid('source_file_id'),
+  sourceFileName: varchar('source_file_name', { length: 500 }),
+  objectStateHash: varchar('object_state_hash', { length: 64 }),
+  aiModelVersion: varchar('ai_model_version', { length: 120 }),
+  lifecycleId: uuid('lifecycle_id'),
 });
 
 export const evidence = pgTable('evidence', {

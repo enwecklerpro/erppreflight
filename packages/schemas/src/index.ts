@@ -17,3 +17,4 @@ export * from './plans';
 export * from './feature-flags';
 export * from './account';
 export * from './orchestration';
+export * from './finding-lifecycle';

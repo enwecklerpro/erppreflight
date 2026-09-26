@@ -10,6 +10,7 @@
 #   -> scripts/e2e-live-smoke.sh (API: upload, scan, analysis, findings, exports,
 #      tenant isolation, redaction at rest)
 #   -> scripts/e2e-ui-smoke.cjs (Chromium: signup -> project -> upload -> run -> finding)
+#   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -205,6 +206,10 @@ log "running Analyze / Full Preflight / reports hub smoke (scripts/e2e-analyze-s
 WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
   node scripts/e2e-analyze-smoke.cjs "$ART/screenshots-analyze" 2>&1 | tee "$ART/smoke-analyze.log"
 ANALYZE=${PIPESTATUS[0]}
+log "running finding lifecycle + Test Lab smoke (scripts/e2e-findings-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-findings-smoke.cjs "$ART/screenshots-findings" 2>&1 | tee "$ART/smoke-findings.log"
+FINDINGS=${PIPESTATUS[0]}
 # Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
 # of this stack and must not start its own web server.
 PW=0
@@ -220,8 +225,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up

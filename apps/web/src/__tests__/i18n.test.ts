@@ -79,9 +79,9 @@ describe('translator', () => {
       const t = createTranslator(locale);
       for (const [key, message] of Object.entries(flatten(locale === 'en' ? en : de))) {
         if (key.includes('[') || key.startsWith('engines.')) continue;
-        // Supply a value for every placeholder the message declares.
+        // Supply every placeholder the message declares (e.g. {status}, {date}).
         const vars: Record<string, string | number> = { count: 1, language: 'x' };
-        for (const m of message.match(/\{(\w+)\}/g) ?? []) vars[m.slice(1, -1)] ??= 'x';
+        for (const p of message.match(/\{(\w+)\}/g) ?? []) vars[p.slice(1, -1)] ??= 'x';
         expect(() => t(key as never, vars), `${locale} ${key}`).not.toThrow();
         expect(t(key as never, vars), `${locale} ${key}`).not.toBe(key);
       }

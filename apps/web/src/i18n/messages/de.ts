@@ -1,5 +1,6 @@
 import type { Messages } from './en';
 import { analyzeDe } from './analyze.de';
+import { findingLifecycleDe } from './finding-lifecycle.de';
 
 /**
  * Deutsches Wörterbuch. Typisiert als `Messages`: fehlende oder zusätzliche
@@ -546,4 +547,5 @@ export const de: Messages = {
     knowledge: 'Wissensdatenbank durchsuchen',
   },
   ...analyzeDe,
+  findingLifecycle: findingLifecycleDe,
 };
