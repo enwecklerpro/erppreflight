@@ -308,6 +308,7 @@ services:
       dockerfile: infra/docker/Dockerfile.web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.erppreflight.com}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://erppreflight.com}
     container_name: erppreflight-web
     restart: unless-stopped
     depends_on:
@@ -319,6 +320,17 @@ services:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.erppreflight.com}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://erppreflight.com}
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:3001}
+      NEXT_PUBLIC_LEGAL_COMPANY_NAME: ${NEXT_PUBLIC_LEGAL_COMPANY_NAME:-}
+      NEXT_PUBLIC_LEGAL_ADDRESS: ${NEXT_PUBLIC_LEGAL_ADDRESS:-}
+      NEXT_PUBLIC_LEGAL_REPRESENTATIVE: ${NEXT_PUBLIC_LEGAL_REPRESENTATIVE:-}
+      NEXT_PUBLIC_LEGAL_REGISTER: ${NEXT_PUBLIC_LEGAL_REGISTER:-}
+      NEXT_PUBLIC_LEGAL_VAT_ID: ${NEXT_PUBLIC_LEGAL_VAT_ID:-}
+      NEXT_PUBLIC_LEGAL_EMAIL: ${NEXT_PUBLIC_LEGAL_EMAIL:-}
+      NEXT_PUBLIC_LEGAL_PHONE: ${NEXT_PUBLIC_LEGAL_PHONE:-}
+      NEXT_PUBLIC_LEGAL_RESPONSIBLE_PERSON: ${NEXT_PUBLIC_LEGAL_RESPONSIBLE_PERSON:-}
+      NEXT_PUBLIC_LEGAL_SUBPROCESSORS: ${NEXT_PUBLIC_LEGAL_SUBPROCESSORS:-}
       NEXT_TELEMETRY_DISABLED: 1
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]

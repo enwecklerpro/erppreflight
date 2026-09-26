@@ -31,7 +31,10 @@ const S = process.argv[2] || fs.mkdtempSync(path.join(require('os').tmpdir(), 'e
 let failures = 0;
 (async () => {
   const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
-  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+  // Pre-answer the cookie banner so it does not overlay controls near the bottom edge.
+  await context.addCookies([{ name: 'erp_consent', value: 'necessary', url: WEB }]);
+  const page = await context.newPage();
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text().slice(0, 200)); });
   page.on('response', r => { if (r.url().includes('/api/v1/') && r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.request().method()} ${r.url()}`); });
@@ -99,6 +102,9 @@ let failures = 0;
     await page.waitForTimeout(1500);
     await page.getByText(/known_bad_billing_opd\.xml/).first().waitFor({ timeout: 10000 });
   });
+  const cspViolations = problems.filter((p) => /Content Security Policy/i.test(p));
+  if (cspViolations.length) { failures++; console.log('FAIL  CSP violations', JSON.stringify(cspViolations)); }
+  else console.log('OK    no CSP violations');
   console.log('URL', page.url());
   console.log('PROBLEMS', JSON.stringify(problems, null, 1));
   await browser.close();

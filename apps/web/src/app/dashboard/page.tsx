@@ -13,9 +13,9 @@ import {
   FolderGit2,
   Clock,
 } from 'lucide-react';
-import { MetricsCard } from '../components/metrics-card';
-import { EngineMatrix } from '../components/engine-matrix';
-import { fetchDashboardSummary, fetchCurrentUser, DashboardSummaryData } from '../lib/api-client';
+import { MetricsCard } from '../../components/metrics-card';
+import { EngineMatrix } from '../../components/engine-matrix';
+import { fetchDashboardSummary, fetchCurrentUser, DashboardSummaryData } from '../../lib/api-client';
 
 export default function ExecutiveDashboard() {
   const { data: authData, isLoading: authLoading } = useQuery({
@@ -47,7 +47,7 @@ export default function ExecutiveDashboard() {
       <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl p-6 sm:p-8 shadow-md">
         <div className="max-w-3xl">
           <span className="text-xs uppercase font-bold tracking-wider text-blue-300">
-            Astra Ultra Preflight Platform
+            Executive dashboard
           </span>
           <h1 className="text-2xl sm:text-3xl font-extrabold mt-1">
             Executive Clean Core & Preflight Intelligence

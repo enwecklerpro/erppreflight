@@ -117,6 +117,8 @@ export class AppModule implements NestModule {
         'admin',
         'knowledge/(.*)',
         'knowledge',
+        'public/(.*)',
+        'public',
         'changelog/(.*)',
         'changelog',
         'billing/webhook',

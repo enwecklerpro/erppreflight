@@ -1,5 +1,5 @@
 import { MetadataRoute } from 'next';
-import { PRIVATE_ROUTE_PREFIXES, PUBLIC_INDEXABLE_ROUTES, getAppBaseUrl } from '../lib/seo';
+import { PRIVATE_ROUTE_PREFIXES, getAppBaseUrl } from '../lib/seo';
 
 export default function robots(): MetadataRoute.Robots {
   const baseUrl = getAppBaseUrl();
@@ -8,7 +8,9 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: [...PUBLIC_INDEXABLE_ROUTES],
+        // Everything public (both locales, knowledge articles) is crawlable;
+        // private application routes are not.
+        allow: ['/'],
         // Both the bare path and its subtree are disallowed.
         disallow: PRIVATE_ROUTE_PREFIXES.flatMap((p) => [p, `${p}/`]),
       },
