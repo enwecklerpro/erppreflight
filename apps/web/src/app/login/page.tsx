@@ -11,7 +11,6 @@ import { FormInput, FormSummaryErrors } from '@/components/form/form-inputs';
 import { AuthCard, Notice, Pending, buttonClass } from '@/components/account/ui';
 import {
   completeSecondFactor,
-  errorMessage,
   login,
   safeNextPath,
   storeSession,
@@ -20,10 +19,12 @@ import {
 } from '@/lib/account-api';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
 import { Lock, Mail, ArrowRight, KeyRound, Smartphone } from 'lucide-react';
+import { useErrorText, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const loginSchema = z.object({
-  email: z.string().min(1, 'Email is required').email('Please enter a valid work email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().min(1, vmsg('app.validation.emailRequired')).email(vmsg('app.validation.emailInvalid')),
+  password: z.string().min(1, vmsg('app.validation.passwordRequired')),
 });
 
 /** Accepts a 6-digit TOTP code or a recovery code (the API checks which one it is). */
@@ -31,13 +32,15 @@ const secondFactorSchema = z.object({
   code: z
     .string()
     .trim()
-    .regex(/^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/, 'Enter a 6-digit code or a recovery code (abcde-12345)'),
+    .regex(/^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/, vmsg('app.validation.totpOrRecovery')),
 });
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const t = useT();
+  const errText = useErrorText();
   const next = safeNextPath(searchParams.get('next'));
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
@@ -59,14 +62,14 @@ function LoginForm() {
       }
       await finish(res);
     },
-    onError: (err) => setServerError(errorMessage(err, 'Invalid email or password.')),
+    onError: (err) => setServerError(errText(err, t('app.auth.login.invalidCredentials'))),
   });
 
   const secondFactorMutation = useMutation({
     mutationFn: (code: string) =>
       completeSecondFactor(challenge!.challengeToken, useRecovery ? { recoveryCode: code.trim() } : { code: code.trim() }),
     onSuccess: finish,
-    onError: (err) => setServerError(errorMessage(err, 'Invalid authentication code.')),
+    onError: (err) => setServerError(errText(err, t('app.auth.login.invalidCode'))),
   });
 
   const form = useForm({
@@ -90,11 +93,11 @@ function LoginForm() {
   if (challenge) {
     return (
       <AuthCard
-        title="Two-factor authentication"
-        subtitle={useRecovery ? 'Enter one of your recovery codes.' : 'Enter the 6-digit code from your authenticator app.'}
+        title={t('app.auth.login.mfaTitle')}
+        subtitle={useRecovery ? t('app.auth.login.mfaRecoverySubtitle') : t('app.auth.login.mfaSubtitle')}
         icon={Smartphone}
       >
-        {serverError && <Notice tone="error" title="Verification failed" className="mb-5">{serverError}</Notice>}
+        {serverError && <Notice tone="error" title={t('app.auth.login.mfaFailed')} className="mb-5">{serverError}</Notice>}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -110,7 +113,7 @@ function LoginForm() {
               <FormField
                 id="login-code"
                 name={field.name}
-                label={useRecovery ? 'Recovery code' : 'Authentication code'}
+                label={useRecovery ? t('app.auth.login.recoveryCode') : t('app.auth.login.authCode')}
                 required
                 error={field.state.meta.errors as any}
               >
@@ -131,7 +134,7 @@ function LoginForm() {
             selector={(s) => s.isSubmitting}
             children={(isSubmitting) => (
               <button type="submit" disabled={isSubmitting || secondFactorMutation.isPending} className={`${buttonClass.primary} w-full`}>
-                <Pending busy={isSubmitting || secondFactorMutation.isPending} busyLabel="Verifying..." idle={<>Verify and sign in<ArrowRight className="size-3.5" aria-hidden="true" /></>} />
+                <Pending busy={isSubmitting || secondFactorMutation.isPending} busyLabel={t('app.auth.login.verifying')} idle={<>{t('app.auth.login.verify')}<ArrowRight className="size-3.5" aria-hidden="true" /></>} />
               </button>
             )}
           />
@@ -146,7 +149,7 @@ function LoginForm() {
               codeForm.reset();
             }}
           >
-            {useRecovery ? 'Use authenticator app code' : 'Use a recovery code instead'}
+            {useRecovery ? t('app.auth.login.useApp') : t('app.auth.login.useRecovery')}
           </button>
           <button
             type="button"
@@ -156,7 +159,7 @@ function LoginForm() {
               setServerError(null);
             }}
           >
-            Back to sign in
+            {t('app.auth.backToSignIn')}
           </button>
         </div>
       </AuthCard>
@@ -164,8 +167,8 @@ function LoginForm() {
   }
 
   return (
-    <AuthCard title="Sign in to ERP Preflight" subtitle="Enterprise Clean Core, SAP Preflight Analysis & Migration Verification">
-      {serverError && <Notice tone="error" title="Authentication Error" className="mb-6">{serverError}</Notice>}
+    <AuthCard title={t('app.auth.login.title')} subtitle={t('app.auth.login.subtitle')}>
+      {serverError && <Notice tone="error" title={t('app.auth.login.errorTitle')} className="mb-6">{serverError}</Notice>}
 
       <form
         onSubmit={(e) => {
@@ -179,11 +182,11 @@ function LoginForm() {
         <form.Field
           name="email"
           children={(field) => (
-            <FormField id="login-email" name={field.name} label="Work Email" required error={field.state.meta.errors as any}>
+            <FormField id="login-email" name={field.name} label={t('app.auth.workEmail')} required error={field.state.meta.errors as any}>
               <FormInput
                 type="email"
                 autoComplete="email"
-                placeholder="architect@enterprise.com"
+                placeholder={t('app.auth.emailPlaceholder')}
                 value={field.state.value}
                 onChange={(e) => field.handleChange(e.target.value)}
                 onBlur={field.handleBlur}
@@ -196,7 +199,7 @@ function LoginForm() {
         <form.Field
           name="password"
           children={(field) => (
-            <FormField id="login-password" name={field.name} label="Password" required error={field.state.meta.errors as any}>
+            <FormField id="login-password" name={field.name} label={t('app.auth.password')} required error={field.state.meta.errors as any}>
               <FormInput
                 type="password"
                 autoComplete="current-password"
@@ -215,7 +218,7 @@ function LoginForm() {
             href="/forgot-password"
             className="text-xs font-semibold text-primary hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs"
           >
-            Forgot password?
+            {t('app.auth.login.forgot')}
           </Link>
         </div>
 
@@ -224,17 +227,17 @@ function LoginForm() {
           children={({ fieldMeta, isSubmitting }) => {
             const activeErrors: Array<{ fieldId: string; label: string; error: unknown }> = [];
             if (fieldMeta.email?.errors?.length) {
-              activeErrors.push({ fieldId: 'login-email', label: 'Work Email', error: fieldMeta.email.errors });
+              activeErrors.push({ fieldId: 'login-email', label: t('app.auth.workEmail'), error: fieldMeta.email.errors });
             }
             if (fieldMeta.password?.errors?.length) {
-              activeErrors.push({ fieldId: 'login-password', label: 'Password', error: fieldMeta.password.errors });
+              activeErrors.push({ fieldId: 'login-password', label: t('app.auth.password'), error: fieldMeta.password.errors });
             }
             const busy = isSubmitting || loginMutation.isPending;
             return (
               <div className="space-y-4 pt-1">
                 {activeErrors.length > 0 && <FormSummaryErrors errors={activeErrors as any} />}
                 <button type="submit" disabled={busy} className={`${buttonClass.primary} w-full`}>
-                  <Pending busy={busy} busyLabel="Verifying credentials..." idle={<><span>Sign In</span><ArrowRight className="size-3.5" aria-hidden="true" /></>} />
+                  <Pending busy={busy} busyLabel={t('app.auth.login.submitting')} idle={<><span>{t('app.auth.login.submit')}</span><ArrowRight className="size-3.5" aria-hidden="true" /></>} />
                 </button>
               </div>
             );
@@ -243,12 +246,12 @@ function LoginForm() {
       </form>
 
       <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground">
-        <span>Don&apos;t have an enterprise workspace? </span>
+        <span>{t('app.auth.login.noAccount')} </span>
         <Link
           href="/signup"
           className="font-semibold text-primary hover:underline focus:outline-none focus:ring-1 focus:ring-primary rounded-xs"
         >
-          Create account
+          {t('app.auth.login.createAccount')}
         </Link>
       </div>
     </AuthCard>

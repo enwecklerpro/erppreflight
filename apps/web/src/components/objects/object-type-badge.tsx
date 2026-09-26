@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { SapObjectType } from '@erppreflight/schemas';
+import { useT } from '../../i18n/client';
 import {
   FileCode2,
   Boxes,
@@ -122,6 +123,7 @@ export function ObjectTypeBadge({
   size = 'default',
   showIcon = true,
 }: ObjectTypeBadgeProps) {
+  const t = useT();
   const conf = TYPE_CONFIG[type] || {
     label: type,
     icon: FileCode2,
@@ -133,7 +135,7 @@ export function ObjectTypeBadge({
   return (
     <span
       role="status"
-      aria-label={`SAP Object Type: ${conf.label}`}
+      aria-label={t('app.objects.typeAria', { type: conf.label })}
       className={`inline-flex items-center gap-1 font-mono font-semibold border rounded select-none transition-colors ${
         isSm ? 'px-1.5 py-0.2 text-[10px]' : 'px-2 py-0.5 text-[11px]'
       } ${conf.colorClasses} ${className}`}

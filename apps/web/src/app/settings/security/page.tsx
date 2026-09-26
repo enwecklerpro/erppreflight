@@ -5,12 +5,14 @@ import { ChangePasswordForm } from '@/components/account/change-password-form';
 import { TwoFactorPanel } from '@/components/account/two-factor-panel';
 import { SessionsPanel } from '@/components/account/sessions-panel';
 import { OrgSecurityPanel } from '@/components/account/org-security-panel';
+import { useT } from '@/i18n/client';
 
 export default function SecuritySettingsPage() {
+  const t = useT();
   return (
     <div className="max-w-4xl">
-      <h1 className="text-xl font-bold tracking-tight mb-1">Security</h1>
-      <p className="text-xs text-muted-foreground mb-4">Password, two-factor authentication and signed-in devices.</p>
+      <h1 className="text-2xl font-bold tracking-tight mb-1">{t('app.security.title')}</h1>
+      <p className="text-sm text-muted-foreground mb-4">{t('app.security.subtitle')}</p>
       <SettingsNav />
       <div className="space-y-6">
         <TwoFactorPanel />

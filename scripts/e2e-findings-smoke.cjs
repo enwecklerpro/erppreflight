@@ -284,7 +284,7 @@ async function currentFinding(projectId) {
     await page.goto(`${WEB}/projects/${projectId}/findings?status=RESOLVED`);
     await page.getByText('OPD_DETERMINATION_STEP_MISSING').first().waitFor({ timeout: 20000 });
     await page.goto(`${WEB}/projects/${projectId}/findings?status=OPEN`);
-    await page.getByText(/No matching findings|Zero Preflight Defects/).first().waitFor({ timeout: 20000 });
+    await page.getByText(/No matching (findings|records)|Zero Preflight Defects/).first().waitFor({ timeout: 20000 });
     await page.goto(`${WEB}/projects/${projectId}/findings`);
     await page.getByLabel('Select finding OPD_DETERMINATION_STEP_MISSING').first().check();
     const bar = page.getByTestId('findings-bulk-actions');

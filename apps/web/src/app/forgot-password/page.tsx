@@ -9,13 +9,18 @@ import { KeyRound, Mail, ArrowLeft } from 'lucide-react';
 import { FormField } from '@/components/form/form-field';
 import { FormInput } from '@/components/form/form-inputs';
 import { AuthCard, Notice, Pending, buttonClass } from '@/components/account/ui';
-import { errorMessage, requestPasswordReset } from '@/lib/account-api';
+import { requestPasswordReset } from '@/lib/account-api';
+import { useErrorText, useRichT, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const schema = z.object({
-  email: z.string().trim().min(1, 'Email is required').email('Please enter a valid email address'),
+  email: z.string().trim().min(1, vmsg('app.validation.emailRequired')).email(vmsg('app.validation.emailInvalid')),
 });
 
 export default function ForgotPasswordPage() {
+  const t = useT();
+  const rt = useRichT();
+  const errText = useErrorText();
   const [sentTo, setSentTo] = React.useState<string | null>(null);
   const mutation = useMutation({ mutationFn: (email: string) => requestPasswordReset(email) });
 
@@ -30,15 +35,14 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthCard
-      title="Reset your password"
-      subtitle="We will e-mail you a single-use link that is valid for 60 minutes."
+      title={t('app.auth.forgot.title')}
+      subtitle={t('app.auth.forgot.subtitle')}
       icon={KeyRound}
     >
       {sentTo ? (
         <div className="space-y-5">
-          <Notice tone="success" title="Check your inbox">
-            If an account exists for <strong>{sentTo}</strong>, a password reset link is on its way. For your
-            security we do not reveal whether an address is registered.
+          <Notice tone="success" title={t('app.auth.forgot.sentTitle')}>
+            {rt('app.auth.forgot.sentRich', { email: sentTo, b: (c) => <strong>{c}</strong> })}
           </Notice>
           <button
             type="button"
@@ -48,14 +52,14 @@ export default function ForgotPasswordPage() {
               form.reset();
             }}
           >
-            Send to a different address
+            {t('app.auth.forgot.differentAddress')}
           </button>
         </div>
       ) : (
         <>
           {mutation.isError && (
-            <Notice tone="error" title="Request failed" className="mb-5">
-              {errorMessage(mutation.error)}
+            <Notice tone="error" title={t('app.auth.forgot.failed')} className="mb-5">
+              {errText(mutation.error)}
             </Notice>
           )}
           <form
@@ -70,11 +74,11 @@ export default function ForgotPasswordPage() {
             <form.Field
               name="email"
               children={(field) => (
-                <FormField id="forgot-email" name={field.name} label="Account email" required error={field.state.meta.errors as any}>
+                <FormField id="forgot-email" name={field.name} label={t('app.auth.forgot.accountEmail')} required error={field.state.meta.errors as any}>
                   <FormInput
                     type="email"
                     autoComplete="email"
-                    placeholder="architect@enterprise.com"
+                    placeholder={t('app.auth.emailPlaceholder')}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
@@ -87,7 +91,7 @@ export default function ForgotPasswordPage() {
               selector={(s) => s.isSubmitting}
               children={(isSubmitting) => (
                 <button type="submit" disabled={isSubmitting || mutation.isPending} className={`${buttonClass.primary} w-full`}>
-                  <Pending busy={isSubmitting || mutation.isPending} busyLabel="Sending..." idle="Send reset link" />
+                  <Pending busy={isSubmitting || mutation.isPending} busyLabel={t('app.auth.forgot.sending')} idle={t('app.auth.forgot.submit')} />
                 </button>
               )}
             />
@@ -96,7 +100,7 @@ export default function ForgotPasswordPage() {
       )}
       <div className="mt-6 pt-5 border-t border-border text-center text-xs">
         <Link href="/login" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs">
-          <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to sign in
+          <ArrowLeft className="size-3.5" aria-hidden="true" /> {t('app.auth.backToSignIn')}
         </Link>
       </div>
     </AuthCard>

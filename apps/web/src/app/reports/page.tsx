@@ -8,14 +8,12 @@ import { z } from 'zod';
 import { Download, FileBarChart, FilePlus2, Filter, Loader2, RotateCcw } from 'lucide-react';
 import { FormField, FormSelect } from '@/components/form';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
-import { useT } from '@/i18n/client';
+import { useLabel, useT } from '@/i18n/client';
 import { fetchAnalyses, fetchProjects } from '@/lib/api-client';
 import { fetchReportsHub, orchestrationKeys, type ReportFilters } from '@/lib/api/analysis-orchestration';
 import {
   EXPORT_FORMATS,
-  EXPORT_FORMAT_LABELS,
   REPORT_TYPES,
-  REPORT_TYPE_LABELS,
   downloadReportFile,
   formatBytes,
   generateReport,
@@ -37,6 +35,7 @@ export default function ReportsRoute() {
 
 function ReportsHubPage() {
   const t = useT();
+  const label = useLabel();
   const router = useRouter();
   const pathname = usePathname() || '/reports';
   const searchParams = useSearchParams();
@@ -99,14 +98,14 @@ function ReportsHubPage() {
             <FormSelect
               value={filters.reportType ?? ''}
               onChange={(e) => setFilter('reportType', e.target.value || undefined)}
-              options={[{ value: '', label: t('reportsHub.allTypes') }, ...REPORT_TYPES.map((r) => ({ value: r, label: REPORT_TYPE_LABELS[r] }))]}
+              options={[{ value: '', label: t('reportsHub.allTypes') }, ...REPORT_TYPES.map((r) => ({ value: r, label: label('app.commercial.exports.type', r) }))]}
             />
           </FormField>
           <FormField id="flt-format" label={t('reportsHub.format')}>
             <FormSelect
               value={filters.format ?? ''}
               onChange={(e) => setFilter('format', e.target.value || undefined)}
-              options={[{ value: '', label: t('reportsHub.allFormats') }, ...EXPORT_FORMATS.map((f) => ({ value: f, label: EXPORT_FORMAT_LABELS[f] }))]}
+              options={[{ value: '', label: t('reportsHub.allFormats') }, ...EXPORT_FORMATS.map((f) => ({ value: f, label: label('app.commercial.exports.format', f) }))]}
             />
           </FormField>
           <FormField id="flt-from" label={t('reportsHub.from')}>
@@ -173,7 +172,7 @@ function ReportsHubPage() {
                           <span className="ml-1 rounded border border-border px-1 text-[10px]">{t('reportsHub.fullPreflightTag')}</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">{REPORT_TYPE_LABELS[r.reportType as ReportTypeId] ?? r.reportType}</td>
+                      <td className="px-4 py-2">{label('app.commercial.exports.type', r.reportType)}</td>
                       <td className="px-4 py-2 font-mono">{r.format}</td>
                       <td className="px-4 py-2">{formatBytes(r.fileSize)}</td>
                       <td className="px-4 py-2">{new Date(r.createdAt).toLocaleString()}</td>
@@ -237,6 +236,7 @@ function DirtyGuard({ isDirty, isSubmitting, children }: { isDirty: boolean; isS
 /** Generates a report from a finished analysis (reuses the export service). TanStack Form + Zod. */
 function GenerateReportForm({ projects, defaultProjectId }: { projects: Array<{ id: string; name: string }>; defaultProjectId?: string }) {
   const t = useT();
+  const label = useLabel();
   const queryClient = useQueryClient();
   const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
   const schema = React.useMemo(
@@ -355,7 +355,7 @@ function GenerateReportForm({ projects, defaultProjectId }: { projects: Array<{ 
                 name="reportType"
                 children={(field) => (
                   <FormField id="gen-type" name={field.name} label={t('reportsHub.type')}>
-                    <FormSelect value={field.state.value} onChange={(e) => field.handleChange(e.target.value as ReportTypeId)} options={REPORT_TYPES.map((r) => ({ value: r, label: REPORT_TYPE_LABELS[r] }))} />
+                    <FormSelect value={field.state.value} onChange={(e) => field.handleChange(e.target.value as ReportTypeId)} options={REPORT_TYPES.map((r) => ({ value: r, label: label('app.commercial.exports.type', r) }))} />
                   </FormField>
                 )}
               />
@@ -363,7 +363,7 @@ function GenerateReportForm({ projects, defaultProjectId }: { projects: Array<{ 
                 name="format"
                 children={(field) => (
                   <FormField id="gen-format" name={field.name} label={t('reportsHub.format')}>
-                    <FormSelect value={field.state.value} onChange={(e) => field.handleChange(e.target.value as Values['format'])} options={EXPORT_FORMATS.map((f) => ({ value: f, label: EXPORT_FORMAT_LABELS[f] }))} />
+                    <FormSelect value={field.state.value} onChange={(e) => field.handleChange(e.target.value as Values['format'])} options={EXPORT_FORMATS.map((f) => ({ value: f, label: label('app.commercial.exports.format', f) }))} />
                   </FormField>
                 )}
               />

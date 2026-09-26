@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useT } from '@/i18n/client';
 import {
   AlertTriangle,
   Ban,
@@ -77,14 +78,17 @@ export function OutcomeBadge({ outcome }: { outcome: string }) {
 }
 
 export function RemediationBadge({ state }: { state: string }) {
-  const map: Record<string, [Tone, React.ElementType, string]> = {
-    OPEN: ['info', CircleDashed, 'Open'],
-    IN_PROGRESS: ['info', Clock, 'In progress'],
-    PENDING_VERIFICATION: ['warn', ShieldAlert, 'Pending verification'],
-    VERIFIED_RESOLVED: ['ok', CheckCircle2, 'Verified resolved'],
+  const t = useT();
+  const map: Record<string, [Tone, React.ElementType]> = {
+    OPEN: ['info', CircleDashed],
+    IN_PROGRESS: ['info', Clock],
+    PENDING_VERIFICATION: ['warn', ShieldAlert],
+    VERIFIED_RESOLVED: ['ok', CheckCircle2],
   };
-  const [tone, icon, label] = map[state] ?? ['neutral', HelpCircle, state];
-  return <StatusBadge tone={tone} icon={icon} label={label} title="Task completion alone never closes a finding: a later analysis must confirm the fix." />;
+  const known = map[state];
+  const [tone, icon] = known ?? ['neutral', HelpCircle];
+  const label = known ? t(`app.traceability.remediation.${state as 'OPEN'}`) : state;
+  return <StatusBadge tone={tone} icon={icon} label={label} title={t('app.traceability.remediation.hint')} />;
 }
 
 export function Card({ title, description, actions, children }: { title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {

@@ -68,8 +68,8 @@ export async function fetchProjectObjects({
 
   const actualPageSize = enableVirtualization || fetchAll ? 1000 : pageSize;
 
-  try {
-    const res = await fetchProjectObjectsApi({
+  // Errors propagate so the grid can show its error state with a retry action.
+  const res = await fetchProjectObjectsApi({
       projectId,
       search,
       objectType,
@@ -81,21 +81,11 @@ export async function fetchProjectObjects({
       sortOrder,
     });
 
-    return {
-      items: res.items as SapObject[],
-      totalCount: res.totalCount,
-      page: res.page,
-      pageSize: res.pageSize,
-      totalPages: res.totalPages,
-    };
-  } catch (err) {
-    console.error('Failed to fetch project objects from API:', err);
-    return {
-      items: [],
-      totalCount: 0,
-      page: 1,
-      pageSize,
-      totalPages: 0,
-    };
-  }
+  return {
+    items: res.items as SapObject[],
+    totalCount: res.totalCount,
+    page: res.page,
+    pageSize: res.pageSize,
+    totalPages: res.totalPages,
+  };
 }

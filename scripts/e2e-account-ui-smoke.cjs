@@ -174,7 +174,7 @@ async function registerVerified(email, password, org) {
     await switcher.selectOption(other);
     await p3.waitForFunction((v) => localStorage.getItem('erppreflight_tenant_id') === v, other, { timeout: 10000 });
     await p3.goto(WEB + '/settings/members');
-    await p3.getByText(member).first().waitFor({ timeout: 10000 });
+    await p3.locator('main').getByText(member).first().waitFor({ timeout: 10000 });
   });
 
   await step(p3, '07 export personal data and delete account', async () => {

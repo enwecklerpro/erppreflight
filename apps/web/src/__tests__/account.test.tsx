@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../test/render';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const push = vi.fn();
@@ -143,8 +143,8 @@ describe('AccountStatusBanner', () => {
   it('asks unverified users to verify (analyses locked) with a resend action', async () => {
     stub({ emailVerified: false, mfaEnabled: false }, { require_2fa: false });
     withClient(<AccountStatusBanner signedIn />);
-    expect(await screen.findByText(/Verify your e-mail address/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Resend verification e-mail/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Verify your email address/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Resend verification email/ })).toBeInTheDocument();
   });
 
   it('prompts 2FA enrollment when the organization requires it', async () => {

@@ -12,6 +12,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { customInstance, resolveApiRootUrl } from '@/lib/api/custom-instance';
+import { useFmt, useT } from '@/i18n/client';
 
 type ComponentStatus = 'OPERATIONAL' | 'DEGRADED' | 'DOWN' | 'NOT_MONITORED' | 'UNKNOWN';
 
@@ -45,6 +46,7 @@ interface EngineStatusSummary {
 }
 
 interface ServiceRow {
+  id: string;
   name: string;
   status: ComponentStatus;
   details?: string;
@@ -76,7 +78,7 @@ async function probeReadiness(): Promise<ReadinessProbe> {
       httpStatus: null,
       roundTripMs: Math.round(performance.now() - t0),
       body: null,
-      error: (err as Error)?.message || 'Connection failed',
+      error: (err as Error)?.message || undefined,
     };
   }
 }
@@ -108,39 +110,34 @@ function engineServiceToStatus(serviceStatus: string | undefined): ComponentStat
   }
 }
 
-function latency(dep: DependencyHealth | undefined): string | undefined {
-  return typeof dep?.latencyMs === 'number' ? `${dep.latencyMs} ms` : undefined;
-}
-
-const STATUS_BADGE: Record<ComponentStatus, { label: string; className: string; Icon: React.ElementType }> = {
+const STATUS_BADGE: Record<ComponentStatus, { className: string; Icon: React.ElementType }> = {
   OPERATIONAL: {
-    label: 'OPERATIONAL',
     className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
     Icon: CheckCircle2,
   },
   DEGRADED: {
-    label: 'DEGRADED',
     className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     Icon: AlertTriangle,
   },
   DOWN: {
-    label: 'DOWN',
     className: 'bg-red-500/10 text-red-400 border-red-500/20',
     Icon: XCircle,
   },
   NOT_MONITORED: {
-    label: 'NOT MONITORED',
     className: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
     Icon: HelpCircle,
   },
   UNKNOWN: {
-    label: 'UNKNOWN',
     className: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
     Icon: HelpCircle,
   },
 };
 
 export default function StatusPage() {
+  const t = useT();
+  const fmt = useFmt();
+  const latency = (dep: DependencyHealth | undefined): string | undefined =>
+    typeof dep?.latencyMs === 'number' ? t('app.status.latency', { ms: fmt.number(dep.latencyMs) }) : undefined;
   const {
     data: probe,
     isLoading,
@@ -170,43 +167,52 @@ export default function StatusPage() {
 
   const services: ServiceRow[] = [
     {
-      name: 'Core API',
+      id: 'api',
+      name: t('app.status.service.api'),
       status: !probe ? 'UNKNOWN' : apiReachable ? 'OPERATIONAL' : 'DOWN',
       details: probe
         ? apiReachable
-          ? `Readiness responded HTTP ${probe.httpStatus} in ${probe.roundTripMs} ms (measured from this browser)`
-          : probe.error
+          ? t('app.status.apiDetails', { status: String(probe.httpStatus), ms: fmt.number(probe.roundTripMs) })
+          : probe.error ?? t('app.status.connectionFailed')
         : undefined,
     },
     {
-      name: 'PostgreSQL',
+      id: 'postgres',
+      name: t('app.status.service.postgres'),
       status: apiReachable ? dependencyToStatus(deps.postgres) : 'UNKNOWN',
       details: latency(deps.postgres),
     },
     {
-      name: 'Redis (cache & job queue)',
+      id: 'redis',
+      name: t('app.status.service.redis'),
       status: apiReachable ? dependencyToStatus(deps.redis) : 'UNKNOWN',
       details: latency(deps.redis),
     },
     {
-      name: 'Object storage',
+      id: 'storage',
+      name: t('app.status.service.storage'),
       status: apiReachable ? dependencyToStatus(deps.minio) : 'UNKNOWN',
     },
     {
-      name: 'Antivirus scanner',
+      id: 'antivirus',
+      name: t('app.status.service.antivirus'),
       status: apiReachable ? dependencyToStatus(deps.clamav) : 'UNKNOWN',
-      details: deps.clamav?.status === 'mock_mode' ? 'Scanner runs in mock mode' : undefined,
+      details: deps.clamav?.status === 'mock_mode' ? t('app.status.scannerMock') : undefined,
     },
     {
-      name: 'Analysis engines',
+      id: 'engines',
+      name: t('app.status.service.engines'),
       status: isEngineError ? 'UNKNOWN' : engineServiceToStatus(engineData?.summary?.serviceStatus),
       details:
         engineData?.summary &&
         typeof engineData.summary.operationalCount === 'number' &&
         typeof engineData.summary.totalEngines === 'number'
-          ? `${engineData.summary.operationalCount} / ${engineData.summary.totalEngines} engines operational`
+          ? t('app.status.enginesOperational', {
+              operational: engineData.summary.operationalCount,
+              total: engineData.summary.totalEngines,
+            })
           : isEngineError
-          ? 'Engine status could not be retrieved'
+          ? t('app.status.enginesUnavailable')
           : undefined,
     },
   ];
@@ -227,11 +233,11 @@ export default function StatusPage() {
     : 'DEGRADED';
 
   const overallText: Record<ComponentStatus, string> = {
-    OPERATIONAL: 'All monitored components operational',
-    DEGRADED: 'Partial service degradation',
-    DOWN: 'One or more components are down',
-    UNKNOWN: isLoading ? 'Checking status…' : 'Status partially unknown',
-    NOT_MONITORED: 'Not monitored',
+    OPERATIONAL: t('app.status.overall.OPERATIONAL'),
+    DEGRADED: t('app.status.overall.DEGRADED'),
+    DOWN: t('app.status.overall.DOWN'),
+    UNKNOWN: isLoading ? t('app.status.overall.CHECKING') : t('app.status.overall.UNKNOWN'),
+    NOT_MONITORED: t('app.status.overall.NOT_MONITORED'),
   };
   const OverallIcon = STATUS_BADGE[overall].Icon;
 
@@ -241,14 +247,10 @@ export default function StatusPage() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3 border border-emerald-500/20">
             <Activity className="w-3.5 h-3.5" aria-hidden="true" />
-            Live status
+            {t('app.status.badge')}
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            ERP Preflight Service Status
-          </h1>
-          <p className="mt-2 text-sm text-slate-400">
-            Current results of the API readiness probe and engine status endpoint. No historical uptime is recorded on this page.
-          </p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">{t('app.status.title')}</h1>
+          <p className="mt-2 text-sm text-slate-400">{t('app.status.intro')}</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -261,8 +263,8 @@ export default function StatusPage() {
             <div>
               <h2 className="text-lg font-bold text-white">{overallText[overall]}</h2>
               {probe?.body?.status && (
-                <p className="text-xs text-slate-400">
-                  API readiness reports: <span className="font-mono">{probe.body.status}</span>
+                <p className="text-sm text-slate-400">
+                  {t('app.status.apiReports')} <span className="font-mono">{probe.body.status}</span>
                 </p>
               )}
             </div>
@@ -275,35 +277,35 @@ export default function StatusPage() {
                 refetchEngines();
               }}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-sm font-semibold text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
-              Refresh
+              {t('app.status.refresh')}
             </button>
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 font-mono">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
               <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>{dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : 'Checking…'}</span>
+              <span>{dataUpdatedAt ? t('app.status.lastChecked', { time: fmt.time(dataUpdatedAt) }) : t('app.status.checking')}</span>
             </div>
           </div>
         </div>
 
-        <ul className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
+        <ul aria-label={t('app.status.listLabel')} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
           {services.map((svc) => {
             const badge = STATUS_BADGE[svc.status];
             const Icon = badge.Icon;
             return (
-              <li key={svc.name} className="p-4 sm:p-5 flex items-center justify-between gap-4">
+              <li key={svc.id} className="p-4 sm:p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <div className="font-bold text-white text-sm">{svc.name}</div>
                   {svc.details && (
-                    <div className="text-[11px] text-slate-400 font-mono mt-0.5 break-words">{svc.details}</div>
+                    <div className="text-xs text-slate-400 mt-0.5 break-words">{svc.details}</div>
                   )}
                 </div>
                 <span
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border shrink-0 ${badge.className}`}
                 >
                   <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                  {badge.label}
+                  {t(`app.status.state.${svc.status}`)}
                 </span>
               </li>
             );

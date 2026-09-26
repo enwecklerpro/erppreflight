@@ -4,6 +4,7 @@ import * as React from 'react';
 import { AlertCircle } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useT, useTranslateMessage } from '../../i18n/client';
 
 /**
  * Utility for merging Tailwind CSS classes safely with clsx.
@@ -107,7 +108,10 @@ export function FormField({
   const generatedId = React.useId();
   const id = explicitId || name || `field-${generatedId}`;
 
-  const errorMessage = formatFieldError(error);
+  const t = useT();
+  const translateMessage = useTranslateMessage();
+  const rawError = formatFieldError(error);
+  const errorMessage = rawError ? translateMessage(rawError) : null;
   const hasError = Boolean(errorMessage);
 
   const descriptionId = description ? `${id}-description` : undefined;
@@ -145,7 +149,7 @@ export function FormField({
               <span
                 className="text-destructive font-bold ml-1"
                 aria-hidden="true"
-                title="Required field"
+                title={t('app.ui.requiredField')}
               >
                 *
               </span>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../test/render';
 import { z } from 'zod';
 import { useForm } from '@tanstack/react-form';
 import { FormField, formatFieldError } from '../components/form/form-field';

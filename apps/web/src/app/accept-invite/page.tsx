@@ -13,11 +13,9 @@ import { FormInput } from '@/components/form/form-inputs';
 import { AuthCard, Notice, Pending, SectionSkeleton, buttonClass } from '@/components/account/ui';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
-  ROLE_LABELS,
   accountKeys,
   acceptInvitation,
   acceptInvitationWithNewAccount,
-  errorMessage,
   fetchMe,
   previewInvitation,
   storeSession,
@@ -25,6 +23,9 @@ import {
 } from '@/lib/account-api';
 import { getStoredAuthToken } from '@/lib/api/custom-instance';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
+import { useErrorText, useFmt, useRichT, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
+import { useRoleLabel } from '@/components/account/role-label';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
@@ -32,11 +33,16 @@ const newAccountSchema = z
   .object({
     fullName: z.string().max(255),
     password: PasswordSchema,
-    confirm: z.string().min(1, 'Please confirm your password'),
+    confirm: z.string().min(1, vmsg('app.validation.confirmPasswordRequired')),
   })
-  .refine((v) => v.password === v.confirm, { message: 'Passwords do not match', path: ['confirm'] });
+  .refine((v) => v.password === v.confirm, { message: vmsg('app.validation.passwordsMismatch'), path: ['confirm'] });
 
 function AcceptInvite() {
+  const t = useT();
+  const rt = useRichT();
+  const fmt = useFmt();
+  const errText = useErrorText();
+  const roleLabel = useRoleLabel();
   const token = useSearchParams().get('token') || '';
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -76,13 +82,13 @@ function AcceptInvite() {
   useUnsavedChangesGuard({ isDirty: isDirty && !acceptNew.isSuccess, isSubmitting: acceptNew.isPending });
 
   if (!valid) {
-    return <Notice tone="error" title="Invalid invitation link">The link is incomplete. Ask the sender to resend the invitation.</Notice>;
+    return <Notice tone="error" title={t('app.auth.invite.invalidTitle')}>{t('app.auth.invite.invalidBody')}</Notice>;
   }
-  if (preview.isPending) return <SectionSkeleton rows={3} label="Loading invitation" />;
+  if (preview.isPending) return <SectionSkeleton rows={3} label={t('app.auth.invite.loading')} />;
   if (preview.isError) {
     return (
-      <Notice tone="warning" title="Invitation unavailable">
-        {errorMessage(preview.error)} Ask an administrator of the organization to send a new invitation.
+      <Notice tone="warning" title={t('app.auth.invite.unavailableTitle')}>
+        {errText(preview.error)} {t('app.auth.invite.unavailableHint')}
       </Notice>
     );
   }
@@ -91,41 +97,42 @@ function AcceptInvite() {
   const signedInEmail = me.data?.email?.toLowerCase();
   const matches = signedInEmail === inv.email.toLowerCase();
   const nextUrl = `/accept-invite?token=${encodeURIComponent(token)}`;
+  const inviteVars = { email: inv.email, role: roleLabel(inv.role), date: fmt.date(inv.expiresAt), b: (c: React.ReactNode) => <strong>{c}</strong> };
 
   return (
     <div className="space-y-5">
-      <Notice tone="info" title={`Join ${inv.organizationName}`}>
-        {inv.invitedBy ? `${inv.invitedBy} invited ` : 'You were invited as '}
-        <strong>{inv.email}</strong> as <strong>{ROLE_LABELS[inv.role] ?? inv.role}</strong>. The invitation expires on{' '}
-        {new Date(inv.expiresAt).toLocaleDateString()}.
+      <Notice tone="info" title={t('app.auth.invite.joinTitle', { organization: inv.organizationName })}>
+        {inv.invitedBy
+          ? rt('app.auth.invite.invitedByRich', { ...inviteVars, inviter: inv.invitedBy })
+          : rt('app.auth.invite.invitedRich', inviteVars)}
       </Notice>
 
-      {hasToken && me.isPending && <SectionSkeleton rows={1} label="Checking your session" />}
+      {hasToken && me.isPending && <SectionSkeleton rows={1} label={t('app.auth.invite.checkingSession')} />}
 
       {hasToken && me.data && (
         matches ? (
           <>
-            {acceptExisting.isError && <Notice tone="error" title="Could not join">{errorMessage(acceptExisting.error)}</Notice>}
+            {acceptExisting.isError && <Notice tone="error" title={t('app.auth.invite.joinFailed')}>{errText(acceptExisting.error)}</Notice>}
             <button type="button" className={`${buttonClass.primary} w-full`} disabled={acceptExisting.isPending} onClick={() => acceptExisting.mutate()}>
-              <Pending busy={acceptExisting.isPending} busyLabel="Joining..." idle={`Join ${inv.organizationName}`} />
+              <Pending busy={acceptExisting.isPending} busyLabel={t('app.auth.invite.joining')} idle={t('app.auth.invite.join', { organization: inv.organizationName })} />
             </button>
           </>
         ) : (
-          <Notice tone="warning" title="Signed in with a different account">
-            You are signed in as <strong>{me.data.email}</strong>. Sign out and sign in as <strong>{inv.email}</strong> to accept.
+          <Notice tone="warning" title={t('app.auth.invite.otherAccountTitle')}>
+            {rt('app.auth.invite.otherAccountRich', { current: me.data.email ?? '', email: inv.email, b: (c) => <strong>{c}</strong> })}
           </Notice>
         )
       )}
 
       {(!hasToken || me.isError) && inv.accountExists && (
         <Link href={`/login?next=${encodeURIComponent(nextUrl)}`} className={`${buttonClass.primary} w-full`}>
-          Sign in as {inv.email} to accept
+          {t('app.auth.invite.signInToAccept', { email: inv.email })}
         </Link>
       )}
 
       {(!hasToken || me.isError) && !inv.accountExists && (
         <>
-          {acceptNew.isError && <Notice tone="error" title="Account not created">{errorMessage(acceptNew.error)}</Notice>}
+          {acceptNew.isError && <Notice tone="error" title={t('app.auth.invite.accountFailed')}>{errText(acceptNew.error)}</Notice>}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -135,13 +142,13 @@ function AcceptInvite() {
             noValidate
             className="space-y-4"
           >
-            <p className="text-xs text-muted-foreground">
-              Create your account for <strong>{inv.email}</strong>. The address is verified by this invitation.
+            <p className="text-sm text-muted-foreground">
+              {rt('app.auth.invite.createForRich', { email: inv.email, b: (c) => <strong>{c}</strong> })}
             </p>
             <form.Field
               name="fullName"
               children={(field) => (
-                <FormField id="invite-name" name={field.name} label="Full name" error={field.state.meta.errors as any}>
+                <FormField id="invite-name" name={field.name} label={t('app.auth.invite.fullName')} error={field.state.meta.errors as any}>
                   <FormInput autoComplete="name" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} leftIcon={<User className="size-4" />} />
                 </FormField>
               )}
@@ -152,8 +159,8 @@ function AcceptInvite() {
                 <FormField
                   id="invite-password"
                   name={field.name}
-                  label="Password"
-                  description={`At least ${PASSWORD_MIN_LENGTH} characters with three of: lower-case, upper-case, digit, symbol.`}
+                  label={t('app.auth.password')}
+                  description={t('app.auth.passwordHint', { min: PASSWORD_MIN_LENGTH })}
                   required
                   error={field.state.meta.isTouched ? (field.state.meta.errors as any) : undefined}
                 >
@@ -164,7 +171,7 @@ function AcceptInvite() {
             <form.Field
               name="confirm"
               children={(field) => (
-                <FormField id="invite-confirm" name={field.name} label="Confirm password" required error={field.state.meta.isTouched ? (field.state.meta.errors as any) : undefined}>
+                <FormField id="invite-confirm" name={field.name} label={t('app.auth.invite.confirmPassword')} required error={field.state.meta.isTouched ? (field.state.meta.errors as any) : undefined}>
                   <FormInput type="password" autoComplete="new-password" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} leftIcon={<Lock className="size-4" />} />
                 </FormField>
               )}
@@ -173,7 +180,7 @@ function AcceptInvite() {
               selector={(s) => s.isSubmitting}
               children={(isSubmitting) => (
                 <button type="submit" disabled={isSubmitting || acceptNew.isPending} className={`${buttonClass.primary} w-full`}>
-                  <Pending busy={isSubmitting || acceptNew.isPending} busyLabel="Creating account..." idle="Create account and join" />
+                  <Pending busy={isSubmitting || acceptNew.isPending} busyLabel={t('app.auth.invite.creating')} idle={t('app.auth.invite.submit')} />
                 </button>
               )}
             />
@@ -185,9 +192,10 @@ function AcceptInvite() {
 }
 
 export default function AcceptInvitePage() {
+  const t = useT();
   return (
-    <AuthCard title="Organization invitation" icon={UserPlus}>
-      <React.Suspense fallback={<SectionSkeleton rows={3} label="Loading" />}>
+    <AuthCard title={t('app.auth.invite.title')} icon={UserPlus}>
+      <React.Suspense fallback={<SectionSkeleton rows={3} label={t('app.auth.loading')} />}>
         <AcceptInvite />
       </React.Suspense>
     </AuthCard>

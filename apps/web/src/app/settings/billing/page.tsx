@@ -12,33 +12,34 @@ import {
   SkeletonBlock,
   SubscriptionStatusBadge,
   UsageMeterRow,
-  errorMessage,
+  useCommercialErrorText,
+  useMeterFormat,
 } from '@/components/commercial/states';
 import {
   fetchBillingOverview,
   fetchInvoices,
   fetchPlanCatalog,
-  formatMeterValue,
   openBillingPortal,
   startCheckout,
   type PlanCatalogEntry,
 } from '@/lib/api/commercial';
 import { ApiError } from '@/lib/api/custom-instance';
 import type { PlanTierId } from '@erppreflight/schemas';
-
-const eur = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
+import { useFmt, useLabel, useMessages, useRichT, useT } from '@/i18n/client';
 
 function nextPeriodReset(periodStart: string): string {
   const d = new Date(periodStart);
-  return formatDate(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString());
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
 }
 
 function BillingPageInner() {
+  const t = useT();
+  const rt = useRichT();
+  const fmt = useFmt();
+  const label = useLabel();
+  const errText = useCommercialErrorText();
+  const formatMeter = useMeterFormat();
+  const formatDate = fmt.date;
   const searchParams = useSearchParams();
   const returnStatus = searchParams.get('status');
 
@@ -64,50 +65,47 @@ function BillingPageInner() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground py-8 px-4 sm:px-6 lg:px-8">
+    <div className="text-foreground">
       <div className="max-w-5xl mx-auto">
         <SettingsNav />
         <header className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">Plan &amp; billing</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Your subscription, trial and metered usage for the current billing period. Limits are enforced server-side.
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('app.billing.title')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('app.billing.subtitle')}</p>
         </header>
 
         <div className="space-y-6">
           {returnStatus === 'success' && (
-            <Notice tone="success" title="Checkout completed">
-              Your subscription is activated as soon as the payment provider confirms it (usually a few seconds).
+            <Notice tone="success" title={t('app.billing.checkoutDoneTitle')}>
+              {t('app.billing.checkoutDoneBody')}
             </Notice>
           )}
-          {returnStatus === 'cancelled' && <Notice tone="info" title="Checkout cancelled">No changes were made to your plan.</Notice>}
+          {returnStatus === 'cancelled' && <Notice tone="info" title={t('app.billing.checkoutCancelledTitle')}>{t('app.billing.checkoutCancelledBody')}</Notice>}
 
           {overview.isLoading ? (
-            <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading billing overview">
+            <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label={t('app.billing.loadingOverview')}>
               <SkeletonBlock className="h-44" />
               <SkeletonBlock className="h-44" />
             </div>
           ) : overview.isError ? (
-            <ErrorState title="Could not load billing overview" error={overview.error} onRetry={() => overview.refetch()} />
+            <ErrorState title={t('app.billing.overviewFailed')} error={overview.error} onRetry={() => overview.refetch()} />
           ) : overview.data ? (
             <>
               {!providerConfigured && (
-                <Notice tone="warning" title="Billing is not configured on this deployment">
-                  Online checkout, the customer portal and invoices are unavailable until the operator configures the payment
-                  provider. Plan limits and usage metering still apply.
+                <Notice tone="warning" title={t('app.billing.notConfiguredTitle')}>
+                  {t('app.billing.notConfiguredBody')}
                 </Notice>
               )}
               {overview.data.subscriptionStatus === 'PAST_DUE' && (
-                <Notice tone="warning" title="Payment past due">
-                  The last invoice could not be charged. Update your payment method in the billing portal to keep your plan.
+                <Notice tone="warning" title={t('app.billing.pastDueTitle')}>
+                  {t('app.billing.pastDueBody')}
                 </Notice>
               )}
 
-              <section className="grid gap-4 md:grid-cols-2" aria-label="Current plan">
+              <section className="grid gap-4 md:grid-cols-2" aria-label={t('app.billing.currentPlanLabel')}>
                 <div className="rounded-xl border border-border bg-card p-5 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Current plan</p>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('app.billing.currentPlan')}</p>
                       <p className="text-xl font-bold mt-0.5" data-testid="current-plan">
                         {catalog.data?.plans.find((p) => p.tier === overview.data.planTier)?.displayName ?? overview.data.planTier}
                       </p>
@@ -116,20 +114,21 @@ function BillingPageInner() {
                   </div>
                   {overview.data.effectiveTier !== overview.data.planTier && (
                     <p className="text-sm">
-                      Limits currently enforced: <strong>{overview.data.effectiveTier}</strong>
-                      {overview.data.trial.active ? ' (trial)' : ''}
+                      {overview.data.trial.active
+                        ? t('app.billing.enforcedTrial', { tier: overview.data.effectiveTier })
+                        : t('app.billing.enforced', { tier: overview.data.effectiveTier })}
                     </p>
                   )}
                   <dl className="grid grid-cols-2 gap-2 text-sm">
-                    <dt className="text-muted-foreground">Renews / ends</dt>
+                    <dt className="text-muted-foreground">{t('app.billing.renews')}</dt>
                     <dd>{formatDate(overview.data.currentPeriodEnd)}</dd>
-                    <dt className="text-muted-foreground">Cancels at period end</dt>
-                    <dd>{overview.data.cancelAtPeriodEnd ? 'Yes' : 'No'}</dd>
-                    <dt className="text-muted-foreground">Usage resets</dt>
-                    <dd>{nextPeriodReset(overview.data.periodStart)}</dd>
+                    <dt className="text-muted-foreground">{t('app.billing.cancelsAtEnd')}</dt>
+                    <dd>{overview.data.cancelAtPeriodEnd ? t('app.ui.yes') : t('app.ui.no')}</dd>
+                    <dt className="text-muted-foreground">{t('app.billing.usageResets')}</dt>
+                    <dd>{formatDate(nextPeriodReset(overview.data.periodStart))}</dd>
                   </dl>
                   {overview.data.hasLimitOverrides && (
-                    <p className="text-xs text-muted-foreground">Custom limits agreed with ERP Preflight apply to this organization.</p>
+                    <p className="text-xs text-muted-foreground">{t('app.billing.customLimits')}</p>
                   )}
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
@@ -143,40 +142,42 @@ function BillingPageInner() {
                       ) : (
                         <CreditCard className="size-4" aria-hidden="true" />
                       )}
-                      Manage billing
+                      {t('app.billing.manage')}
                     </button>
                   </div>
                   {portal.isError && (
                     <p role="alert" className="text-xs text-destructive">
                       {portal.error instanceof ApiError && portal.error.statusCode === 409
-                        ? 'No billing account yet — choose a plan below first.'
-                        : errorMessage(portal.error)}
+                        ? t('app.billing.noBillingAccount')
+                        : errText(portal.error)}
                     </p>
                   )}
                 </div>
 
-                <div className="rounded-xl border border-border bg-card p-5 space-y-3" aria-label="Trial">
+                <div className="rounded-xl border border-border bg-card p-5 space-y-3" aria-label={t('app.billing.trial')}>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
-                    <Sparkles className="size-3.5" aria-hidden="true" /> Trial
+                    <Sparkles className="size-3.5" aria-hidden="true" /> {t('app.billing.trial')}
                   </p>
                   {overview.data.trial.active ? (
                     <>
                       <p className="text-lg font-semibold" data-testid="trial-state">
-                        {overview.data.trial.tier} trial — {overview.data.trial.daysRemaining} day
-                        {overview.data.trial.daysRemaining === 1 ? '' : 's'} left
+                        {t('app.billing.trialActive', { tier: overview.data.trial.tier ?? '', count: overview.data.trial.daysRemaining ?? 0 })}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Ends {formatDate(overview.data.trial.endsAt)}. Afterwards the workspace returns to the{' '}
-                        <strong>{overview.data.planTier}</strong> limits unless you subscribe. No data is deleted by the downgrade.
+                        {rt('app.billing.trialEndsRich', {
+                          date: formatDate(overview.data.trial.endsAt),
+                          tier: overview.data.planTier,
+                          b: (c) => <strong>{c}</strong>,
+                        })}
                       </p>
                     </>
                   ) : overview.data.trial.endsAt ? (
                     <p className="text-sm text-muted-foreground" data-testid="trial-state">
-                      Trial ended {formatDate(overview.data.trial.endsAt)}.
+                      {t('app.billing.trialEnded', { date: formatDate(overview.data.trial.endsAt) })}
                     </p>
                   ) : (
                     <p className="text-sm text-muted-foreground" data-testid="trial-state">
-                      No trial applies to this organization.
+                      {t('app.billing.noTrial')}
                     </p>
                   )}
                 </div>
@@ -184,7 +185,7 @@ function BillingPageInner() {
 
               <section className="rounded-xl border border-border bg-card p-5" aria-labelledby="usage-heading">
                 <h2 id="usage-heading" className="text-base font-semibold mb-4">
-                  Usage this period
+                  {t('app.billing.usageTitle')}
                 </h2>
                 <div className="grid gap-5 sm:grid-cols-2">
                   {overview.data.meters.map((m) => (
@@ -192,9 +193,11 @@ function BillingPageInner() {
                   ))}
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Also metered this period: {formatMeterValue('count', overview.data.metered.ENGINE_EXECUTION ?? 0)} engine
-                  executions, {formatMeterValue('count', overview.data.metered.ARTIFACT_UPLOAD ?? 0)} uploads (
-                  {formatMeterValue('storageBytes', overview.data.metered.ARTIFACT_BYTES ?? 0)}).
+                  {t('app.billing.alsoMetered', {
+                    executions: formatMeter('count', overview.data.metered.ENGINE_EXECUTION ?? 0),
+                    uploads: formatMeter('count', overview.data.metered.ARTIFACT_UPLOAD ?? 0),
+                    bytes: formatMeter('storageBytes', overview.data.metered.ARTIFACT_BYTES ?? 0),
+                  })}
                 </p>
               </section>
             </>
@@ -202,7 +205,7 @@ function BillingPageInner() {
 
           <section aria-labelledby="plans-heading">
             <h2 id="plans-heading" className="text-base font-semibold mb-3">
-              Plans
+              {t('app.billing.plansTitle')}
             </h2>
             {catalog.isLoading ? (
               <div className="grid gap-4 md:grid-cols-3">
@@ -211,7 +214,7 @@ function BillingPageInner() {
                 <SkeletonBlock className="h-64" />
               </div>
             ) : catalog.isError ? (
-              <ErrorState title="Could not load plans" error={catalog.error} onRetry={() => catalog.refetch()} />
+              <ErrorState title={t('app.billing.plansFailed')} error={catalog.error} onRetry={() => catalog.refetch()} />
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {catalog.data?.plans.map((plan) => (
@@ -228,34 +231,34 @@ function BillingPageInner() {
             )}
             {checkout.isError && (
               <div className="mt-3">
-                <ErrorState title="Checkout could not be started" error={checkout.error} />
+                <ErrorState title={t('app.billing.checkoutFailed')} error={checkout.error} />
               </div>
             )}
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5" aria-labelledby="invoices-heading">
             <h2 id="invoices-heading" className="text-base font-semibold mb-3 inline-flex items-center gap-2">
-              <FileText className="size-4" aria-hidden="true" /> Invoices
+              <FileText className="size-4" aria-hidden="true" /> {t('app.billing.invoicesTitle')}
             </h2>
             {!providerConfigured ? (
-              <p className="text-sm text-muted-foreground">Invoices are provided by the payment provider, which is not configured.</p>
+              <p className="text-sm text-muted-foreground">{t('app.billing.invoicesUnavailable')}</p>
             ) : invoices.isLoading ? (
               <SkeletonBlock className="h-24" />
             ) : invoices.isError ? (
-              <ErrorState title="Could not load invoices" error={invoices.error} onRetry={() => invoices.refetch()} />
+              <ErrorState title={t('app.billing.invoicesFailed')} error={invoices.error} onRetry={() => invoices.refetch()} />
             ) : invoices.data && invoices.data.invoices.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No invoices yet.</p>
+              <p className="text-sm text-muted-foreground">{t('app.billing.noInvoices')}</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-muted-foreground border-b border-border">
-                      <th className="py-2 pr-3 font-medium">Invoice</th>
-                      <th className="py-2 pr-3 font-medium">Date</th>
-                      <th className="py-2 pr-3 font-medium">Status</th>
-                      <th className="py-2 pr-3 font-medium text-right">Amount</th>
-                      <th className="py-2 font-medium">
-                        <span className="sr-only">Links</span>
+                      <th scope="col" className="py-2 pr-3 font-medium">{t('app.billing.colInvoice')}</th>
+                      <th scope="col" className="py-2 pr-3 font-medium">{t('app.billing.colDate')}</th>
+                      <th scope="col" className="py-2 pr-3 font-medium">{t('app.billing.colStatus')}</th>
+                      <th scope="col" className="py-2 pr-3 font-medium text-right">{t('app.billing.colAmount')}</th>
+                      <th scope="col" className="py-2 font-medium">
+                        <span className="sr-only">{t('app.billing.colLinks')}</span>
                       </th>
                     </tr>
                   </thead>
@@ -264,9 +267,9 @@ function BillingPageInner() {
                       <tr key={inv.id} className="border-b border-border/60">
                         <td className="py-2 pr-3 font-mono text-xs">{inv.number ?? inv.id}</td>
                         <td className="py-2 pr-3">{formatDate(inv.createdAt)}</td>
-                        <td className="py-2 pr-3">{inv.status ?? '—'}</td>
+                        <td className="py-2 pr-3">{label('app.billing.invoiceStatus', inv.status)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums">
-                          {new Intl.NumberFormat(undefined, { style: 'currency', currency: inv.currency }).format(inv.amountDue / 100)}
+                          {fmt.currency(inv.amountDue / 100, inv.currency.toUpperCase())}
                         </td>
                         <td className="py-2">
                           {inv.hostedInvoiceUrl && (
@@ -276,7 +279,7 @@ function BillingPageInner() {
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-primary hover:underline"
                             >
-                              View <ExternalLink className="size-3" aria-hidden="true" />
+                              {t('app.billing.view')} <ExternalLink className="size-3" aria-hidden="true" />
                             </a>
                           )}
                         </td>
@@ -306,67 +309,60 @@ function PlanCard({
   pending: boolean;
   onUpgrade: () => void;
 }) {
-  const limitRows: Array<[string, string]> = [
-    ['projects', 'Projects'],
-    ['analysesPerMonth', 'Analyses / month'],
-    ['storageBytes', 'Storage'],
-    ['exportsPerMonth', 'Report exports / month'],
-    ['teamMembers', 'Team members'],
-  ];
+  const t = useT();
+  const fmt = useFmt();
+  const messages = useMessages();
+  const formatMeter = useMeterFormat();
+  const limitRows = ['projects', 'analysesPerMonth', 'storageBytes', 'exportsPerMonth', 'teamMembers'] as const;
+  const tierSummary = (messages.pricing.tiers as Record<string, string>)[plan.tier] ?? plan.summary;
   return (
     <article
       className={`rounded-xl border bg-card p-5 flex flex-col gap-3 ${current ? 'border-primary ring-1 ring-primary/40' : 'border-border'}`}
-      aria-label={`${plan.displayName} plan${current ? ' (current)' : ''}`}
+      aria-label={current ? t('app.billing.planLabelCurrent', { name: plan.displayName }) : t('app.billing.planLabel', { name: plan.displayName })}
     >
       <div>
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-semibold">{plan.displayName}</h3>
           {current && (
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 px-2 py-0.5 text-xs font-semibold text-primary">
-              <Check className="size-3.5" aria-hidden="true" /> Current
+              <Check className="size-3.5" aria-hidden="true" /> {t('app.billing.current')}
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-1">{plan.summary}</p>
+        <p className="text-sm text-muted-foreground mt-1">{tierSummary}</p>
       </div>
       <p className="text-2xl font-bold">
         {plan.monthlyPriceEur === null ? (
-          'Contact sales'
+          t('app.billing.contactSales')
         ) : plan.monthlyPriceEur === 0 ? (
-          'Free'
+          t('app.billing.free')
         ) : (
           <>
-            {eur.format(plan.monthlyPriceEur)}
-            <span className="text-sm font-normal text-muted-foreground"> / month, excl. VAT</span>
+            {fmt.number(plan.monthlyPriceEur, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+            <span className="text-sm font-normal text-muted-foreground"> {t('app.billing.perMonth')}</span>
           </>
         )}
       </p>
       <ul className="space-y-1 text-sm">
-        {limitRows.map(([key, label]) => {
+        {limitRows.map((key) => {
           const v = plan.limits[key];
           return (
             <li key={key} className="flex justify-between gap-2">
-              <span className="text-muted-foreground">{label}</span>
-              <span className="tabular-nums">{v === -1 ? 'Unlimited' : formatMeterValue(key, v ?? 0)}</span>
+              <span className="text-muted-foreground">{t(`app.billing.limit.${key}`)}</span>
+              <span className="tabular-nums">{v === -1 ? t('app.billing.unlimited') : formatMeter(key, v ?? 0)}</span>
             </li>
           );
         })}
-        {(
-          [
-            ['agentGate', 'Agent change gate'],
-            ['cloudAlmSync', 'Cloud ALM / Jira sync'],
-            ['reportBranding', 'Branded reports'],
-          ] as const
-        ).map(([key, label]) => (
+        {(['agentGate', 'cloudAlmSync', 'reportBranding'] as const).map((key) => (
           <li key={key} className="flex justify-between gap-2">
-            <span className="text-muted-foreground">{label}</span>
+            <span className="text-muted-foreground">{t(`app.billing.feature.${key}`)}</span>
             {plan.features[key] ? (
               <span className="inline-flex items-center gap-1">
-                <Check className="size-3.5" aria-hidden="true" /> Included
+                <Check className="size-3.5" aria-hidden="true" /> {t('app.billing.included')}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <Minus className="size-3.5" aria-hidden="true" /> Not included
+                <Minus className="size-3.5" aria-hidden="true" /> {t('app.billing.notIncluded')}
               </span>
             )}
           </li>
@@ -378,18 +374,18 @@ function PlanCard({
             type="button"
             onClick={onUpgrade}
             disabled={!canCheckout || pending}
-            title={canCheckout ? undefined : 'Billing is not configured on this deployment'}
+            title={canCheckout ? undefined : t('app.billing.notConfiguredTitle')}
             className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             {pending ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ArrowUpRight className="size-4" aria-hidden="true" />}
-            Choose {plan.displayName}
+            {t('app.billing.choose', { name: plan.displayName })}
           </button>
         ) : plan.monthlyPriceEur === null ? (
           <Link
             href="/procurement"
             className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted"
           >
-            Contact sales
+            {t('app.billing.contactSales')}
           </Link>
         ) : null}
       </div>

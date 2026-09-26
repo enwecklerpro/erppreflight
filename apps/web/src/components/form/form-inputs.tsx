@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { AlertTriangle, ArrowRight, ChevronDown } from 'lucide-react';
 import { cn, useFormField, formatFieldError } from './form-field';
+import { useT, useTranslateMessage } from '../../i18n/client';
 
 // --- FormInput ---
 export interface FormInputProps
@@ -278,14 +279,16 @@ export interface FormSummaryErrorsProps {
 export function FormSummaryErrors({
   errors,
   className,
-  title = 'Please correct the following errors before submitting:',
+  title,
 }: FormSummaryErrorsProps) {
+  const t = useT();
+  const translateMessage = useTranslateMessage();
+  const heading = title ?? t('app.form.summaryTitle');
   const activeErrors = errors
-    .map((item) => ({
-      fieldId: item.fieldId,
-      label: item.label,
-      message: formatFieldError(item.error as any),
-    }))
+    .map((item) => {
+      const raw = formatFieldError(item.error as any);
+      return { fieldId: item.fieldId, label: item.label, message: raw ? translateMessage(raw) : null };
+    })
     .filter((item): item is { fieldId: string; label: string; message: string } =>
       Boolean(item.message)
     );
@@ -311,7 +314,7 @@ export function FormSummaryErrors({
     >
       <div className="flex items-center gap-2 text-destructive font-semibold text-sm mb-2">
         <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-        <span>{title}</span>
+        <span>{heading}</span>
       </div>
       <ul className="space-y-1.5 pl-6 list-disc text-xs text-foreground/90">
         {activeErrors.map(({ fieldId, label, message }) => (

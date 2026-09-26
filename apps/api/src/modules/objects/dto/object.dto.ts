@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsInt, IsNumber, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class QueryObjectsDto {
@@ -22,16 +23,20 @@ export class QueryObjectsDto {
   @IsString()
   package?: string;
 
+  // Query-string values arrive as strings; convert before validating.
   @ApiPropertyOptional({ description: 'Page number (1-based)', default: 1 })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsInt()
   @Min(1)
   page?: number;
 
-  @ApiPropertyOptional({ description: 'Page size', default: 50 })
+  @ApiPropertyOptional({ description: 'Page size (1-1000)', default: 50 })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsInt()
   @Min(1)
+  @Max(1000)
   pageSize?: number;
 
   @ApiPropertyOptional({ description: 'Field to sort by' })

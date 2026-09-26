@@ -6,6 +6,7 @@ import { Building2 } from 'lucide-react';
 import { accountKeys, fetchMyOrganizations } from '@/lib/account-api';
 import { getStoredTenantId } from '@/lib/api/custom-instance';
 import { useTenantSwitch } from '@/lib/query/query-provider';
+import { useT } from '@/i18n/client';
 
 /**
  * Active-organization selector. Switching cancels in-flight queries and clears the
@@ -15,6 +16,7 @@ import { useTenantSwitch } from '@/lib/query/query-provider';
  */
 export function OrganizationSwitcher({ homeOrganizationId }: { homeOrganizationId: string }) {
   const switchTenant = useTenantSwitch();
+  const t = useT();
   const [activeId, setActiveId] = React.useState<string>(homeOrganizationId);
   const [switching, setSwitching] = React.useState(false);
   const orgs = useQuery({ queryKey: accountKeys.organizations, queryFn: fetchMyOrganizations, retry: false, staleTime: 60_000 });
@@ -38,9 +40,9 @@ export function OrganizationSwitcher({ homeOrganizationId }: { homeOrganizationI
   return (
     <label className="inline-flex items-center gap-1.5 text-xs">
       <Building2 className="size-3.5 text-muted-foreground" aria-hidden="true" />
-      <span className="sr-only">Active organization</span>
+      <span className="sr-only">{t('app.shell.org.active')}</span>
       <select
-        className="h-8 max-w-[11rem] truncate rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="h-8 max-w-[7rem] sm:max-w-[11rem] truncate rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         value={active?.id || ''}
         disabled={switching}
         aria-busy={switching}

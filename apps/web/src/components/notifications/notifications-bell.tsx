@@ -12,10 +12,12 @@ import {
   notificationKeys,
 } from '@/lib/knowledge-graph';
 import { NotificationItem } from './notification-item';
+import { useT } from '@/i18n/client';
 
 /** Navbar notification bell: unread badge (polled every 60 s) + keyboard-accessible popover. */
 export function NotificationsBell() {
   const qc = useQueryClient();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -70,12 +72,12 @@ export function NotificationsBell() {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls="notifications-panel"
-        aria-label={count > 0 ? `Notifications, ${count} unread` : 'Notifications'}
-        className="relative inline-flex items-center justify-center rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label={count > 0 ? t('app.shell.bell.labelUnread', { count }) : t('app.shell.bell.label')}
+        className="relative inline-flex items-center justify-center rounded-lg border border-border p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
         <Bell className="size-4" aria-hidden="true" />
         {count > 0 ? (
-          <span className="absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full bg-red-600 px-1 text-center text-[10px] font-bold leading-[18px] text-white">
+          <span className="absolute -right-1.5 -top-1.5 min-w-[18px] rounded-full bg-red-600 px-1 text-center text-[11px] font-bold leading-[18px] text-white">
             {count > 99 ? '99+' : count}
           </span>
         ) : null}
@@ -85,18 +87,18 @@ export function NotificationsBell() {
           id="notifications-panel"
           ref={panelRef}
           role="dialog"
-          aria-label="Recent notifications"
+          aria-label={t('app.shell.bell.panel')}
           className="absolute right-0 z-50 mt-2 w-[min(92vw,380px)] rounded-xl border border-border bg-card p-3 shadow-lg"
         >
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold">Notifications</p>
+            <p className="text-sm font-semibold">{t('app.shell.bell.title')}</p>
             <button
               type="button"
               onClick={() => readAll.mutate()}
               disabled={count === 0 || readAll.isPending}
               className="text-xs text-primary disabled:opacity-40"
             >
-              Mark all read
+              {t('app.shell.bell.markAllRead')}
             </button>
           </div>
           {recent.isLoading ? (
@@ -107,13 +109,13 @@ export function NotificationsBell() {
             </div>
           ) : recent.isError ? (
             <p role="alert" className="text-xs text-destructive">
-              Could not load notifications.{' '}
+              {t('app.shell.bell.loadError')}{' '}
               <button type="button" className="underline" onClick={() => recent.refetch()}>
-                Retry
+                {t('app.ui.retry')}
               </button>
             </p>
           ) : recent.data && recent.data.items.length === 0 ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">You are all caught up.</p>
+            <p className="py-6 text-center text-xs text-muted-foreground">{t('app.shell.bell.empty')}</p>
           ) : (
             <ul className="max-h-[360px] space-y-1.5 overflow-y-auto">
               {recent.data?.items.slice(0, 6).map((n) => (
@@ -122,7 +124,7 @@ export function NotificationsBell() {
             </ul>
           )}
           <Link href="/notifications" onClick={() => setOpen(false)} className="mt-2 block text-center text-xs text-primary hover:underline">
-            View all notifications
+            {t('app.shell.bell.viewAll')}
           </Link>
         </div>
       ) : null}

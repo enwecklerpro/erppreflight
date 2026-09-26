@@ -20,12 +20,16 @@ import {
   importReadinessCheckArtifact,
   importFioriUsageArtifact,
 } from '@/lib/api-client';
+import { useErrorText, useFmt, useT } from '@/i18n/client';
 
 interface SapNativeArtifactCenterProps {
   projectId: string;
 }
 
 export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterProps) {
+  const t = useT();
+  const fmt = useFmt();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
 
   const [activeSubTab, setActiveSubTab] = useState<'atc' | 'readiness' | 'fiori'>('atc');
@@ -60,7 +64,7 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
       queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
     },
     onError: (err: Error) => {
-      setAtcError(err.message || 'Failed to import ATC findings.');
+      setAtcError(errText(err, t('app.sapNative.atcFailed')));
     },
   });
 
@@ -74,7 +78,7 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
       queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
     },
     onError: (err: Error) => {
-      setRcError(err.message || 'Failed to import SAP Readiness Check.');
+      setRcError(errText(err, t('app.sapNative.rcFailed')));
     },
   });
 
@@ -86,7 +90,7 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
       setFioriError(null);
     },
     onError: (err: Error) => {
-      setFioriError(err.message || 'Failed to import Fiori usage profile.');
+      setFioriError(errText(err, t('app.sapNative.fioriFailed')));
     },
   });
 
@@ -121,25 +125,26 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-              <FileCheck2 className="h-5 w-5 text-primary" />
-              SAP-Native Artifact Center (Part 15.20)
+              <FileCheck2 className="h-5 w-5 text-primary" aria-hidden="true" />
+              {t('app.sapNative.title')}
             </h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Directly ingest official SAP exports: ABAP Test Cockpit (ATC) findings, SAP Readiness Check 2.0 simplification items, and Fiori App Recommendations.
-            </p>
+            <p className="text-sm text-muted-foreground mt-1">{t('app.sapNative.intro')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Baseline Aware (Part 15.13)
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('app.sapNative.baseline')}
             </span>
           </div>
         </div>
       </div>
 
       {/* Subtabs */}
-      <div className="flex border-b border-border space-x-4 text-xs font-semibold">
+      <div className="flex flex-wrap border-b border-border gap-x-4 gap-y-2 text-sm font-semibold" role="tablist" aria-label={t('app.sapNative.tabsLabel')}>
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeSubTab === 'atc'}
           onClick={() => setActiveSubTab('atc')}
           className={`pb-3 flex items-center gap-1.5 border-b-2 transition-colors ${
             activeSubTab === 'atc'
@@ -147,11 +152,14 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          <Boxes className="size-4" />
-          ATC / Custom Code Analysis (XML/JSON)
+          <Boxes className="size-4" aria-hidden="true" />
+          {t('app.sapNative.tabAtc')}
         </button>
 
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeSubTab === 'readiness'}
           onClick={() => setActiveSubTab('readiness')}
           className={`pb-3 flex items-center gap-1.5 border-b-2 transition-colors ${
             activeSubTab === 'readiness'
@@ -159,11 +167,14 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          <Layers className="size-4" />
-          SAP Readiness Check 2.0 (JSON)
+          <Layers className="size-4" aria-hidden="true" />
+          {t('app.sapNative.tabReadiness')}
         </button>
 
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeSubTab === 'fiori'}
           onClick={() => setActiveSubTab('fiori')}
           className={`pb-3 flex items-center gap-1.5 border-b-2 transition-colors ${
             activeSubTab === 'fiori'
@@ -171,8 +182,8 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
-          <Sparkles className="size-4" />
-          Fiori App Recommendations (CSV)
+          <Sparkles className="size-4" aria-hidden="true" />
+          {t('app.sapNative.tabFiori')}
         </button>
       </div>
 
@@ -181,14 +192,12 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
         <div className="space-y-5 bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
-              <h4 className="text-sm font-bold text-foreground">Import ABAP Test Cockpit Findings</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Upload exported ATC XML or JSON results. Automatically updates Clean Core Object inventory and dedupes findings.
-              </p>
+              <h4 className="text-sm font-bold text-foreground">{t('app.sapNative.atcTitle')}</h4>
+              <p className="text-sm text-muted-foreground mt-0.5">{t('app.sapNative.atcIntro')}</p>
             </div>
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg border border-border transition-colors">
-              <Upload className="size-3.5" />
-              Choose File (.xml, .json, .csv)
+              <Upload className="size-3.5" aria-hidden="true" />
+              {t('app.sapNative.chooseFile', { types: '.xml, .json, .csv' })}
               <input
                 type="file"
                 accept=".xml,.json,.csv,.txt"
@@ -200,29 +209,30 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
 
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-              <span>Payload Content ({atcFileName})</span>
+              <span>{t('app.sapNative.content', { file: atcFileName })}</span>
               <button
                 type="button"
                 onClick={() => {
                   setAtcContent(`<ATC_RESULTS>\n  <FINDING>\n    <OBJECT_NAME>ZCL_PAYMENT_PROCESSOR</OBJECT_NAME>\n    <OBJECT_TYPE>CLAS</OBJECT_TYPE>\n    <PACKAGE>ZFIN</PACKAGE>\n    <CHECK_ID>DB_MUTATION_CHECK</CHECK_ID>\n    <PRIORITY>1</PRIORITY>\n    <MESSAGE>Direct insert into table BKPF forbidden in Clean Core</MESSAGE>\n    <LINE>142</LINE>\n    <COLUMN>5</COLUMN>\n    <SNIPPET>INSERT INTO bkpf VALUES @ls_header.</SNIPPET>\n  </FINDING>\n</ATC_RESULTS>`);
                   setAtcFileName('sample_atc.xml');
                 }}
-                className="text-primary hover:underline text-[11px]"
+                className="text-primary hover:underline text-xs"
               >
-                Load Sample ATC Payload
+                {t('app.sapNative.atcSample')}
               </button>
             </div>
             <textarea
               value={atcContent}
               onChange={(e) => setAtcContent(e.target.value)}
-              placeholder="Paste raw ATC XML, JSON, or CSV content here..."
+              placeholder={t('app.sapNative.atcPlaceholder')}
+              aria-label={t('app.sapNative.content', { file: atcFileName })}
               rows={8}
               className="w-full rounded-lg border border-border bg-background p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           {atcError && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-xs">
+            <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-sm">
               <AlertCircle className="size-4 shrink-0" />
               <span>{atcError}</span>
             </div>
@@ -230,16 +240,16 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
 
           {atcResult && (
             <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold">
                 <CheckCircle2 className="size-4" />
-                <span>ATC Import Successfully Completed</span>
+                <span>{t('app.sapNative.atcDone')}</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-slate-300 font-mono">
-                <div>Total Parsed: <span className="text-white font-bold">{atcResult.totalParsed}</span></div>
-                <div>Objects Cataloged: <span className="text-white font-bold">{atcResult.objectsImported}</span></div>
-                <div>Findings Created: <span className="text-white font-bold">{atcResult.findingsCreated}</span></div>
-                <div>Baselined / Exempted: <span className="text-white font-bold">{atcResult.baselinedCount}</span></div>
-              </div>
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-muted-foreground">
+                <div><dt>{t('app.sapNative.totalParsed')}</dt><dd className="text-foreground font-bold">{fmt.number(atcResult.totalParsed)}</dd></div>
+                <div><dt>{t('app.sapNative.objectsImported')}</dt><dd className="text-foreground font-bold">{fmt.number(atcResult.objectsImported)}</dd></div>
+                <div><dt>{t('app.sapNative.findingsCreated')}</dt><dd className="text-foreground font-bold">{fmt.number(atcResult.findingsCreated)}</dd></div>
+                <div><dt>{t('app.sapNative.baselined')}</dt><dd className="text-foreground font-bold">{fmt.number(atcResult.baselinedCount)}</dd></div>
+              </dl>
             </div>
           )}
 
@@ -252,13 +262,13 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
             >
               {atcMutation.isPending ? (
                 <>
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Processing Ingestion...
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  {t('app.sapNative.atcImporting')}
                 </>
               ) : (
                 <>
-                  <Upload className="size-3.5" />
-                  Import ATC Findings
+                  <Upload className="size-3.5" aria-hidden="true" />
+                  {t('app.sapNative.atcImport')}
                 </>
               )}
             </button>
@@ -271,14 +281,12 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
         <div className="space-y-5 bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
-              <h4 className="text-sm font-bold text-foreground">Import SAP Readiness Check 2.0</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Ingest official JSON export from SAP Readiness Check. Maps Simplification Items and Financial Data Quality.
-              </p>
+              <h4 className="text-sm font-bold text-foreground">{t('app.sapNative.rcTitle')}</h4>
+              <p className="text-sm text-muted-foreground mt-0.5">{t('app.sapNative.rcIntro')}</p>
             </div>
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg border border-border transition-colors">
-              <Upload className="size-3.5" />
-              Choose File (.json)
+              <Upload className="size-3.5" aria-hidden="true" />
+              {t('app.sapNative.chooseFile', { types: '.json' })}
               <input
                 type="file"
                 accept=".json"
@@ -290,7 +298,7 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
 
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-              <span>Readiness Check JSON ({rcFileName})</span>
+              <span>{t('app.sapNative.rcContent', { file: rcFileName })}</span>
               <button
                 type="button"
                 onClick={() => {
@@ -318,22 +326,23 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
                   }, null, 2));
                   setRcFileName('sample_readiness_check.json');
                 }}
-                className="text-primary hover:underline text-[11px]"
+                className="text-primary hover:underline text-xs"
               >
-                Load Sample Readiness JSON
+                {t('app.sapNative.rcSample')}
               </button>
             </div>
             <textarea
               value={rcContent}
               onChange={(e) => setRcContent(e.target.value)}
-              placeholder="Paste raw SAP Readiness Check JSON content here..."
+              placeholder={t('app.sapNative.rcPlaceholder')}
+              aria-label={t('app.sapNative.rcContent', { file: rcFileName })}
               rows={8}
               className="w-full rounded-lg border border-border bg-background p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           {rcError && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-xs">
+            <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-sm">
               <AlertCircle className="size-4 shrink-0" />
               <span>{rcError}</span>
             </div>
@@ -341,16 +350,16 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
 
           {rcResult && (
             <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold">
                 <CheckCircle2 className="size-4" />
-                <span>Readiness Check Ingestion Successful</span>
+                <span>{t('app.sapNative.rcDone')}</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-slate-300 font-mono">
-                <div>Source System: <span className="text-white font-bold">{rcResult.sourceSystem}</span></div>
-                <div>Target Release: <span className="text-white font-bold">{rcResult.targetRelease}</span></div>
-                <div>Simplification Items: <span className="text-white font-bold">{rcResult.simplificationItemsCount}</span></div>
-                <div>Critical Blockers: <span className="text-rose-400 font-bold">{rcResult.criticalIssuesCount}</span></div>
-              </div>
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-muted-foreground">
+                <div><dt>{t('app.sapNative.sourceSystem')}</dt><dd className="text-foreground font-bold font-mono">{rcResult.sourceSystem}</dd></div>
+                <div><dt>{t('app.sapNative.targetRelease')}</dt><dd className="text-foreground font-bold font-mono">{rcResult.targetRelease}</dd></div>
+                <div><dt>{t('app.sapNative.simplificationItems')}</dt><dd className="text-foreground font-bold">{fmt.number(rcResult.simplificationItemsCount)}</dd></div>
+                <div><dt>{t('app.sapNative.criticalBlockers')}</dt><dd className="text-rose-600 font-bold">{fmt.number(rcResult.criticalIssuesCount)}</dd></div>
+              </dl>
             </div>
           )}
 
@@ -363,13 +372,13 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
             >
               {rcMutation.isPending ? (
                 <>
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Correlating Simplification Items...
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  {t('app.sapNative.rcImporting')}
                 </>
               ) : (
                 <>
-                  <Upload className="size-3.5" />
-                  Import Readiness Check
+                  <Upload className="size-3.5" aria-hidden="true" />
+                  {t('app.sapNative.rcImport')}
                 </>
               )}
             </button>
@@ -382,14 +391,12 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
         <div className="space-y-5 bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
-              <h4 className="text-sm font-bold text-foreground">Import Fiori App Recommendations & Usage</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Ingest ST03N transaction usage CSV to correlate legacy transactions with target Fiori apps.
-              </p>
+              <h4 className="text-sm font-bold text-foreground">{t('app.sapNative.fioriTitle')}</h4>
+              <p className="text-sm text-muted-foreground mt-0.5">{t('app.sapNative.fioriIntro')}</p>
             </div>
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg border border-border transition-colors">
-              <Upload className="size-3.5" />
-              Choose File (.csv)
+              <Upload className="size-3.5" aria-hidden="true" />
+              {t('app.sapNative.chooseFile', { types: '.csv' })}
               <input
                 type="file"
                 accept=".csv"
@@ -401,38 +408,46 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
 
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-              <span>Usage Profile CSV ({fioriFileName})</span>
+              <span>{t('app.sapNative.fioriContent', { file: fioriFileName })}</span>
               <button
                 type="button"
                 onClick={() => {
                   setFioriContent(`TCODE,FIORI_ID,TITLE,USAGE,CRITICALITY\nVA01,F0842A,Create Sales Orders,15420,CRITICAL\nME21N,F0843,Create Purchase Order,8920,HIGH\nFB01,F0717,Post General Journal Entry,12400,CRITICAL`);
                   setFioriFileName('sample_fiori_usage.csv');
                 }}
-                className="text-primary hover:underline text-[11px]"
+                className="text-primary hover:underline text-xs"
               >
-                Load Sample Fiori Usage CSV
+                {t('app.sapNative.fioriSample')}
               </button>
             </div>
             <textarea
               value={fioriContent}
               onChange={(e) => setFioriContent(e.target.value)}
               placeholder="TCODE,FIORI_ID,TITLE,USAGE,CRITICALITY"
+              aria-label={t('app.sapNative.fioriContent', { file: fioriFileName })}
               rows={6}
               className="w-full rounded-lg border border-border bg-background p-3 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
+          {fioriError && (
+            <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-sm">
+              <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+              <span>{fioriError}</span>
+            </div>
+          )}
+
           {fioriResult && (
             <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold">
                 <CheckCircle2 className="size-4" />
-                <span>Fiori Usage Profile Processed ({fioriResult.recordsProcessed} mappings)</span>
+                <span>{t('app.sapNative.fioriDone', { count: fioriResult.recordsProcessed ?? 0 })}</span>
               </div>
               <div className="divide-y divide-border/60 font-mono text-xs">
                 {fioriResult.recommendations?.map((r: any, idx: number) => (
                   <div key={idx} className="py-1.5 flex items-center justify-between">
-                    <span className="font-bold text-white">{r.legacyTCode} → {r.fioriAppId} ({r.fioriAppTitle})</span>
-                    <span className="text-muted-foreground">{r.usageCount} executions • {r.businessCriticality}</span>
+                    <span className="font-bold text-foreground">{r.legacyTCode} → {r.fioriAppId} ({r.fioriAppTitle})</span>
+                    <span className="text-muted-foreground">{t('app.sapNative.executions', { count: r.usageCount ?? 0 })} • {r.businessCriticality}</span>
                   </div>
                 ))}
               </div>
@@ -448,13 +463,13 @@ export function SapNativeArtifactCenter({ projectId }: SapNativeArtifactCenterPr
             >
               {fioriMutation.isPending ? (
                 <>
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Processing Mappings...
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  {t('app.sapNative.fioriImporting')}
                 </>
               ) : (
                 <>
-                  <Upload className="size-3.5" />
-                  Import Fiori Mappings
+                  <Upload className="size-3.5" aria-hidden="true" />
+                  {t('app.sapNative.fioriImport')}
                 </>
               )}
             </button>

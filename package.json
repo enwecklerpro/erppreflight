@@ -27,7 +27,8 @@
     "smoke:account-ui": "node scripts/e2e-account-ui-smoke.cjs",
     "smoke:analyze": "node scripts/e2e-analyze-smoke.cjs",
     "smoke:tools": "node scripts/e2e-tools-smoke.cjs",
-    "smoke:findings": "node scripts/e2e-findings-smoke.cjs"
+    "smoke:findings": "node scripts/e2e-findings-smoke.cjs",
+    "smoke:i18n": "node scripts/e2e-i18n-smoke.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

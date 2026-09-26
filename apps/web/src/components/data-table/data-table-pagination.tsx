@@ -8,6 +8,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
+import { useT } from '../../i18n/client';
 
 export interface DataTablePaginationProps<TData> {
   table: Table<TData>;
@@ -18,6 +19,7 @@ export function DataTablePagination<TData>({
   table,
   pageSizeOptions = [10, 25, 50, 100, 250],
 }: DataTablePaginationProps<TData>) {
+  const t = useT();
   const selectedCount = table.getFilteredSelectedRowModel().rows.length;
   const totalFilteredCount = table.getFilteredRowModel().rows.length;
   // With server-side pagination the table only holds the current page;
@@ -35,10 +37,10 @@ export function DataTablePagination<TData>({
       <div className="flex-1 select-none">
         {selectedCount > 0 ? (
           <span className="font-medium text-foreground">
-            {selectedCount} of {totalFilteredCount} row(s) selected
+            {t('app.dataTable.selectedOf', { selected: selectedCount, total: totalFilteredCount })}
           </span>
         ) : (
-          <span>{totalRecordCount} total record(s)</span>
+          <span>{t('app.dataTable.totalRecords', { count: totalRecordCount })}</span>
         )}
       </div>
 
@@ -46,7 +48,7 @@ export function DataTablePagination<TData>({
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2">
           <label htmlFor="page-size-select" className="select-none font-medium">
-            Rows per page
+            {t('app.dataTable.rowsPerPage')}
           </label>
           <select
             id="page-size-select"
@@ -64,7 +66,7 @@ export function DataTablePagination<TData>({
 
         {/* Page Index Indicator */}
         <div className="select-none font-medium text-foreground min-w-[5rem] text-center">
-          Page {pageCount === 0 ? 0 : pageIndex + 1} of {Math.max(1, pageCount)}
+          {t('app.dataTable.pageOf', { page: pageCount === 0 ? 0 : pageIndex + 1, pages: Math.max(1, pageCount) })}
         </div>
 
         {/* Pager Action Buttons */}
@@ -73,7 +75,7 @@ export function DataTablePagination<TData>({
             type="button"
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
-            aria-label="Go to first page"
+            aria-label={t('app.dataTable.firstPage')}
             className="p-1.5 rounded-md border border-border bg-card text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-xs"
           >
             <ChevronsLeft className="size-4" />
@@ -82,7 +84,7 @@ export function DataTablePagination<TData>({
             type="button"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
-            aria-label="Go to previous page"
+            aria-label={t('app.dataTable.previousPage')}
             className="p-1.5 rounded-md border border-border bg-card text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-xs"
           >
             <ChevronLeft className="size-4" />
@@ -91,7 +93,7 @@ export function DataTablePagination<TData>({
             type="button"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
-            aria-label="Go to next page"
+            aria-label={t('app.dataTable.nextPage')}
             className="p-1.5 rounded-md border border-border bg-card text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-xs"
           >
             <ChevronRight className="size-4" />
@@ -100,7 +102,7 @@ export function DataTablePagination<TData>({
             type="button"
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
-            aria-label="Go to last page"
+            aria-label={t('app.dataTable.lastPage')}
             className="p-1.5 rounded-md border border-border bg-card text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-xs"
           >
             <ChevronsRight className="size-4" />

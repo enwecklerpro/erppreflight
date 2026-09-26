@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { appEn } from './app/en';
 import { analyzeEn } from './analyze.en';
 import { publicToolsEn } from './public-tools.en';
 import { findingLifecycleEn } from './finding-lifecycle.en';
@@ -12,6 +13,8 @@ import { findingLifecycleEn } from './finding-lifecycle.en';
  * Interpolation: `{name}` placeholders, resolved by `t(key, { name })`.
  */
 export const en = {
+  /** Authenticated application (see ./app/en). */
+  app: appEn,
   common: {
     brand: 'ERP Preflight',
     tagline: 'Know what will break before production does.',

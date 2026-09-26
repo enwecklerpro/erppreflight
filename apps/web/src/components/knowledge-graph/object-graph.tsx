@@ -14,6 +14,8 @@ import '@xyflow/react/dist/style.css';
 import { Network, Table2, AlertCircle } from 'lucide-react';
 import type { Neighborhood } from '@/lib/knowledge-graph';
 import { SupportStateBadge } from './badges';
+import { useLabel, useT } from '@/i18n/client';
+import type { TFunction } from '@/i18n/translate';
 
 const NODE_W = 190;
 const NODE_H = 56;
@@ -21,7 +23,7 @@ const NODE_H = 56;
 type LaidOut = { nodes: Node[]; edges: Edge[] };
 
 /** ELK layered layout (the approved graph layout engine, AGENTS.md §4.2). Loaded lazily. */
-async function layout(graph: Neighborhood): Promise<LaidOut> {
+async function layout(graph: Neighborhood, t: TFunction, supportLabel: (s: string) => string): Promise<LaidOut> {
   const ELK = (await import('elkjs/lib/elk.bundled.js')).default;
   const elk = new ELK();
   const res = await elk.layout({
@@ -54,7 +56,7 @@ async function layout(graph: Neighborhood): Promise<LaidOut> {
               {n.objectKey}
             </div>
             <div className="text-[10px] text-muted-foreground truncate">
-              {isRelease ? 'Release' : `${n.sapObjectType ?? ''} · ${headline ? headline.supportState.replace(/_/g, ' ').toLowerCase() : 'no state'}`}
+              {isRelease ? t('app.kg.graph.release') : `${n.sapObjectType ?? ''} · ${headline ? supportLabel(headline.supportState) : t('app.kg.graph.noState')}`}
             </div>
           </div>
         ),
@@ -68,7 +70,7 @@ async function layout(graph: Neighborhood): Promise<LaidOut> {
         color: '#0f172a',
         padding: 6,
       },
-      ariaLabel: `${isRelease ? 'Release' : 'Object'} ${n.objectKey}`,
+      ariaLabel: `${isRelease ? t('app.kg.graph.release') : t('app.kg.graph.object')} ${n.objectKey}`,
     } satisfies Node;
   });
   const edges: Edge[] = graph.edges.map((e) => ({
@@ -101,6 +103,8 @@ function usePrefersReducedMotion() {
  * choose it; always available via the toggle).
  */
 export function ObjectGraph({ graph }: { graph: Neighborhood }) {
+  const t = useT();
+  const label = useLabel();
   const [view, setView] = useState<'graph' | 'table'>('graph');
   const [laid, setLaid] = useState<LaidOut | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,32 +115,32 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
     let cancelled = false;
     setLaid(null);
     setError(null);
-    layout(graph)
+    layout(graph, t, (s) => label('app.kg.support', s))
       .then((r) => !cancelled && setLaid(r))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Layout failed'));
     return () => {
       cancelled = true;
     };
-  }, [graph]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, t]);
 
   return (
     <section aria-labelledby="kg-graph-title" className="rounded-xl border border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
         <h2 id="kg-graph-title" className="text-sm font-semibold">
-          Relationship graph{' '}
+          {t('app.kg.graph.title')}{' '}
           <span className="font-normal text-muted-foreground">
-            ({graph.nodes.length} nodes, {graph.edges.length} edges, depth {graph.depth}
-            {graph.truncated ? ', truncated' : ''})
+            {t(graph.truncated ? 'app.kg.graph.statsTruncated' : 'app.kg.graph.stats', { nodes: graph.nodes.length, edges: graph.edges.length, depth: graph.depth })}
           </span>
         </h2>
-        <div role="group" aria-label="Graph view" className="inline-flex rounded-lg border border-border p-0.5 text-xs">
+        <div role="group" aria-label={t('app.kg.graph.viewLabel')} className="inline-flex rounded-lg border border-border p-0.5 text-xs">
           <button
             type="button"
             onClick={() => setView('graph')}
             aria-pressed={view === 'graph'}
             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 ${view === 'graph' ? 'bg-primary text-primary-foreground' : ''}`}
           >
-            <Network className="size-3.5" aria-hidden="true" /> Graph
+            <Network className="size-3.5" aria-hidden="true" /> {t('app.kg.graph.graph')}
           </button>
           <button
             type="button"
@@ -144,7 +148,7 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
             aria-pressed={view === 'table'}
             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 ${view === 'table' ? 'bg-primary text-primary-foreground' : ''}`}
           >
-            <Table2 className="size-3.5" aria-hidden="true" /> Table
+            <Table2 className="size-3.5" aria-hidden="true" /> {t('app.kg.graph.table')}
           </button>
         </div>
       </div>
@@ -153,10 +157,10 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
         <div className="h-[420px]" aria-hidden={false}>
           {error ? (
             <div role="alert" className="flex h-full items-center justify-center gap-2 text-sm text-destructive">
-              <AlertCircle className="size-4" aria-hidden="true" /> {error} — use the table view.
+              <AlertCircle className="size-4" aria-hidden="true" /> {t('app.kg.graph.layoutFailed', { error })}
             </div>
           ) : !laid ? (
-            <div className="h-full animate-pulse bg-muted/40" aria-busy="true" aria-label="Laying out graph" />
+            <div className="h-full animate-pulse bg-muted/40" aria-busy="true" aria-label={t('app.kg.graph.layingOut')} />
           ) : (
             <ReactFlow
               nodes={laid.nodes}
@@ -178,13 +182,13 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
       ) : (
         <div className="max-h-[420px] overflow-auto">
           <table className="w-full text-xs">
-            <caption className="sr-only">Relationships in the neighborhood of the selected object</caption>
+            <caption className="sr-only">{t('app.kg.graph.caption')}</caption>
             <thead className="sticky top-0 bg-muted/80 text-left">
               <tr>
-                <th scope="col" className="px-3 py-2">Source</th>
-                <th scope="col" className="px-3 py-2">Relationship</th>
-                <th scope="col" className="px-3 py-2">Target</th>
-                <th scope="col" className="px-3 py-2">Releases</th>
+                <th scope="col" className="px-3 py-2">{t('app.kg.graph.colSource')}</th>
+                <th scope="col" className="px-3 py-2">{t('app.kg.graph.colRelation')}</th>
+                <th scope="col" className="px-3 py-2">{t('app.kg.graph.colTarget')}</th>
+                <th scope="col" className="px-3 py-2">{t('app.kg.graph.colReleases')}</th>
               </tr>
             </thead>
             <tbody>
@@ -217,7 +221,7 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
             </tbody>
           </table>
           {graph.edges.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">No relationships are recorded for this object.</p>
+            <p className="p-4 text-sm text-muted-foreground">{t('app.kg.graph.empty')}</p>
           ) : null}
         </div>
       )}

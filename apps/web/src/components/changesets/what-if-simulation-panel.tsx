@@ -2,400 +2,289 @@
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { GitBranch, Play, CheckCircle2, AlertTriangle, XCircle, ShieldCheck, Plus, Loader2, RefreshCw } from 'lucide-react';
+import { fetchChangeSets, simulateChangeSet, type ChangeSetItem } from '@/lib/api-client';
+import { useErrorText, useLabel, useT } from '@/i18n/client';
 import {
-  GitBranch,
-  Play,
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
-  ShieldCheck,
-  FileCode,
-  ArrowRight,
-  Plus,
-  Loader2,
-  Copy,
-  Layers,
-  Sparkles,
-  Info,
-  Clock,
-  KeyRound,
-} from 'lucide-react';
-import {
-  fetchChangeSets,
-  createChangeSet,
-  simulateChangeSet,
-  approveChangeSet,
-  ChangeSetItem,
-} from '@/lib/api-client';
+  ApproveChangeSetDialog,
+  CreateChangeSetDialog,
+  EvidencePackDialog,
+  type ChangeEvidencePack,
+} from './change-set-dialogs';
 
 interface WhatIfSimulationPanelProps {
   projectId: string;
 }
 
+type SimulationResult = NonNullable<ChangeSetItem['simulation_result']>;
+
+function parseSimulation(cs: ChangeSetItem | undefined): SimulationResult | null {
+  const raw = cs?.simulation_result as unknown;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as SimulationResult;
+    } catch {
+      return null;
+    }
+  }
+  return Object.keys(raw as object).length > 0 ? (raw as SimulationResult) : null;
+}
+
+function VerdictIcon({ verdict }: { verdict: string }) {
+  if (verdict === 'CLEAR') return <CheckCircle2 className="size-3.5 text-emerald-600" aria-hidden="true" />;
+  if (verdict === 'BLOCKED') return <XCircle className="size-3.5 text-rose-600" aria-hidden="true" />;
+  return <AlertTriangle className="size-3.5 text-amber-600" aria-hidden="true" />;
+}
+
 export function WhatIfSimulationPanel({ projectId }: WhatIfSimulationPanelProps) {
+  const t = useT();
+  const label = useLabel();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
   const [selectedChangesetId, setSelectedChangesetId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showApprove, setShowApprove] = useState(false);
+  const [evidencePack, setEvidencePack] = useState<ChangeEvidencePack | null>(null);
 
-  // New ChangeSet Modal
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [targetEnv, setTargetEnv] = useState('QA');
-  const [changeType, setChangeType] = useState('REMOVE_CUSTOM_FIELD');
-  const [targetObject, setTargetObject] = useState('YY1_CLASS');
-
-  // Approval Modal
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [approvalReason, setApprovalReason] = useState('');
-  const [evidencePack, setEvidencePack] = useState<any | null>(null);
-
-  // Queries
-  const { data: changesets = [], isLoading, isError } = useQuery({
+  const { data: changesets = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['changesets', projectId],
     queryFn: () => fetchChangeSets(projectId),
     enabled: Boolean(projectId),
   });
 
-  // Mutations
-  const createMutation = useMutation({
-    mutationFn: (payload: any) => createChangeSet(projectId, payload),
-    onSuccess: (newCs) => {
-      queryClient.invalidateQueries({ queryKey: ['changesets', projectId] });
-      setShowCreateModal(false);
-      setName('');
-      setDescription('');
-      setSelectedChangesetId(newCs.id);
-    },
-  });
-
   const simulateMutation = useMutation({
     mutationFn: (csId: string) => simulateChangeSet(projectId, csId),
-    onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: ['changesets', projectId] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['changesets', projectId] }),
   });
-
-  const approveMutation = useMutation({
-    mutationFn: ({ csId, reason }: { csId: string; reason: string }) =>
-      approveChangeSet(projectId, csId, reason),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['changesets', projectId] });
-      setShowApproveModal(false);
-      setEvidencePack(data.evidencePack);
-    },
-  });
-
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-
-    createMutation.mutate({
-      name: name.trim(),
-      description: description.trim(),
-      targetEnvironment: targetEnv,
-      proposedChanges: [
-        {
-          type: changeType,
-          targetObject: targetObject.trim(),
-          details: { requestedBy: 'Solution Architect' },
-        },
-      ],
-    });
-  };
-
-  const handleApproveSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedChangesetId || !approvalReason.trim()) return;
-
-    approveMutation.mutate({
-      csId: selectedChangesetId,
-      reason: approvalReason.trim(),
-    });
-  };
 
   const selectedChangeset = changesets.find((c) => c.id === selectedChangesetId) || changesets[0];
-  const simResult = selectedChangeset?.simulation_result
-    ? typeof selectedChangeset.simulation_result === 'string'
-      ? JSON.parse(selectedChangeset.simulation_result)
-      : selectedChangeset.simulation_result
-    : null;
+  const simResult = parseSimulation(selectedChangeset);
 
   if (isLoading) {
     return (
-      <div className="p-12 text-center text-muted-foreground flex items-center justify-center gap-2 text-sm">
-        <Loader2 className="size-4 animate-spin" />
-        <span>Loading What-If Simulation Workspace...</span>
+      <div role="status" className="flex items-center justify-center gap-2 p-12 text-center text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <span>{t('app.changesets.loading')}</span>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="p-8 text-center text-destructive border border-destructive/20 rounded-xl bg-destructive/5 text-sm">
-        Failed to load change simulation models.
+      <div role="alert" className="flex flex-wrap items-center justify-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-8 text-center text-sm text-destructive">
+        <span>{t('app.changesets.loadError')}</span>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-1.5 font-semibold hover:bg-destructive/10"
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" /> {t('app.changesets.retry')}
+        </button>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card border border-border rounded-xl p-5 shadow-sm">
+      <div className="flex flex-col justify-between gap-4 rounded-xl border border-border bg-card p-5 shadow-sm md:flex-row md:items-center">
         <div>
-          <div className="flex items-center gap-2 text-primary font-mono text-xs uppercase tracking-wider">
-            <GitBranch className="size-4" />
-            <span>What-If Simulation Engine • Part 16.2</span>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
+            <GitBranch className="size-4" aria-hidden="true" />
+            <span>{t('app.changesets.badge')}</span>
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-foreground mt-1">
-            Change Impact & Extensibility Simulation Workspace
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-            Simulate the blast radius of removing custom fields, altering OPD determination rules,
-            or migrating APIs against the project digital baseline before touching any SAP system.
-          </p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground">{t('app.changesets.panelTitle')}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('app.changesets.panelIntro')}</p>
         </div>
-
         <button
           type="button"
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm shrink-0"
+          onClick={() => setShowCreate(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
         >
-          <Plus className="size-4" />
-          <span>New ChangeSet</span>
+          <Plus className="size-4" aria-hidden="true" />
+          <span>{t('app.changesets.newChangeSet')}</span>
         </button>
       </div>
 
       {changesets.length === 0 ? (
-        <div className="border border-dashed border-border rounded-xl p-12 text-center space-y-3">
-          <GitBranch className="size-8 mx-auto text-muted-foreground/60" />
-          <h3 className="text-sm font-semibold text-foreground">No ChangeSets Configured</h3>
-          <p className="text-xs text-muted-foreground max-w-md mx-auto">
-            Create a ChangeSet to simulate prospective Clean Core modifications, custom field removals,
-            or transport splits without modifying your live SAP landscape.
-          </p>
+        <div className="space-y-3 rounded-xl border border-dashed border-border p-12 text-center">
+          <GitBranch className="mx-auto size-8 text-muted-foreground/60" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-foreground">{t('app.changesets.emptyTitle')}</h3>
+          <p className="mx-auto max-w-md text-sm text-muted-foreground">{t('app.changesets.emptyBody')}</p>
           <button
             type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+            onClick={() => setShowCreate(true)}
+            className="mt-2 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <Plus className="size-3.5" />
-            <span>Create First ChangeSet</span>
+            <Plus className="size-3.5" aria-hidden="true" />
+            <span>{t('app.changesets.createFirst')}</span>
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: ChangeSets List */}
-          <div className="lg:col-span-1 space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Configured ChangeSets ({changesets.length})
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-3 lg:col-span-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('app.changesets.listTitle', { count: changesets.length })}
             </h3>
-            <div className="space-y-2">
+            <ul className="space-y-2" aria-label={t('app.changesets.listLabel')}>
               {changesets.map((cs) => {
-                const isSelected = cs.id === (selectedChangeset?.id);
-                const hasSim = Boolean(cs.simulation_result && Object.keys(cs.simulation_result).length > 0);
-
+                const isSelected = cs.id === selectedChangeset?.id;
+                const hasSim = parseSimulation(cs) !== null;
                 return (
-                  <div
-                    key={cs.id}
-                    onClick={() => setSelectedChangesetId(cs.id)}
-                    className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                      isSelected
-                        ? 'border-primary bg-primary/5 shadow-sm'
-                        : 'border-border bg-card hover:border-border/80'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-semibold text-foreground truncate">{cs.name}</span>
-                      <span
-                        className={`px-2 py-0.5 text-[10px] font-semibold rounded shrink-0 ${
-                          cs.approval_status === 'APPROVED'
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                            : hasSim
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {cs.approval_status}
+                  <li key={cs.id}>
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => setSelectedChangesetId(cs.id)}
+                      className={`w-full rounded-xl border p-3.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                        isSelected ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-card hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="truncate font-semibold text-foreground">{cs.name}</span>
+                        <span
+                          className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${
+                            cs.approval_status === 'APPROVED'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              : hasSim
+                              ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                              : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {label('app.changesets.status', cs.approval_status)}
+                        </span>
                       </span>
-                    </div>
-
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                      <span>Target: {cs.target_environment}</span>
-                      <span>Release: {cs.target_release}</span>
-                    </div>
-                  </div>
+                      <span className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>{t('app.changesets.targetEnv', { env: cs.target_environment })}</span>
+                        <span>{t('app.changesets.release', { release: cs.target_release })}</span>
+                      </span>
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </div>
 
-          {/* Right Column: Simulation Workbench */}
           {selectedChangeset && (
-            <div className="lg:col-span-2 space-y-4">
-              <div className="border border-border rounded-xl bg-card p-5 space-y-5 shadow-sm">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
-                  <div>
-                    <h3 className="font-semibold text-foreground text-base">
-                      {selectedChangeset.name}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {selectedChangeset.description || 'No description specified.'}
-                    </p>
+            <div className="space-y-4 lg:col-span-2">
+              <div className="space-y-5 rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex flex-col justify-between gap-3 border-b border-border pb-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0">
+                    <h3 className="break-words text-base font-semibold text-foreground">{selectedChangeset.name}</h3>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{selectedChangeset.description || t('app.changesets.noDescription')}</p>
                   </div>
-
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => simulateMutation.mutate(selectedChangeset.id)}
                       disabled={simulateMutation.isPending}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
                     >
                       {simulateMutation.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
+                        <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                       ) : (
-                        <Play className="size-3.5" />
+                        <Play className="size-3.5" aria-hidden="true" />
                       )}
-                      <span>Run Simulation</span>
+                      <span>{simulateMutation.isPending ? t('app.changesets.running') : t('app.changesets.run')}</span>
                     </button>
-
                     {simResult && selectedChangeset.approval_status !== 'APPROVED' && (
                       <button
                         type="button"
-                        onClick={() => setShowApproveModal(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm"
+                        onClick={() => setShowApprove(true)}
+                        className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
                       >
-                        <ShieldCheck className="size-3.5" />
-                        <span>Approve Change</span>
+                        <ShieldCheck className="size-3.5" aria-hidden="true" />
+                        <span>{t('app.changesets.approve.open')}</span>
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Simulation Output */}
+                {simulateMutation.isError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {errText(simulateMutation.error, t('app.changesets.simulateFailed'))}
+                  </p>
+                )}
+
                 {!simResult ? (
-                  <div className="py-12 text-center space-y-2">
-                    <GitBranch className="size-8 mx-auto text-muted-foreground/40" />
-                    <p className="text-xs text-muted-foreground">
-                      Click <strong className="text-foreground">Run Simulation</strong> to calculate the deterministic blast radius against the project baseline.
-                    </p>
+                  <div className="space-y-2 py-12 text-center">
+                    <GitBranch className="mx-auto size-8 text-muted-foreground/40" aria-hidden="true" />
+                    <p className="text-sm text-muted-foreground">{t('app.changesets.runHint')}</p>
                   </div>
                 ) : (
-                  <div className="space-y-5 text-xs">
-                    {/* Top KPI Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border">
-                        <span className="text-[10px] text-muted-foreground uppercase font-semibold">
-                          Verdict
-                        </span>
-                        <div className="mt-1 flex items-center gap-1 font-semibold text-foreground">
-                          {simResult.verdict === 'CLEAR' ? (
-                            <CheckCircle2 className="size-3.5 text-emerald-500" />
-                          ) : simResult.verdict === 'BLOCKED' ? (
-                            <XCircle className="size-3.5 text-rose-500" />
-                          ) : (
-                            <AlertTriangle className="size-3.5 text-amber-500" />
-                          )}
-                          <span>{simResult.verdict}</span>
-                        </div>
+                  <div className="space-y-5 text-sm">
+                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">{t('app.changesets.verdictLabel')}</dt>
+                        <dd className="mt-1 flex items-center gap-1 font-semibold text-foreground">
+                          <VerdictIcon verdict={simResult.verdict} />
+                          <span>{label('app.changesets.verdict', simResult.verdict)}</span>
+                        </dd>
                       </div>
-
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border">
-                        <span className="text-[10px] text-muted-foreground uppercase font-semibold">
-                          Risk Delta
-                        </span>
-                        <div className="mt-1 font-semibold text-foreground">
-                          {simResult.riskDelta}
-                        </div>
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">{t('app.changesets.riskDeltaLabel')}</dt>
+                        <dd className="mt-1 font-semibold text-foreground">{label('app.changesets.riskDelta', simResult.riskDelta)}</dd>
                       </div>
-
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border">
-                        <span className="text-[10px] text-muted-foreground uppercase font-semibold">
-                          New Findings
-                        </span>
-                        <div className="mt-1 font-semibold text-rose-500">
-                          +{simResult.newFindings?.length || 0}
-                        </div>
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">{t('app.changesets.newFindings')}</dt>
+                        <dd className="mt-1 font-semibold text-rose-700 dark:text-rose-400">+{simResult.newFindings?.length || 0}</dd>
                       </div>
-
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border">
-                        <span className="text-[10px] text-muted-foreground uppercase font-semibold">
-                          Resolved
-                        </span>
-                        <div className="mt-1 font-semibold text-emerald-500">
-                          {simResult.resolvedFindings?.length || 0}
-                        </div>
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <dt className="text-xs font-semibold uppercase text-muted-foreground">{t('app.changesets.resolved')}</dt>
+                        <dd className="mt-1 font-semibold text-emerald-700 dark:text-emerald-400">{simResult.resolvedFindings?.length || 0}</dd>
                       </div>
-                    </div>
+                    </dl>
 
-                    {/* Blast Radius Impacted Objects */}
                     <div>
-                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        Impacted Blast Radius Objects ({simResult.blastRadiusObjects?.length || 0})
-                      </span>
-                      <div className="mt-2 space-y-1.5">
-                        {simResult.blastRadiusObjects?.map((obj: any, idx: number) => (
-                          <div
-                            key={idx}
-                            className="p-2.5 rounded-lg border border-border bg-background flex items-center justify-between"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-medium text-foreground text-[11px]">
-                                {obj.name}
-                              </span>
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-muted text-muted-foreground">
-                                {obj.type}
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-mono text-amber-500">
-                              {obj.impact}
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {t('app.changesets.impactedTitle', { count: simResult.blastRadiusObjects?.length || 0 })}
+                      </h4>
+                      <ul className="mt-2 space-y-1.5">
+                        {simResult.blastRadiusObjects?.map((obj, idx) => (
+                          <li key={idx} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background p-2.5">
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-medium text-foreground">{obj.name}</span>
+                              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground">{obj.type}</span>
                             </span>
-                          </div>
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{label('app.changesets.impact', obj.impact)}</span>
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     </div>
 
-                    {/* Newly Introduced Findings */}
                     {simResult.newFindings && simResult.newFindings.length > 0 && (
                       <div>
-                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          Prospective Regressions Detected
-                        </span>
-                        <div className="mt-2 space-y-2">
-                          {simResult.newFindings.map((f: any, idx: number) => (
-                            <div
-                              key={idx}
-                              className="p-3 rounded-lg border border-rose-500/20 bg-rose-500/5 space-y-1 text-xs"
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-400">
-                                  {f.severity}
-                                </span>
-                                <span className="font-mono text-[11px] text-foreground font-semibold">
-                                  {f.ruleId}
-                                </span>
-                              </div>
-                              <p className="text-foreground text-xs mt-1 font-medium">{f.title}</p>
-                              <p className="text-muted-foreground text-[11px]">{f.description}</p>
-                              <div className="mt-2 p-2 rounded bg-background border border-border text-[11px] text-emerald-400">
-                                <strong>Remediation:</strong> {f.remediation}
-                              </div>
-                            </div>
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          {t('app.changesets.regressionsTitle', { count: simResult.newFindings.length })}
+                        </h4>
+                        <ul className="mt-2 space-y-2">
+                          {simResult.newFindings.map((f, idx) => (
+                            <li key={idx} className="space-y-1 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="rounded bg-rose-500/20 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">{f.severity}</span>
+                                <span className="font-mono text-xs font-semibold text-foreground">{f.ruleId}</span>
+                              </span>
+                              <p className="mt-1 text-sm font-medium text-foreground">{f.title}</p>
+                              {'description' in f && typeof (f as { description?: unknown }).description === 'string' && (
+                                <p className="text-sm text-muted-foreground">{(f as { description: string }).description}</p>
+                              )}
+                              <p className="mt-2 rounded border border-border bg-background p-2 text-sm text-foreground">
+                                <strong>{t('app.changesets.remediation')}</strong> {f.remediation}
+                              </p>
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 
-                    {/* Required Automated Regression Tests */}
                     {simResult.requiredTests && simResult.requiredTests.length > 0 && (
                       <div>
-                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          Mandatory Regression Tests Generated
-                        </span>
-                        <ul className="mt-1.5 list-disc list-inside space-y-1 text-muted-foreground">
-                          {simResult.requiredTests.map((t: any, idx: number) => (
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('app.changesets.testsTitle')}</h4>
+                        <ul className="mt-1.5 list-inside list-disc space-y-1 text-muted-foreground">
+                          {simResult.requiredTests.map((test, idx) => (
                             <li key={idx}>
-                              <span className="text-foreground font-medium">{t.title}</span> ({t.type})
+                              <span className="font-medium text-foreground">{test.title}</span> ({test.type})
                             </li>
                           ))}
                         </ul>
@@ -409,190 +298,32 @@ export function WhatIfSimulationPanel({ projectId }: WhatIfSimulationPanelProps)
         </div>
       )}
 
-      {/* New ChangeSet Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-              <GitBranch className="size-5 text-primary" />
-              <span>Create Proposed ChangeSet</span>
-            </h3>
-
-            <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-medium text-foreground mb-1">ChangeSet Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Unpublish YY1_CLASS from Core Logistics"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block font-medium text-foreground mb-1">Business Rationale</label>
-                <textarea
-                  rows={2}
-                  placeholder="Explain why this change is proposed..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-foreground mb-1">Change Type</label>
-                  <select
-                    value={changeType}
-                    onChange={(e) => setChangeType(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-xs"
-                  >
-                    <option value="REMOVE_CUSTOM_FIELD">REMOVE_CUSTOM_FIELD</option>
-                    <option value="MODIFY_OPD_RULE">MODIFY_OPD_RULE</option>
-                    <option value="MIGRATE_API_VERSION">MIGRATE_API_VERSION</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-foreground mb-1">Target Object</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. YY1_CLASS"
-                    value={targetObject}
-                    onChange={(e) => setTargetObject(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showCreate && (
+        <CreateChangeSetDialog
+          projectId={projectId}
+          onClose={() => setShowCreate(false)}
+          onCreated={(created) => {
+            queryClient.invalidateQueries({ queryKey: ['changesets', projectId] });
+            setShowCreate(false);
+            setSelectedChangesetId(created.id);
+          }}
+        />
       )}
 
-      {/* Approve ChangeSet Modal */}
-      {showApproveModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-              <ShieldCheck className="size-5 text-emerald-500" />
-              <span>Approve ChangeSet & Issue Evidence Pack</span>
-            </h3>
-
-            <p className="text-xs text-muted-foreground">
-              Approval issues a signed Change Evidence Pack verifying that the blast radius
-              has been simulated and accepted by an authorized architect.
-            </p>
-
-            <form onSubmit={handleApproveSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-medium text-foreground mb-1">
-                  Architect Approval Justification
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="e.g. Broken Adobe Form bindings verified and will be refactored concurrently."
-                  value={approvalReason}
-                  onChange={(e) => setApprovalReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowApproveModal(false)}
-                  className="px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={approveMutation.isPending}
-                  className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
-                >
-                  Approve Change
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showApprove && selectedChangeset && (
+        <ApproveChangeSetDialog
+          projectId={projectId}
+          changeSetId={selectedChangeset.id}
+          onClose={() => setShowApprove(false)}
+          onApproved={(res) => {
+            queryClient.invalidateQueries({ queryKey: ['changesets', projectId] });
+            setShowApprove(false);
+            setEvidencePack(res.evidencePack ?? null);
+          }}
+        />
       )}
 
-      {/* Signed Evidence Pack Modal */}
-      {evidencePack && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl p-6 max-w-lg w-full space-y-4 shadow-xl">
-            <div className="flex items-center gap-3 text-emerald-500">
-              <ShieldCheck className="size-6" />
-              <h3 className="text-base font-semibold text-foreground">
-                Signed Change Evidence Pack Issued
-              </h3>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              A cryptographic certificate has been generated and persisted for audit defense.
-            </p>
-
-            <div className="space-y-2 text-xs">
-              <div>
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-                  Audit Certificate Hash (SHA-256)
-                </span>
-                <div className="p-2 rounded bg-background border border-border font-mono text-[11px] break-all select-all text-primary">
-                  {evidencePack.auditCertificate}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-muted-foreground pt-1">
-                <div>
-                  <span>Approved At:</span>{' '}
-                  <span className="text-foreground font-mono font-medium">
-                    {new Date(evidencePack.approvedAt).toLocaleString()}
-                  </span>
-                </div>
-                <div>
-                  <span>Target Environment:</span>{' '}
-                  <span className="text-foreground font-mono font-medium">
-                    {evidencePack.targetEnvironment}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEvidencePack(null)}
-                className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {evidencePack && <EvidencePackDialog pack={evidencePack} onClose={() => setEvidencePack(null)} />}
     </div>
   );
 }

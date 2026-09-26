@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../test/render';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HealthBadge, RemediationBadge, OutcomeBadge, ConfirmButton, PanelError } from '../components/integrations/ui';
 import { buildFieldSchema } from '../components/integrations/connectors-panel';

@@ -1,4 +1,5 @@
 import type { Messages } from './en';
+import { appDe } from './app/de';
 import { analyzeDe } from './analyze.de';
 import { publicToolsDe } from './public-tools.de';
 import { findingLifecycleDe } from './finding-lifecycle.de';
@@ -8,6 +9,8 @@ import { findingLifecycleDe } from './finding-lifecycle.de';
  * Schlüssel sind Compile-Fehler. Inhalte sind redaktionell übersetzt, nicht maschinell.
  */
 export const de: Messages = {
+  /** Angemeldete Anwendung (siehe ./app/de). */
+  app: appDe,
   common: {
     brand: 'ERP Preflight',
     tagline: 'Wissen, was bricht — bevor es die Produktion tut.',

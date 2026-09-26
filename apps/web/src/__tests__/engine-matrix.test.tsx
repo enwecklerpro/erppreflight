@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '../test/render';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EngineMatrix } from '../components/engine-matrix';
 import * as apiClient from '../lib/api-client';
@@ -60,7 +60,7 @@ describe('R6: Dynamic Engine Matrix Resilience & Failure Representation', () => 
     expect(retryBtn).toBeInTheDocument();
 
     // 3. Header status must indicate disconnected
-    expect(screen.getByText(/Status: Disconnected \(0 \/ 18 Online\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Status: Disconnected \(0 \/ 19 Online\)/i)).toBeInTheDocument();
 
     // 4. EVERY engine card must be OFFLINE, ZERO cards must be OPERATIONAL
     const offlineBadges = screen.getAllByRole('status', {

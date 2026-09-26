@@ -56,6 +56,8 @@ export interface DataTableSyncProps {
 }
 
 export interface DataTableProps<TData, TValue = unknown> {
+  /** Accessible name of the grid region (defaults to a generic localized label). */
+  ariaLabel?: string;
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   /** Optional unique identifier extractor for rows. Defaults to (row) => row.id */
