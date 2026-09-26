@@ -1,0 +1,23 @@
+# Keeps the SHA-pinned GitHub Actions and the digest-pinned container base images current
+# (spec 0.6 "pinned container bases", 20.7 "floating/unpinned production dependency").
+# npm/pip updates are intentionally not automated: the No-Dependency-Soup gate and the
+# lockfile are reviewed by humans (AGENTS.md §4.2).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: weekly
+    # Runtime majors (Node 22, Python 3.13) change only together with CI (ci.yml env).
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+      - dependency-name: python
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']

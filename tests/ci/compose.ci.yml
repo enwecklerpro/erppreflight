@@ -1,0 +1,14 @@
+# CI-only override for docker-compose.coolify.yml (used by the `live-e2e` job through
+# scripts/ci-live-e2e.sh with E2E_START_INFRA=1). Publishes the infrastructure ports on the
+# runner's loopback interface so the API, web and analysis service built from source can reach
+# them. NEVER use this override on the VPS: production keeps `expose:` only (Docker-published
+# ports bypass ufw).
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+  redis:
+    ports: ["127.0.0.1:6379:6379"]
+  minio:
+    ports: ["127.0.0.1:9000:9000"]
+  clamav:
+    ports: ["127.0.0.1:3310:3310"]
