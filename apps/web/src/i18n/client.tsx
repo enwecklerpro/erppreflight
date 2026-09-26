@@ -56,6 +56,25 @@ export function useMessages(): Messages {
   return getMessages(useLocale());
 }
 
+/**
+ * Localized label for an enum/status code from a dictionary group, e.g.
+ * `label('app.projects.status', 'ACTIVE')`. Unknown codes are shown verbatim
+ * (they are technical identifiers delivered by the API).
+ */
+export function useLabel(): (group: string, code: string | null | undefined) => string {
+  const messages = useMessages();
+  return useCallback(
+    (group: string, code: string | null | undefined) => {
+      if (code === null || code === undefined || code === '') return '—';
+      let node: unknown = messages;
+      for (const part of group.split('.')) node = (node as Record<string, unknown> | undefined)?.[part];
+      const value = (node as Record<string, unknown> | undefined)?.[code];
+      return typeof value === 'string' ? value : code;
+    },
+    [messages]
+  );
+}
+
 /** Locale-aware date/number formatting (raw next-intl formatter). */
 export { useFormatter };
 

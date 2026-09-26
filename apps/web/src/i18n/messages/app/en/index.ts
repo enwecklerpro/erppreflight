@@ -8,6 +8,11 @@ import { ui } from './ui';
 import { validation, apiErrors } from './validation';
 import { shell } from './shell';
 import { dataTable, form } from './dataTable';
+import { auth } from './auth';
+import { dashboard } from './dashboard';
+import { engineMatrix } from './engineMatrix';
+import { projects } from './projects';
+import { settings } from './settings';
 
 export const appEn = {
   ui,
@@ -16,6 +21,11 @@ export const appEn = {
   shell,
   dataTable,
   form,
+  auth,
+  dashboard,
+  engineMatrix,
+  projects,
+  settings,
 };
 
 export type AppMessages = typeof appEn;

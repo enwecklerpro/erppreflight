@@ -1,0 +1,47 @@
+import type { projects as En } from '../en/projects';
+
+export const projects: typeof En = {
+  title: 'Projekte',
+  subtitle: 'Migrationsprojekte, bereitgestellte Artefakte und Preflight-Läufe verwalten',
+  newProject: 'Neues Projekt',
+  loadErrorTitle: 'Projekte konnten nicht geladen werden',
+  emptyTitle: 'Noch keine Projekte',
+  emptyBody:
+    'Legen Sie Ihr erstes Projekt an, um SAP-Artefakte bereitzustellen, die deterministischen Preflight-Engines auszuführen und die Clean-Core-Konformität zu verfolgen.',
+  createFirst: 'Erstes Projekt anlegen',
+  target: 'Ziel: {release}',
+  targetNotSet: 'Nicht festgelegt',
+  noDescription: 'Keine Beschreibung vorhanden.',
+  created: 'Angelegt: {date}',
+  createdUnknown: 'Anlagedatum nicht verfügbar',
+  enter: 'Projekt öffnen',
+  status: {
+    ACTIVE: 'Aktiv',
+    ARCHIVED: 'Archiviert',
+    DRAFT: 'Entwurf',
+    COMPLETED: 'Abgeschlossen',
+  },
+  create: {
+    title: 'Projekt anlegen',
+    intro: 'Ein Projekt bündelt Artefakte, Analysen und Befunde für ein SAP-Zielsystem.',
+    close: 'Dialog schließen',
+    name: 'Projektname',
+    namePlaceholder: 'z. B. S/4HANA-2023-Migrations-Preflight',
+    nameRequired: 'Der Projektname ist erforderlich.',
+    release: 'SAP-Ziel-Release',
+    releaseHint: 'Bestimmt Regelwerk, Abkündigungsdaten und Clean-Core-Baselines für die Analysen.',
+    description: 'Beschreibung',
+    descriptionPlaceholder: 'Beschreiben Sie kurz Migrationsumfang, Systemlandschaft oder Ziele der Bewertung …',
+    submit: 'Projekt anlegen',
+    submitting: 'Projekt wird angelegt …',
+    failed: 'Das Projekt konnte nicht angelegt werden.',
+  },
+  releases: {
+    S4H_2023: 'SAP S/4HANA 2023 (Private Cloud / On-Premise)',
+    S4HC_2408: 'SAP S/4HANA Cloud Public Edition 2408',
+    S4HC_2402: 'SAP S/4HANA Cloud Public Edition 2402',
+    S4H_2022: 'SAP S/4HANA 2022',
+    S4H_2021: 'SAP S/4HANA 2021',
+    S4H_2020: 'SAP S/4HANA 2020',
+  },
+};

@@ -7,6 +7,11 @@ import { ui } from './ui';
 import { validation, apiErrors } from './validation';
 import { shell } from './shell';
 import { dataTable, form } from './dataTable';
+import { auth } from './auth';
+import { dashboard } from './dashboard';
+import { engineMatrix } from './engineMatrix';
+import { projects } from './projects';
+import { settings } from './settings';
 
 export const appDe: AppMessages = {
   ui,
@@ -15,4 +20,9 @@ export const appDe: AppMessages = {
   shell,
   dataTable,
   form,
+  auth,
+  dashboard,
+  engineMatrix,
+  projects,
+  settings,
 };

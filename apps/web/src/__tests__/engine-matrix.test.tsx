@@ -60,7 +60,7 @@ describe('R6: Dynamic Engine Matrix Resilience & Failure Representation', () => 
     expect(retryBtn).toBeInTheDocument();
 
     // 3. Header status must indicate disconnected
-    expect(screen.getByText(/Status: Disconnected \(0 \/ 18 Online\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Status: Disconnected \(0 \/ 19 Online\)/i)).toBeInTheDocument();
 
     // 4. EVERY engine card must be OFFLINE, ZERO cards must be OPERATIONAL
     const offlineBadges = screen.getAllByRole('status', {

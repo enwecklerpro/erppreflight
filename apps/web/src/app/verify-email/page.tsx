@@ -6,7 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MailCheck } from 'lucide-react';
 import { AuthCard, Notice, SectionSkeleton, buttonClass } from '@/components/account/ui';
-import { accountKeys, errorMessage, verifyEmail } from '@/lib/account-api';
+import { accountKeys, verifyEmail } from '@/lib/account-api';
+import { useErrorText, useRichT, useT } from '@/i18n/client';
 import { getStoredAuthToken } from '@/lib/api/custom-instance';
 import { ResendVerificationButton } from '@/components/account/resend-verification-button';
 
@@ -17,6 +18,9 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
  * so link scanners that prefetch URLs cannot consume the single-use token.
  */
 function VerifyEmail() {
+  const t = useT();
+  const rt = useRichT();
+  const errText = useErrorText();
   const token = useSearchParams().get('token') || '';
   const queryClient = useQueryClient();
   const started = React.useRef(false);
@@ -36,23 +40,23 @@ function VerifyEmail() {
 
   if (!TOKEN_RE.test(token)) {
     return (
-      <Notice tone="error" title="Invalid verification link">
-        The link is incomplete. Open the most recent verification e-mail or request a new one.
+      <Notice tone="error" title={t('app.auth.verify.invalidTitle')}>
+        {t('app.auth.verify.invalidBody')}
       </Notice>
     );
   }
   if (mutation.isIdle || mutation.isPending) {
-    return <SectionSkeleton rows={2} label="Verifying your e-mail address" />;
+    return <SectionSkeleton rows={2} label={t('app.auth.verify.verifying')} />;
   }
   if (mutation.isError) {
     return (
       <div className="space-y-4">
-        <Notice tone="error" title="Verification failed">{errorMessage(mutation.error)}</Notice>
+        <Notice tone="error" title={t('app.auth.verify.failed')}>{errText(mutation.error)}</Notice>
         {signedIn ? (
           <ResendVerificationButton />
         ) : (
           <Link href="/login" className={buttonClass.secondary}>
-            Sign in to request a new link
+            {t('app.auth.verify.signInForNew')}
           </Link>
         )}
       </div>
@@ -60,20 +64,21 @@ function VerifyEmail() {
   }
   return (
     <div className="space-y-5">
-      <Notice tone="success" title="E-mail verified">
-        <strong>{mutation.data.email}</strong> is verified. Analyses and report exports are now unlocked.
+      <Notice tone="success" title={t('app.auth.verify.doneTitle')}>
+        {rt('app.auth.verify.doneRich', { email: mutation.data.email, b: (c) => <strong>{c}</strong> })}
       </Notice>
       <Link href={signedIn ? '/projects' : '/login'} className={`${buttonClass.primary} w-full`}>
-        {signedIn ? 'Continue to projects' : 'Sign in'}
+        {signedIn ? t('app.auth.verify.continue') : t('app.auth.verify.signIn')}
       </Link>
     </div>
   );
 }
 
 export default function VerifyEmailPage() {
+  const t = useT();
   return (
-    <AuthCard title="Verify your e-mail address" icon={MailCheck}>
-      <React.Suspense fallback={<SectionSkeleton rows={2} label="Loading" />}>
+    <AuthCard title={t('app.auth.verify.title')} icon={MailCheck}>
+      <React.Suspense fallback={<SectionSkeleton rows={2} label={t('app.auth.loading')} />}>
         <VerifyEmail />
       </React.Suspense>
     </AuthCard>

@@ -12,7 +12,6 @@ import {
   customInstance,
   setStoredAuthToken,
   setStoredTenantId,
-  ApiError,
 } from '@/lib/api/custom-instance';
 import {
   Building2,
@@ -24,31 +23,33 @@ import {
   ShieldCheck,
   AlertCircle,
 } from 'lucide-react';
+import { useErrorText, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const signupSchema = z
   .object({
     organizationName: z
       .string()
-      .min(2, 'Organization name must be at least 2 characters')
-      .max(100, 'Organization name cannot exceed 100 characters'),
+      .min(2, vmsg('app.validation.orgNameMin', { min: 2 }))
+      .max(100, vmsg('app.validation.orgNameMax', { max: 100 })),
     fullName: z.string(),
     email: z
       .string()
-      .min(1, 'Email is required')
-      .email('Please enter a valid work email address'),
+      .min(1, vmsg('app.validation.emailRequired'))
+      .email(vmsg('app.validation.emailInvalid')),
     // Same policy the API enforces (shared @erppreflight/schemas contract).
     password: PasswordSchema,
     confirmPassword: z
       .string()
-      .min(1, 'Please confirm your password'),
+      .min(1, vmsg('app.validation.confirmPasswordRequired')),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
+    message: vmsg('app.validation.passwordsMismatch'),
     path: ['confirmPassword'],
   })
   .superRefine((data, ctx) => {
     if (passwordPolicyViolations(data.password, { email: data.email }).includes('Password must not contain your e-mail address')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Password must not contain your e-mail address' });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: vmsg('app.validation.passwordContainsEmail') });
     }
   });
 
@@ -72,6 +73,8 @@ import { evictTenantQueryCache } from '@/lib/query/query-provider';
 export default function SignupPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const t = useT();
+  const errText = useErrorText();
   const [serverError, setServerError] = React.useState<string | null>(null);
 
   const signupMutation = useMutation({
@@ -98,13 +101,7 @@ export default function SignupPage() {
       router.push('/projects');
     },
     onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        setServerError(err.message);
-      } else if (err instanceof Error) {
-        setServerError(err.message);
-      } else {
-        setServerError('Registration failed. Please check your information and try again.');
-      }
+      setServerError(errText(err, t('app.auth.signup.failed')));
     },
   });
 
@@ -135,11 +132,9 @@ export default function SignupPage() {
           </div>
         </div>
         <h1 className="mt-4 text-center text-2xl font-bold tracking-tight text-foreground">
-          Create Enterprise Workspace
+          {t('app.auth.signup.title')}
         </h1>
-        <p className="mt-1.5 text-center text-xs text-muted-foreground">
-          Provision a dedicated multi-tenant SAP Preflight &amp; Clean Core audit organization
-        </p>
+        <p className="mt-1.5 text-center text-sm text-muted-foreground">{t('app.auth.signup.subtitle')}</p>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
@@ -152,7 +147,7 @@ export default function SignupPage() {
             >
               <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" aria-hidden="true" />
               <div>
-                <p className="font-semibold text-destructive">Registration Error</p>
+                <p className="font-semibold text-destructive">{t('app.auth.signup.errorTitle')}</p>
                 <p className="text-destructive/90 mt-0.5">{serverError}</p>
               </div>
             </div>
@@ -173,13 +168,13 @@ export default function SignupPage() {
                 <FormField
                   id="signup-org-name"
                   name={field.name}
-                  label="Organization / Tenant Name"
+                  label={t('app.auth.signup.orgName')}
                   required
                   error={field.state.meta.errors as any}
                 >
                   <FormInput
                     autoComplete="organization"
-                    placeholder="Acme Global Industries"
+                    placeholder={t('app.auth.signup.orgPlaceholder')}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
@@ -195,12 +190,12 @@ export default function SignupPage() {
                 <FormField
                   id="signup-full-name"
                   name={field.name}
-                  label="Full Name (Optional)"
+                  label={t('app.auth.signup.fullName')}
                   error={field.state.meta.errors as any}
                 >
                   <FormInput
                     autoComplete="name"
-                    placeholder="Jane Doe"
+                    placeholder={t('app.auth.signup.namePlaceholder')}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
@@ -216,14 +211,14 @@ export default function SignupPage() {
                 <FormField
                   id="signup-email"
                   name={field.name}
-                  label="Work Email"
+                  label={t('app.auth.workEmail')}
                   required
                   error={field.state.meta.errors as any}
                 >
                   <FormInput
                     type="email"
                     autoComplete="email"
-                    placeholder="architect@enterprise.com"
+                    placeholder={t('app.auth.emailPlaceholder')}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
@@ -239,8 +234,8 @@ export default function SignupPage() {
                 <FormField
                   id="signup-password"
                   name={field.name}
-                  label="Password"
-                  description={`At least ${PASSWORD_MIN_LENGTH} characters with three of: lower-case, upper-case, digit, symbol.`}
+                  label={t('app.auth.password')}
+                  description={t('app.auth.passwordHint', { min: PASSWORD_MIN_LENGTH })}
                   required
                   error={field.state.meta.errors as any}
                 >
@@ -263,7 +258,7 @@ export default function SignupPage() {
                 <FormField
                   id="signup-confirm-password"
                   name={field.name}
-                  label="Confirm Password"
+                  label={t('app.auth.signup.confirmPassword')}
                   required
                   error={field.state.meta.errors as any}
                 >
@@ -290,35 +285,35 @@ export default function SignupPage() {
                 if (fieldMeta.organizationName?.errors?.length) {
                   activeErrors.push({
                     fieldId: 'signup-org-name',
-                    label: 'Organization Name',
+                    label: t('app.auth.signup.orgName'),
                     error: fieldMeta.organizationName.errors,
                   });
                 }
                 if (fieldMeta.fullName?.errors?.length) {
                   activeErrors.push({
                     fieldId: 'signup-full-name',
-                    label: 'Full Name',
+                    label: t('app.auth.signup.fullNameShort'),
                     error: fieldMeta.fullName.errors,
                   });
                 }
                 if (fieldMeta.email?.errors?.length) {
                   activeErrors.push({
                     fieldId: 'signup-email',
-                    label: 'Work Email',
+                    label: t('app.auth.workEmail'),
                     error: fieldMeta.email.errors,
                   });
                 }
                 if (fieldMeta.password?.errors?.length) {
                   activeErrors.push({
                     fieldId: 'signup-password',
-                    label: 'Password',
+                    label: t('app.auth.password'),
                     error: fieldMeta.password.errors,
                   });
                 }
                 if (fieldMeta.confirmPassword?.errors?.length) {
                   activeErrors.push({
                     fieldId: 'signup-confirm-password',
-                    label: 'Confirm Password',
+                    label: t('app.auth.signup.confirmPassword'),
                     error: fieldMeta.confirmPassword.errors,
                   });
                 }
@@ -332,16 +327,16 @@ export default function SignupPage() {
                     <button
                       type="submit"
                       disabled={isSubmitting || signupMutation.isPending}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
                     >
                       {isSubmitting || signupMutation.isPending ? (
                         <>
                           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          <span>Provisioning workspace...</span>
+                          <span>{t('app.auth.signup.submitting')}</span>
                         </>
                       ) : (
                         <>
-                          <span>Create Enterprise Workspace</span>
+                          <span>{t('app.auth.signup.submit')}</span>
                           <ArrowRight className="size-3.5" aria-hidden="true" />
                         </>
                       )}
@@ -353,12 +348,12 @@ export default function SignupPage() {
           </form>
 
           <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground">
-            <span>Already have an account? </span>
+            <span>{t('app.auth.signup.haveAccount')} </span>
             <Link
               href="/login"
               className="font-semibold text-primary hover:underline focus:outline-none focus:ring-1 focus:ring-primary rounded-xs"
             >
-              Sign in
+              {t('app.auth.signup.signIn')}
             </Link>
           </div>
         </div>

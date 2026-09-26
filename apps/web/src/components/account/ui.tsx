@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { AlertCircle, CheckCircle2, Info, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { cn } from '@/components/form/form-field';
+import { useT } from '@/i18n/client';
 
 /** Primary / secondary / danger button styles shared by the account pages. */
 export const buttonClass = {
@@ -16,11 +17,11 @@ export const buttonClass = {
 
 type NoticeTone = 'info' | 'success' | 'warning' | 'error';
 
-const toneStyles: Record<NoticeTone, { box: string; icon: React.ComponentType<{ className?: string }>; label: string }> = {
-  info: { box: 'border-blue-500/30 bg-blue-500/10 text-foreground', icon: Info, label: 'Information' },
-  success: { box: 'border-emerald-500/30 bg-emerald-500/10 text-foreground', icon: CheckCircle2, label: 'Success' },
-  warning: { box: 'border-amber-500/40 bg-amber-500/10 text-foreground', icon: TriangleAlert, label: 'Warning' },
-  error: { box: 'border-destructive/30 bg-destructive/10 text-destructive', icon: AlertCircle, label: 'Error' },
+const toneStyles: Record<NoticeTone, { box: string; icon: React.ComponentType<{ className?: string }> }> = {
+  info: { box: 'border-blue-500/30 bg-blue-500/10 text-foreground', icon: Info },
+  success: { box: 'border-emerald-500/30 bg-emerald-500/10 text-foreground', icon: CheckCircle2 },
+  warning: { box: 'border-amber-500/40 bg-amber-500/10 text-foreground', icon: TriangleAlert },
+  error: { box: 'border-destructive/30 bg-destructive/10 text-destructive', icon: AlertCircle },
 };
 
 /**
@@ -38,12 +39,14 @@ export function Notice({
   children?: React.ReactNode;
   className?: string;
 }) {
-  const { box, icon: Icon, label } = toneStyles[tone];
+  const t = useT();
+  const { box, icon: Icon } = toneStyles[tone];
+  const label = t(`app.auth.tone.${tone}`);
   return (
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       aria-live={tone === 'error' ? 'assertive' : 'polite'}
-      className={cn('rounded-xl border p-3.5 text-xs flex items-start gap-2.5', box, className)}
+      className={cn('rounded-xl border p-3.5 text-sm flex items-start gap-2.5', box, className)}
     >
       <Icon className="size-4 shrink-0 mt-0.5" aria-hidden="true" />
       <div className="min-w-0">
@@ -76,7 +79,7 @@ export function AuthCard({
           </div>
         </div>
         <h1 className="mt-4 text-center text-2xl font-bold tracking-tight text-foreground">{title}</h1>
-        {subtitle && <p className="mt-1.5 text-center text-xs text-muted-foreground">{subtitle}</p>}
+        {subtitle && <p className="mt-1.5 text-center text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-xs">{children}</div>
@@ -139,7 +142,7 @@ export function SettingsSection({
             <h2 id={headingId} className="text-sm font-semibold text-foreground">
               {title}
             </h2>
-            {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
+            {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
           </div>
         </div>
         {actions && <div className="flex flex-wrap gap-2">{actions}</div>}

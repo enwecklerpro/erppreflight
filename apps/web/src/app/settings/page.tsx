@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from '@tanstack/react-form';
+import { z } from 'zod';
 import {
   Key,
   Webhook,
   Plus,
-  Trash2,
   Copy,
   CheckCircle2,
-  Send,
   AlertCircle,
   ShieldCheck,
   Bot,
@@ -21,6 +21,7 @@ import {
   Loader2,
   Sliders,
   ShieldAlert,
+  Route,
 } from 'lucide-react';
 import {
   fetchApiKeys,
@@ -32,771 +33,700 @@ import {
   testWebhook,
   fetchCurrentOrganization,
   updateCurrentOrganization,
-  ApiKeyItem,
-  WebhookItem,
-  OrganizationDetails,
   fetchTelemetrySummary,
 } from '@/lib/api-client';
 import { SettingsNav } from '@/components/settings/settings-nav';
+import { FormField } from '@/components/form/form-field';
+import { FormInput } from '@/components/form/form-inputs';
+import { Notice, buttonClass } from '@/components/account/ui';
+import { useErrorText, useFmt, useLabel, useRichT, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
-export default function SettingsPage() {
+type Tab = 'keys' | 'webhooks' | 'ai-governance';
+const TABS: Tab[] = ['keys', 'webhooks', 'ai-governance'];
+
+const keySchema = z.object({ name: z.string().trim().min(1, vmsg('app.validation.required')).max(120) });
+const webhookSchema = z.object({
+  url: z.string().trim().min(1, vmsg('app.validation.required')).url(vmsg('app.validation.urlInvalid')),
+});
+
+const card = 'bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-xs';
+const th = 'p-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+const iconButton =
+  'text-sm font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50';
+
+function ApiKeysTab() {
+  const t = useT();
+  const fmt = useFmt();
+  const label = useLabel();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'keys' | 'webhooks' | 'ai-governance'>('keys');
-
-  // API Keys state
-  const { data: keys = [], isLoading: loadingKeys, isError: keysError } = useQuery({ queryKey: ['settings', 'api-keys'], queryFn: fetchApiKeys });
-  const [newKeyName, setNewKeyName] = useState('');
   const [createdKeySecret, setCreatedKeySecret] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+  const keys = useQuery({ queryKey: ['settings', 'api-keys'], queryFn: fetchApiKeys });
 
-  // Webhooks state
-  const { data: webhooks = [], isLoading: loadingWebhooks, isError: webhooksError } = useQuery({ queryKey: ['settings', 'webhooks'], queryFn: fetchWebhooks });
-  const [newWebhookUrl, setNewWebhookUrl] = useState('');
-  const [testResult, setTestResult] = useState<any | null>(null);
-
-  // AI Governance state (Parts 17.21, 17.22, 20.14)
-  const { data: org, isLoading: loadingOrg } = useQuery({
-    queryKey: ['settings', 'organization'],
-    queryFn: fetchCurrentOrganization,
-  });
-  
-  const { data: telemetry, isLoading: loadingTelemetry } = useQuery({
-    queryKey: ['settings', 'telemetry'],
-    queryFn: fetchTelemetrySummary,
-  });
-  const [deterministicOnly, setDeterministicOnly] = useState(false);
-  const [requireDualReview, setRequireDualReview] = useState(false);
-  const [aiAuditLogging, setAiAuditLogging] = useState(true);
-  const [savingPolicy, setSavingPolicy] = useState(false);
-  const [policySaved, setPolicySaved] = useState(false);
-
-  React.useEffect(() => {
-    if (org?.data_policy) {
-      setDeterministicOnly(!!org.data_policy.deterministicOnly);
-      setRequireDualReview(!!org.data_policy.requireDualReviewForInferred);
-      setAiAuditLogging(org.data_policy.aiAuditLoggingEnabled !== false);
-    }
-  }, [org]);
-
-  const updatePolicyMutation = useMutation({
-    mutationFn: (dataPolicy: any) => updateCurrentOrganization({ dataPolicy }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'organization'] });
-      setPolicySaved(true);
-      setTimeout(() => setPolicySaved(false), 3000);
-    },
-    onMutate: () => setSavingPolicy(true),
-    onSettled: () => setSavingPolicy(false)
-  });
-
-  function handleSavePolicy() {
-    updatePolicyMutation.mutate({
-      deterministicOnly,
-      requireDualReviewForInferred: requireDualReview,
-      aiAuditLoggingEnabled: aiAuditLogging,
-      tokenBudgetMonthly: 1000000,
-      allowedModels: ['gemini-1.5-pro', 'gemini-1.5-flash'],
-    });
-  }
-
-  const createKeyMutation = useMutation({
+  const createKey = useMutation({
     mutationFn: (name: string) => createApiKey({ name }),
     onSuccess: (res) => {
       setCreatedKeySecret(res.apiKey);
-      setNewKeyName('');
       queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] });
-    }
+    },
   });
-
-  const revokeKeyMutation = useMutation({
+  const revokeKey = useMutation({
     mutationFn: revokeApiKey,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'api-keys'] }),
   });
 
-  const createWebhookMutation = useMutation({
-    mutationFn: (url: string) => createWebhook({ url }),
-    onSuccess: () => {
-      setNewWebhookUrl('');
-      queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] });
-    }
+  const form = useForm({
+    defaultValues: { name: '' },
+    validators: { onSubmit: keySchema },
+    onSubmit: async ({ value, formApi }) => {
+      await createKey
+        .mutateAsync(value.name.trim())
+        .then(() => formApi.reset())
+        .catch(() => undefined);
+    },
   });
 
-  const removeWebhookMutation = useMutation({
-    mutationFn: removeWebhook,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] })
-  });
+  return (
+    <div className="space-y-6">
+      {createdKeySecret && (
+        <div role="status" className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold text-sm">
+              <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
+              {t('app.settings.keys.createdTitle')}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(createdKeySecret).catch(() => undefined);
+                setCopiedKey(true);
+                setTimeout(() => setCopiedKey(false), 2000);
+              }}
+              className={buttonClass.secondary}
+            >
+              <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+              {copiedKey ? t('app.settings.keys.copied') : t('app.settings.keys.copy')}
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground mb-2">{t('app.settings.keys.copyHint')}</p>
+          <div className="p-3 bg-background border border-border rounded-lg font-mono text-xs break-all select-all">{createdKeySecret}</div>
+        </div>
+      )}
 
-  const testWebhookMutation = useMutation({
+      <section className={card} aria-labelledby="create-key-heading">
+        <h2 id="create-key-heading" className="text-base font-bold text-foreground mb-1">
+          {t('app.settings.keys.formTitle')}
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('app.settings.keys.formHint')}</p>
+        {createKey.isError && (
+          <Notice tone="error" title={t('app.settings.keys.createFailed')} className="mb-4">
+            {errText(createKey.error)}
+          </Notice>
+        )}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            form.handleSubmit();
+          }}
+          noValidate
+          className="flex flex-col sm:flex-row sm:items-end gap-3"
+        >
+          <form.Field
+            name="name"
+            children={(field) => (
+              <FormField id="api-key-name" name={field.name} label={t('app.settings.keys.nameLabel')} required className="flex-1" error={field.state.meta.errors as any}>
+                <FormInput
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
+                  placeholder={t('app.settings.keys.namePlaceholder')}
+                />
+              </FormField>
+            )}
+          />
+          <button type="submit" disabled={createKey.isPending} className={`${buttonClass.primary} sm:mb-0.5`}>
+            {createKey.isPending ? <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="w-4 h-4" aria-hidden="true" />}
+            {createKey.isPending ? t('app.settings.keys.creating') : t('app.settings.keys.create')}
+          </button>
+        </form>
+      </section>
+
+      <div className="bg-card border border-border rounded-2xl overflow-x-auto shadow-xs">
+        <table className="w-full text-left text-sm border-collapse min-w-[640px]" aria-label={t('app.settings.keys.tableLabel')}>
+          <thead className="bg-muted/50 border-b border-border">
+            <tr>
+              <th scope="col" className={th}>{t('app.settings.keys.colName')}</th>
+              <th scope="col" className={th}>{t('app.settings.keys.colPrefix')}</th>
+              <th scope="col" className={th}>{t('app.settings.keys.colScopes')}</th>
+              <th scope="col" className={th}>{t('app.settings.keys.colStatus')}</th>
+              <th scope="col" className={th}>{t('app.settings.keys.colLastUsed')}</th>
+              <th scope="col" className={`${th} text-right`}>{t('app.settings.keys.colActions')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {keys.isLoading ? (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-muted-foreground">{t('app.settings.keys.loading')}</td>
+              </tr>
+            ) : keys.isError ? (
+              <tr>
+                <td colSpan={6} className="p-6 text-center">
+                  <span role="alert" className="inline-flex items-center gap-2 text-destructive">
+                    <AlertCircle className="size-4" aria-hidden="true" />
+                    {t('app.settings.keys.loadError')}
+                  </span>{' '}
+                  <button type="button" className="underline text-sm" onClick={() => keys.refetch()}>
+                    {t('app.ui.retry')}
+                  </button>
+                </td>
+              </tr>
+            ) : (keys.data ?? []).length === 0 ? (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-muted-foreground">{t('app.settings.keys.empty')}</td>
+              </tr>
+            ) : (
+              (keys.data ?? []).map((k) => (
+                <tr key={k.id} className="hover:bg-muted/40">
+                  <td className="p-3 font-semibold text-foreground break-words">{k.name}</td>
+                  <td className="p-3 font-mono text-muted-foreground">{k.prefix}…</td>
+                  <td className="p-3">
+                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{t('app.settings.keys.scopes', { count: k.scopes?.length ?? 0 })}</span>
+                  </td>
+                  <td className="p-3">
+                    <span
+                      className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded border ${
+                        k.status === 'ACTIVE'
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                      }`}
+                    >
+                      {k.status === 'ACTIVE' ? <CheckCircle2 className="size-3" aria-hidden="true" /> : <AlertCircle className="size-3" aria-hidden="true" />}
+                      {label('app.settings.keys.status', k.status)}
+                    </span>
+                  </td>
+                  <td className="p-3 text-muted-foreground">{k.last_used_at ? fmt.date(k.last_used_at) : t('app.settings.keys.never')}</td>
+                  <td className="p-3 text-right">
+                    {k.status === 'ACTIVE' && (
+                      <button
+                        type="button"
+                        onClick={() => revokeKey.mutate(k.id)}
+                        disabled={revokeKey.isPending}
+                        aria-label={t('app.settings.keys.revokeLabel', { name: k.name })}
+                        className={`${iconButton} text-rose-700 hover:text-rose-600 dark:text-rose-400`}
+                      >
+                        {t('app.settings.keys.revoke')}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {revokeKey.isError && <Notice tone="error">{errText(revokeKey.error)}</Notice>}
+    </div>
+  );
+}
+
+function WebhooksTab() {
+  const t = useT();
+  const fmt = useFmt();
+  const label = useLabel();
+  const errText = useErrorText();
+  const queryClient = useQueryClient();
+  const [testResult, setTestResult] = useState<{ deliveredTo?: string; signatureHeader?: string } | null>(null);
+  const webhooks = useQuery({ queryKey: ['settings', 'webhooks'], queryFn: fetchWebhooks });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] });
+
+  const create = useMutation({ mutationFn: (url: string) => createWebhook({ url }), onSuccess: invalidate });
+  const remove = useMutation({ mutationFn: removeWebhook, onSuccess: invalidate });
+  const test = useMutation({
     mutationFn: testWebhook,
     onSuccess: (res) => {
       setTestResult(res);
-      queryClient.invalidateQueries({ queryKey: ['settings', 'webhooks'] });
-    }
+      invalidate();
+    },
   });
 
-  function handleCreateKey(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newKeyName.trim()) return;
-    createKeyMutation.mutate(newKeyName.trim());
-  }
+  const form = useForm({
+    defaultValues: { url: '' },
+    validators: { onSubmit: webhookSchema },
+    onSubmit: async ({ value, formApi }) => {
+      await create
+        .mutateAsync(value.url.trim())
+        .then(() => formApi.reset())
+        .catch(() => undefined);
+    },
+  });
 
-  function handleRevokeKey(id: string) {
-    revokeKeyMutation.mutate(id);
-  }
-
-  function handleCreateWebhook(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newWebhookUrl.trim()) return;
-    createWebhookMutation.mutate(newWebhookUrl.trim());
-  }
-
-  function handleRemoveWebhook(id: string) {
-    removeWebhookMutation.mutate(id);
-  }
-
-  function handleTestWebhook(id: string) {
-    testWebhookMutation.mutate(id);
-  }
+  const actionError = remove.error ?? test.error;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto">
-        <SettingsNav />
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-            Developer Settings & Integrations
-          </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Manage organization-scoped API keys for CI/CD automation and configure real-time webhook event dispatch.
-          </p>
-        </div>
+    <div className="space-y-6">
+      {testResult && (
+        <Notice tone="success" title={t('app.settings.webhooks.testTitle')}>
+          <span className="break-all">
+            {t('app.settings.webhooks.testTarget')}: <strong>{testResult.deliveredTo}</strong> · {t('app.settings.webhooks.testSignature')}:{' '}
+            <code className="font-mono">{testResult.signatureHeader}</code>
+          </span>
+        </Notice>
+      )}
+      {actionError && <Notice tone="error" title={t('app.settings.webhooks.actionFailed')}>{errText(actionError)}</Notice>}
 
-        {/* Tab Switcher */}
-        <div className="flex border-b border-slate-800 mb-8">
-          <button
-            onClick={() => setActiveTab('keys')}
-            className={`flex items-center gap-2 pb-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-              activeTab === 'keys'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            API Keys
-          </button>
-          <button
-            onClick={() => setActiveTab('webhooks')}
-            className={`flex items-center gap-2 pb-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-              activeTab === 'webhooks'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <Webhook className="w-4 h-4" />
-            Webhooks
-          </button>
-          <button
-            onClick={() => setActiveTab('ai-governance')}
-            className={`flex items-center gap-2 pb-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-              activeTab === 'ai-governance'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            <Bot className="w-4 h-4" />
-            AI Governance & System Inventory
-          </button>
-        </div>
-
-        {/* API Keys Tab */}
-        {activeTab === 'keys' && (
-          <div className="space-y-8">
-            {/* Created Key Alert */}
-            {createdKeySecret && (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                    <CheckCircle2 className="w-4 h-4" />
-                    New API Key Generated Successfully
-                  </div>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(createdKeySecret);
-                      setCopiedKey(true);
-                      setTimeout(() => setCopiedKey(false), 2000);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    {copiedKey ? 'Copied!' : 'Copy Key'}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-300 mb-2">
-                  Please copy this key now. For security purposes, you will not be able to view it again.
-                </p>
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg font-mono text-xs text-emerald-400 break-all select-all">
-                  {createdKeySecret}
-                </div>
-              </div>
-            )}
-
-            {/* Create Key Form */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
-              <h2 className="text-base font-bold text-white mb-1">Generate New API Key</h2>
-              <p className="text-xs text-slate-400 mb-4">
-                Use this key in GitHub Actions, GitLab CI, or the official <code>erp-preflight</code> CLI.
-              </p>
-              <form onSubmit={handleCreateKey} className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  value={newKeyName}
-                  onChange={(e) => setNewKeyName(e.target.value)}
-                  placeholder="e.g. GitHub Actions CI/CD Production Key"
-                  className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-                <button
-                  type="submit"
-                  disabled={!newKeyName.trim()}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Plus className="w-4 h-4" />
-                  Generate Key
-                </button>
-              </form>
-            </div>
-
-            {/* Keys Table */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                  <tr>
-                    <th className="p-3.5">Key Name</th>
-                    <th className="p-3.5">Prefix</th>
-                    <th className="p-3.5">Scopes</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5">Last Used</th>
-                    <th className="p-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {loadingKeys ? (
-                    <tr>
-                      <td colSpan={6} className="p-6 text-center text-slate-500">Loading keys...</td>
-                    </tr>
-                  ) : keys.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-6 text-center text-slate-500">No API keys registered yet.</td>
-                    </tr>
-                  ) : (
-                    keys.map((k) => (
-                      <tr key={k.id} className="hover:bg-slate-800/40">
-                        <td className="p-3.5 font-bold text-white">{k.name}</td>
-                        <td className="p-3.5 font-mono text-slate-400">{k.prefix}...</td>
-                        <td className="p-3.5">
-                          <span className="font-mono text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                            {k.scopes?.length || 4} scopes
-                          </span>
-                        </td>
-                        <td className="p-3.5">
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                              k.status === 'ACTIVE'
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                            }`}
-                          >
-                            {k.status}
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-slate-500">
-                          {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}
-                        </td>
-                        <td className="p-3.5 text-right">
-                          {k.status === 'ACTIVE' && (
-                            <button
-                              onClick={() => handleRevokeKey(k.id)}
-                              className="text-rose-400 hover:text-rose-300 text-xs font-semibold"
-                            >
-                              Revoke
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+      <section className={card} aria-labelledby="create-webhook-heading">
+        <h2 id="create-webhook-heading" className="text-base font-bold text-foreground mb-1">
+          {t('app.settings.webhooks.formTitle')}
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('app.settings.webhooks.formHint')}</p>
+        {create.isError && (
+          <Notice tone="error" title={t('app.settings.webhooks.createFailed')} className="mb-4">
+            {errText(create.error)}
+          </Notice>
         )}
-
-        {/* Webhooks Tab */}
-        {activeTab === 'webhooks' && (
-          <div className="space-y-8">
-            {/* Test Result Banner */}
-            {testResult && (
-              <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 text-xs">
-                <div className="flex items-center gap-2 font-bold text-cyan-400 mb-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Test Webhook Dispatched Successfully
-                </div>
-                <div className="text-slate-300">
-                  Target: <strong>{testResult.deliveredTo}</strong> • Signature: <code className="text-cyan-400">{testResult.signatureHeader}</code>
-                </div>
-              </div>
-            )}
-
-            {/* Create Webhook Form */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
-              <h2 className="text-base font-bold text-white mb-1">Register Webhook Endpoint</h2>
-              <p className="text-xs text-slate-400 mb-4">
-                We will dispatch HTTP POST requests signed with HMAC-SHA256 upon preflight analysis events.
-              </p>
-              <form onSubmit={handleCreateWebhook} className="flex flex-col sm:flex-row gap-3">
-                <input
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            form.handleSubmit();
+          }}
+          noValidate
+          className="flex flex-col sm:flex-row sm:items-end gap-3"
+        >
+          <form.Field
+            name="url"
+            children={(field) => (
+              <FormField id="webhook-url" name={field.name} label={t('app.settings.webhooks.urlLabel')} required className="flex-1" error={field.state.meta.errors as any}>
+                <FormInput
                   type="url"
-                  value={newWebhookUrl}
-                  onChange={(e) => setNewWebhookUrl(e.target.value)}
-                  placeholder="https://your-service.corp.internal/webhooks/preflight"
-                  className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  inputMode="url"
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
+                  placeholder={t('app.settings.webhooks.urlPlaceholder')}
                 />
-                <button
-                  type="submit"
-                  disabled={!newWebhookUrl.trim()}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Plus className="w-4 h-4" />
-                  Register Endpoint
-                </button>
-              </form>
-            </div>
+              </FormField>
+            )}
+          />
+          <button type="submit" disabled={create.isPending} className={buttonClass.primary}>
+            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="w-4 h-4" aria-hidden="true" />}
+            {create.isPending ? t('app.settings.webhooks.registering') : t('app.settings.webhooks.register')}
+          </button>
+        </form>
+      </section>
 
-            {/* Webhooks Table */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                  <tr>
-                    <th className="p-3.5">Endpoint URL</th>
-                    <th className="p-3.5">Events</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5">Last Triggered</th>
-                    <th className="p-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {loadingWebhooks ? (
-                    <tr>
-                      <td colSpan={5} className="p-6 text-center text-slate-500">Loading webhooks...</td>
-                    </tr>
-                  ) : webhooks.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="p-6 text-center text-slate-500">No webhooks configured.</td>
-                    </tr>
-                  ) : (
-                    webhooks.map((wh) => (
-                      <tr key={wh.id} className="hover:bg-slate-800/40">
-                        <td className="p-3.5 font-mono text-cyan-400 break-all">{wh.url}</td>
-                        <td className="p-3.5">
-                          <span className="font-mono text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">
-                            {wh.events?.length || 4} events
-                          </span>
-                        </td>
-                        <td className="p-3.5">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase">
-                            {wh.status}
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-slate-500">
-                          {wh.last_triggered_at ? new Date(wh.last_triggered_at).toLocaleTimeString() : 'Never'}
-                        </td>
-                        <td className="p-3.5 text-right space-x-3">
-                          <button
-                            onClick={() => handleTestWebhook(wh.id)}
-                            className="text-cyan-400 hover:text-cyan-300 font-semibold"
-                          >
-                            Send Ping
-                          </button>
-                          <button
-                            onClick={() => handleRemoveWebhook(wh.id)}
-                            className="text-rose-400 hover:text-rose-300 font-semibold"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+      <div className="bg-card border border-border rounded-2xl overflow-x-auto shadow-xs">
+        <table className="w-full text-left text-sm border-collapse min-w-[640px]" aria-label={t('app.settings.webhooks.tableLabel')}>
+          <thead className="bg-muted/50 border-b border-border">
+            <tr>
+              <th scope="col" className={th}>{t('app.settings.webhooks.colUrl')}</th>
+              <th scope="col" className={th}>{t('app.settings.webhooks.colEvents')}</th>
+              <th scope="col" className={th}>{t('app.settings.webhooks.colStatus')}</th>
+              <th scope="col" className={th}>{t('app.settings.webhooks.colLastTriggered')}</th>
+              <th scope="col" className={`${th} text-right`}>{t('app.settings.webhooks.colActions')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {webhooks.isLoading ? (
+              <tr>
+                <td colSpan={5} className="p-6 text-center text-muted-foreground">{t('app.settings.webhooks.loading')}</td>
+              </tr>
+            ) : webhooks.isError ? (
+              <tr>
+                <td colSpan={5} className="p-6 text-center">
+                  <span role="alert" className="inline-flex items-center gap-2 text-destructive">
+                    <AlertCircle className="size-4" aria-hidden="true" />
+                    {t('app.settings.webhooks.loadError')}
+                  </span>{' '}
+                  <button type="button" className="underline text-sm" onClick={() => webhooks.refetch()}>
+                    {t('app.ui.retry')}
+                  </button>
+                </td>
+              </tr>
+            ) : (webhooks.data ?? []).length === 0 ? (
+              <tr>
+                <td colSpan={5} className="p-6 text-center text-muted-foreground">{t('app.settings.webhooks.empty')}</td>
+              </tr>
+            ) : (
+              (webhooks.data ?? []).map((wh) => (
+                <tr key={wh.id} className="hover:bg-muted/40">
+                  <td className="p-3 font-mono text-xs break-all">{wh.url}</td>
+                  <td className="p-3">
+                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
+                      {wh.events?.length ? t('app.settings.webhooks.events', { count: wh.events.length }) : t('app.settings.webhooks.allEvents')}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded border bg-muted border-border">
+                      {wh.status === 'ACTIVE' ? <CheckCircle2 className="size-3 text-emerald-600" aria-hidden="true" /> : <AlertCircle className="size-3 text-amber-600" aria-hidden="true" />}
+                      {label('app.settings.webhooks.status', wh.status)}
+                    </span>
+                  </td>
+                  <td className="p-3 text-muted-foreground">{wh.last_triggered_at ? fmt.dateTime(wh.last_triggered_at) : t('app.settings.webhooks.never')}</td>
+                  <td className="p-3 text-right whitespace-nowrap space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => test.mutate(wh.id)}
+                      disabled={test.isPending}
+                      aria-label={t('app.settings.webhooks.pingLabel', { url: wh.url })}
+                      className={`${iconButton} text-primary hover:underline`}
+                    >
+                      {t('app.settings.webhooks.ping')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove.mutate(wh.id)}
+                      disabled={remove.isPending}
+                      aria-label={t('app.settings.webhooks.removeLabel', { url: wh.url })}
+                      className={`${iconButton} text-rose-700 hover:text-rose-600 dark:text-rose-400`}
+                    >
+                      {t('app.settings.webhooks.remove')}
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Accessible on/off policy switch (button with role="switch"; state shown as text, not color only). */
+function PolicySwitch({
+  icon: Icon,
+  title,
+  body,
+  checked,
+  onChange,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  body: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const t = useT();
+  const id = useId();
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-body`}
+      onClick={() => onChange(!checked)}
+      className={`text-left p-4 rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+        checked ? 'bg-primary/5 border-primary/40' : 'bg-background border-border hover:border-primary/30'
+      }`}
+    >
+      <span className="flex items-center justify-between gap-2 mb-2">
+        <span className="flex items-center gap-2">
+          <Icon className="w-4 h-4 text-primary shrink-0" aria-hidden="true" />
+          <span id={`${id}-title`} className="text-sm font-bold text-foreground">
+            {title}
+          </span>
+        </span>
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+            checked ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {checked && <Check className="size-3" aria-hidden="true" />}
+          {checked ? t('app.settings.ai.on') : t('app.settings.ai.off')}
+        </span>
+      </span>
+      <span id={`${id}-body`} className="block text-sm text-muted-foreground leading-relaxed">
+        {body}
+      </span>
+    </button>
+  );
+}
+
+function AiPolicyTab() {
+  const t = useT();
+  const rt = useRichT();
+  const fmt = useFmt();
+  const errText = useErrorText();
+  const queryClient = useQueryClient();
+  const org = useQuery({ queryKey: ['settings', 'organization'], queryFn: fetchCurrentOrganization });
+  const telemetry = useQuery({ queryKey: ['settings', 'telemetry'], queryFn: fetchTelemetrySummary });
+  const [deterministicOnly, setDeterministicOnly] = useState(false);
+  const [requireDualReview, setRequireDualReview] = useState(false);
+  const [aiAuditLogging, setAiAuditLogging] = useState(true);
+  const [saved, setSaved] = useState(false);
+  const initialised = useRef(false);
+
+  React.useEffect(() => {
+    if (org.data && !initialised.current) {
+      initialised.current = true;
+      const policy = org.data.data_policy ?? {};
+      setDeterministicOnly(!!policy.deterministicOnly);
+      setRequireDualReview(!!policy.requireDualReviewForInferred);
+      setAiAuditLogging(policy.aiAuditLoggingEnabled !== false);
+    }
+  }, [org.data]);
+
+  const save = useMutation({
+    // Keeps every other policy field of the organization unchanged.
+    mutationFn: () =>
+      updateCurrentOrganization({
+        dataPolicy: {
+          ...(org.data?.data_policy ?? {}),
+          deterministicOnly,
+          requireDualReviewForInferred: requireDualReview,
+          aiAuditLoggingEnabled: aiAuditLogging,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'organization'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    },
+  });
+
+  const tokens = telemetry.data?.monthlyAdvisoryTokens;
+  const tokenRatio = tokens && tokens.limit > 0 ? tokens.consumed / tokens.limit : null;
+  const determinism = telemetry.data?.engineDeterminismRatio;
+  const bold = (c: React.ReactNode) => <strong className="font-semibold">{c}</strong>;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-primary/10 to-transparent border border-primary/30 rounded-2xl p-5 sm:p-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="p-3 rounded-xl bg-primary/10 text-primary mt-1 shrink-0">
+              <Scale className="w-6 h-6" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-foreground">{t('app.settings.ai.boundaryTitle')}</h2>
+              <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-3xl">{rt('app.settings.ai.boundaryBodyRich', { b: bold })}</p>
             </div>
           </div>
+          <div className="bg-card border border-border rounded-xl px-4 py-3 shrink-0 text-center">
+            <div className="text-xs text-muted-foreground font-semibold">{t('app.settings.ai.ceiling')}</div>
+            <div className="text-2xl font-black text-primary font-mono">{fmt.number(0.6, { minimumFractionDigits: 2 })}</div>
+            <div className="text-xs text-muted-foreground font-mono">{t('app.settings.ai.ceilingClass')}</div>
+          </div>
+        </div>
+      </div>
+
+      <section className={`${card} space-y-5`} aria-labelledby="ai-policy-heading">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border">
+          <div>
+            <h2 id="ai-policy-heading" className="text-base font-bold text-foreground flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-primary" aria-hidden="true" />
+              {t('app.settings.ai.policyTitle')}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-0.5">{t('app.settings.ai.policyHint')}</p>
+          </div>
+          <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !org.data} className={buttonClass.primary}>
+            {save.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                {t('app.settings.ai.saving')}
+              </>
+            ) : saved ? (
+              <>
+                <Check className="w-4 h-4" aria-hidden="true" />
+                {t('app.settings.ai.saved')}
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+                {t('app.settings.ai.save')}
+              </>
+            )}
+          </button>
+        </div>
+        {org.isError && (
+          <Notice tone="error" title={t('app.settings.ai.loadError')}>
+            {errText(org.error)}
+          </Notice>
         )}
+        {save.isError && <Notice tone="error" title={t('app.settings.ai.saveFailed')}>{errText(save.error)}</Notice>}
+        <span role="status" aria-live="polite" className="sr-only">
+          {saved ? t('app.settings.ai.saved') : ''}
+        </span>
 
-        {/* AI Governance & Transparency Center (Parts 17.21, 17.22, 20.14 - 20.15) */}
-        {activeTab === 'ai-governance' && (
-          <div className="space-y-8">
-            {/* Epistemic Invariant Guarantee Banner */}
-            <div className="bg-gradient-to-r from-cyan-950/60 to-slate-900 border border-cyan-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 mt-1">
-                    <Scale className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-bold text-white">
-                        Epistemic Safety Boundary & Non-Override Invariant
-                      </h2>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">
-                        ADR-0017 ENFORCED
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-300 mt-1 leading-relaxed max-w-3xl">
-                      ERP Preflight guarantees mathematical determinism in preflight audits. Generative AI is strictly capped at an epistemic confidence score of <strong className="text-cyan-300">0.60 (INFERRED)</strong>. AI models are structurally prohibited from overriding, modifying, or suppressing deterministic AST findings (<strong className="text-emerald-400">VERIFIED 1.0</strong> or <strong className="text-emerald-400">RULE_DERIVED 0.85</strong>).
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-slate-950/90 border border-slate-800 rounded-xl px-4 py-3 shrink-0 text-center">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Max AI Confidence</div>
-                  <div className="text-2xl font-black text-cyan-400 font-mono">0.60</div>
-                  <div className="text-[10px] text-slate-400 font-mono">INFERRED (Ceiling)</div>
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <PolicySwitch icon={Lock} title={t('app.settings.ai.deterministicTitle')} body={t('app.settings.ai.deterministicBody')} checked={deterministicOnly} onChange={setDeterministicOnly} />
+          <PolicySwitch icon={ShieldAlert} title={t('app.settings.ai.dualReviewTitle')} body={t('app.settings.ai.dualReviewBody')} checked={requireDualReview} onChange={setRequireDualReview} />
+          <PolicySwitch icon={ShieldCheck} title={t('app.settings.ai.auditTitle')} body={t('app.settings.ai.auditBody')} checked={aiAuditLogging} onChange={setAiAuditLogging} />
+          <div className="p-4 rounded-xl bg-background border border-border">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-primary" aria-hidden="true" />
+                <span className="text-sm font-bold text-foreground">{t('app.settings.ai.scrubbingTitle')}</span>
               </div>
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-muted text-foreground">
+                <Check className="size-3" aria-hidden="true" />
+                {t('app.settings.ai.always')}
+              </span>
             </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">{t('app.settings.ai.scrubbingBody')}</p>
+          </div>
+        </div>
+      </section>
 
-            {/* Enterprise Organization AI Policy Controls (Part 17.21) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-emerald-400" />
-                    Organization AI Governance Policies
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Configure tenant-wide boundaries for artificial intelligence and deterministic rule execution.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSavePolicy}
-                  disabled={savingPolicy}
-                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors disabled:opacity-50"
-                >
-                  {savingPolicy ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Saving Policy...
-                    </>
-                  ) : policySaved ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Policy Enforced
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      Save AI Policies
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Deterministic-Only Mode */}
-                <div
-                  onClick={() => setDeterministicOnly(!deterministicOnly)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    deterministicOnly
-                      ? 'bg-amber-500/10 border-amber-500/40 text-slate-200'
-                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-amber-400" />
-                      <span className="text-xs font-bold text-white">Deterministic-Only Mode</span>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        deterministicOnly
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {deterministicOnly ? 'ENABLED' : 'DISABLED'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Disable all generative AI summarization and advisory refactoring. The platform runs exclusively in 100% pure deterministic AST & rule evaluation mode for zero-drift compliance audits.
-                  </p>
-                </div>
-
-                {/* Require Dual Review */}
-                <div
-                  onClick={() => setRequireDualReview(!requireDualReview)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    requireDualReview
-                      ? 'bg-cyan-500/10 border-cyan-500/40 text-slate-200'
-                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <ShieldAlert className="w-4 h-4 text-cyan-400" />
-                      <span className="text-xs font-bold text-white">Dual Human Review for Inferred Findings</span>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        requireDualReview
-                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {requireDualReview ? 'MANDATORY' : 'OPTIONAL'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Findings with confidence ≤ 0.60 cannot be marked as remediated or included in export reports without explicit sign-off from two independent SAP Solution Architects.
-                  </p>
-                </div>
-
-                {/* AI Lineage Logging */}
-                <div
-                  onClick={() => setAiAuditLogging(!aiAuditLogging)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    aiAuditLogging
-                      ? 'bg-emerald-500/10 border-emerald-500/40 text-slate-200'
-                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold text-white">Cryptographic AI Audit Logging</span>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        aiAuditLogging
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {aiAuditLogging ? 'ACTIVE' : 'OFF'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Compute SHA-256 hash chains over every prompt context, redacted AST snippet, and synthesized advice. Enables verifiable provenance reconstruction during enterprise compliance audits.
-                  </p>
-                </div>
-
-                {/* Secret Redaction & Sanitization */}
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-slate-300">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold text-white">Pre-Flight Secret Scrubbing</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      PERMANENT LOCK
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    All customer ABAP code snippets pass through Shannon entropy detectors and regex filters before ingestion. Passwords, API tokens, and RFC connection parameters are stripped prior to AST analysis.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* AI System Inventory & System Cards (Parts 20.14 - 20.15) */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-cyan-400" />
-                    AI System Inventory & System Cards
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Catalog of all AI-assisted sub-systems, model architectures, confidence ceilings, and safety benchmarks.
-                  </p>
-                </div>
-                <span className="text-xs font-mono text-slate-400 bg-slate-900 px-3 py-1 rounded-lg border border-slate-800">
-                  4 Active Systems
+      <section className="space-y-4" aria-labelledby="ai-functions-heading">
+        <div>
+          <h2 id="ai-functions-heading" className="text-base font-bold text-foreground flex items-center gap-2">
+            <Bot className="w-4 h-4 text-primary" aria-hidden="true" />
+            {t('app.settings.ai.functionsTitle')}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">{t('app.settings.ai.functionsHint')}</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[
+            { icon: Sparkles, title: t('app.settings.ai.explainTitle'), body: t('app.settings.ai.explainBody'), input: t('app.settings.ai.explainInput') },
+            { icon: Route, title: t('app.settings.ai.routerTitle'), body: t('app.settings.ai.routerBody'), input: t('app.settings.ai.routerInput') },
+          ].map((fn) => (
+            <div key={fn.title} className={`${card} space-y-3`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <fn.icon className="w-4 h-4 text-primary" aria-hidden="true" />
+                  {fn.title}
+                </h3>
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-muted border border-border">
+                  {t('app.settings.ai.cap', { value: fmt.number(0.6, { minimumFractionDigits: 2 }) })}
                 </span>
               </div>
+              <p className="text-sm text-muted-foreground">{fn.body}</p>
+              <p className="text-xs pt-2 border-t border-border">
+                <span className="text-muted-foreground">{t('app.settings.ai.inputScope')}: </span>
+                <span className="text-foreground">{fn.input}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* System Card 1 */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                      Finding Explanation Synthesizer
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      Cap: 0.60
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Translates complex AST rule breaches and Clean Core Tier 3 violations into clear architectural rationale for enterprise review teams.
-                  </p>
-                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Base Architecture:</span>
-                      <span className="font-mono text-slate-300">Gemini 1.5 Pro (Stateless)</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Data Input Scope:</span>
-                      <span className="text-slate-300">Redacted AST Snippet + SAP Release</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Safety Status:</span>
-                      <span className="text-emerald-400 font-semibold">VERIFIED SECURE (Prompt Injection Immune)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* System Card 2 */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
-                      <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-                      Remediation Guide Synthesizer
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      Cap: 0.60
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Synthesizes target-release refactoring patterns (e.g. migrating classic user exits to BAdIs or RAP Extensibility) referencing SAP OSS Notes.
-                  </p>
-                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Base Architecture:</span>
-                      <span className="font-mono text-slate-300">Gemini 1.5 Pro (Stateless)</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Data Input Scope:</span>
-                      <span className="text-slate-300">Obsolete API + Target S/4 Release + OSS Catalog</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Safety Status:</span>
-                      <span className="text-emerald-400 font-semibold">VERIFIED SECURE (Hallucination Benchmarked)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* System Card 3 */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
-                      <Bot className="w-3.5 h-3.5 text-purple-400" />
-                      Natural Language Problem Router
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      Cap: 0.60
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Maps natural language questions from migration consultants to the corresponding deterministic preflight rules and finding taxonomy codes.
-                  </p>
-                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Base Architecture:</span>
-                      <span className="font-mono text-slate-300">Gemini 1.5 Flash (Stateless)</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Data Input Scope:</span>
-                      <span className="text-slate-300">User Query + Rule Catalog Embedding</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Safety Status:</span>
-                      <span className="text-emerald-400 font-semibold">VERIFIED SECURE (Deterministic Fallback)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* System Card 4 */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
-                      Work Item Task Formatter
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      Cap: 0.60
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Formats preflight findings into structured work items for SAP Cloud ALM, Jira, Azure DevOps, and ServiceNow with reproducible evidence hashes.
-                  </p>
-                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Base Architecture:</span>
-                      <span className="font-mono text-slate-300">Gemini 1.5 Flash (Stateless)</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Data Input Scope:</span>
-                      <span className="text-slate-300">Finding Record + Evidence Line/Column + Hash</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Safety Status:</span>
-                      <span className="text-emerald-400 font-semibold">VERIFIED SECURE (Schema Validated)</span>
-                    </div>
-                  </div>
-                </div>
+      <section className={`${card} space-y-4`} aria-labelledby="ai-usage-heading">
+        <h2 id="ai-usage-heading" className="text-base font-bold text-foreground flex items-center gap-2">
+          <Cpu className="w-4 h-4 text-primary" aria-hidden="true" />
+          {t('app.settings.ai.telemetryTitle')}
+        </h2>
+        {telemetry.isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-busy="true" aria-label={t('app.ui.loading')}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="p-4 bg-muted/40 border border-border rounded-xl animate-pulse motion-reduce:animate-none h-24" />
+            ))}
+          </div>
+        ) : telemetry.isError ? (
+          <Notice tone="error" title={t('app.ui.loadFailed')}>
+            {errText(telemetry.error)}
+          </Notice>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 bg-background border border-border rounded-xl">
+              <span className="text-sm text-muted-foreground">{t('app.settings.ai.tokens')}</span>
+              <div className="text-xl font-bold text-foreground mt-1">
+                {tokens ? `${fmt.number(tokens.consumed)} / ${fmt.number(tokens.limit)}` : t('app.settings.ai.noData')}
+              </div>
+              <div
+                className="w-full bg-muted h-1.5 rounded-full mt-2 overflow-hidden"
+                role="progressbar"
+                aria-label={t('app.settings.ai.tokens')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={tokenRatio === null ? 0 : Math.round(tokenRatio * 100)}
+              >
+                <div className="bg-primary h-full rounded-full" style={{ width: `${Math.min(100, (tokenRatio ?? 0) * 100)}%` }} />
+              </div>
+              <span className="text-xs text-muted-foreground mt-1 block">
+                {tokenRatio === null ? t('app.settings.ai.noData') : t('app.settings.ai.tokensUsed', { percent: fmt.percent(tokenRatio, 1) })}
+              </span>
+            </div>
+            <div className="p-4 bg-background border border-border rounded-xl">
+              <span className="text-sm text-muted-foreground">{t('app.settings.ai.latency')}</span>
+              <div className="text-xl font-bold text-foreground mt-1">
+                {telemetry.data?.meanAdvisoryLatencyMs
+                  ? t('app.settings.ai.latencyValue', { ms: fmt.number(telemetry.data.meanAdvisoryLatencyMs) })
+                  : t('app.settings.ai.noData')}
               </div>
             </div>
-
-            {/* Consumption & Quota Telemetry (Part 17.22) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-emerald-400" />
-                Monthly AI Quota & Evaluation Telemetry
-              </h3>
-              {loadingTelemetry ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl animate-pulse h-24"></div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                    <span className="text-xs text-slate-400">Monthly Advisory Tokens</span>
-                    <div className="text-xl font-bold text-white mt-1">
-                      {telemetry?.monthlyAdvisoryTokens ? `${telemetry.monthlyAdvisoryTokens.consumed.toLocaleString()} / ${telemetry.monthlyAdvisoryTokens.limit.toLocaleString()}` : 'N/A'}
-                    </div>
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
-                      <div className="bg-cyan-500 h-full rounded-full" style={{ width: telemetry?.monthlyAdvisoryTokens ? `${(telemetry.monthlyAdvisoryTokens.consumed / telemetry.monthlyAdvisoryTokens.limit) * 100}%` : '0%' }}></div>
-                    </div>
-                    <span className="text-[10px] text-slate-500 mt-1 block">
-                      {telemetry?.monthlyAdvisoryTokens ? `${((telemetry.monthlyAdvisoryTokens.consumed / telemetry.monthlyAdvisoryTokens.limit) * 100).toFixed(1)}% consumed of billing quota` : 'N/A'}
-                    </span>
-                  </div>
-
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                    <span className="text-xs text-slate-400">Mean Advisory Latency</span>
-                    <div className="text-xl font-bold text-emerald-400 mt-1">
-                      {telemetry?.meanAdvisoryLatencyMs ? `${telemetry.meanAdvisoryLatencyMs} ms` : 'N/A'}
-                    </div>
-                    <span className="text-[10px] text-slate-500 mt-1 block">Stateless caching layer active</span>
-                  </div>
-
-                  <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl">
-                    <span className="text-xs text-slate-400">Engine Determinism Ratio</span>
-                    <div className="text-xl font-bold text-cyan-400 mt-1">
-                      {telemetry?.engineDeterminismRatio ? `${(telemetry.engineDeterminismRatio * 100).toFixed(1)}% Pure AST` : 'N/A'}
-                    </div>
-                    <span className="text-[10px] text-slate-500 mt-1 block">
-                      {telemetry?.engineDeterminismRatio ? `${((1 - telemetry.engineDeterminismRatio) * 100).toFixed(1)}% advisory assistance only` : 'N/A'}
-                    </span>
-                  </div>
-                </div>
+            <div className="p-4 bg-background border border-border rounded-xl">
+              <span className="text-sm text-muted-foreground">{t('app.settings.ai.determinism')}</span>
+              <div className="text-xl font-bold text-foreground mt-1">
+                {typeof determinism === 'number' ? fmt.percent(determinism, 1) : t('app.settings.ai.noData')}
+              </div>
+              {typeof determinism === 'number' && (
+                <span className="text-xs text-muted-foreground mt-1 block">
+                  {t('app.settings.ai.determinismHint', { percent: fmt.percent(1 - determinism, 1) })}
+                </span>
               )}
             </div>
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const t = useT();
+  const [activeTab, setActiveTab] = useState<Tab>('keys');
+  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ keys: null, webhooks: null, 'ai-governance': null });
+  const tabMeta: Record<Tab, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+    keys: { label: t('app.settings.workspace.tabKeys'), icon: Key },
+    webhooks: { label: t('app.settings.workspace.tabWebhooks'), icon: Webhook },
+    'ai-governance': { label: t('app.settings.workspace.tabAi'), icon: Bot },
+  };
+
+  const onTabKey = (e: React.KeyboardEvent, index: number) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const next = TABS[(index + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+    setActiveTab(next);
+    tabRefs.current[next]?.focus();
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      <SettingsNav />
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground">{t('app.settings.workspace.title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('app.settings.workspace.subtitle')}</p>
+      </div>
+
+      <div role="tablist" aria-label={t('app.settings.workspace.tabsLabel')} className="flex border-b border-border mb-6 overflow-x-auto">
+        {TABS.map((tab, index) => {
+          const { label, icon: Icon } = tabMeta[tab];
+          const selected = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              ref={(el) => {
+                tabRefs.current[tab] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`settings-tab-${tab}`}
+              aria-selected={selected}
+              aria-controls={`settings-panel-${tab}`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={(e) => onTabKey(e, index)}
+              className={`flex items-center gap-2 pb-3 px-4 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-t ${
+                selected ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-4 h-4" aria-hidden="true" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div role="tabpanel" id={`settings-panel-${activeTab}`} aria-labelledby={`settings-tab-${activeTab}`}>
+        {activeTab === 'keys' && <ApiKeysTab />}
+        {activeTab === 'webhooks' && <WebhooksTab />}
+        {activeTab === 'ai-governance' && <AiPolicyTab />}
       </div>
     </div>
   );
