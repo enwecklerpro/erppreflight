@@ -230,7 +230,7 @@ Access the Coolify dashboard at `http://[HOSTINGER_VPS_IP]:8000`.
    - Base Directory: `/`
    - Compose File Path: `/docker-compose.coolify.yml` (repo root — see warning in 4.1)
 3. Configure the **Environment Variables** in Coolify using the values from the root `.env.coolify.example`.
-4. Database migrations run automatically on `api` container start (`infra/docker/api-entrypoint.sh`, controlled by `AUTO_MIGRATE`, default `true`; SQL files from `MIGRATIONS_DIR=/app/packages/database/migrations`).
+4. Database migrations run in the one-shot compose job `migrate` (`infra/docker/api-entrypoint.sh migrate`, SQL files from `MIGRATIONS_DIR=/app/packages/database/migrations`) after the `db-backup` job (`infra/docker/Dockerfile.db-backup` + `premigration-backup.sh`) has dumped the database when migrations are pending; the `api` service depends on `migrate` completing successfully and runs with `AUTO_MIGRATE=false` in compose (`AUTO_MIGRATE=true` = fallback in-container migration; the image default and local `node dist/src/main.js` still migrate). See `DEPLOYMENT_GUIDE.md` §6a.
 
 ---
 

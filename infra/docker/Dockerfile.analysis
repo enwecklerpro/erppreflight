@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build Python wheels and dependencies
-FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS builder
+FROM python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS builder
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ RUN if [ "$INSTALL_OTEL" = "true" ]; then pip install --no-cache-dir --user -r r
 RUN python -c "import importlib.util as u, sys; bad = [m for m in ('pytest', 'pytest_asyncio', 'pytest_cov', 'hypothesis') if u.find_spec(m)]; print('test-only packages in runtime image:', bad) if bad else None; sys.exit(1 if bad else 0)"
 
 # Stage 2: Hardened production runner
-FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runner
+FROM python:3.13.15-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runner
 
 WORKDIR /app
 

@@ -9,7 +9,7 @@
 
       /path/to/venv/bin/python scripts/generate-third-party-notices.py
 
-The container base images (node:22-alpine, python:3.13-slim, and the infrastructure images in
+The container base images (node:22.23.3-alpine3.24, python:3.13.15-slim-trixie, and the infrastructure images in
 docker-compose.coolify.yml) carry their own OS package notices; the per-image CycloneDX SBOMs
 produced by .github/workflows/docker.yml list them with licenses.
 """

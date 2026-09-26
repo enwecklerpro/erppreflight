@@ -17,7 +17,7 @@ services:
   # PostgreSQL 16 with pgvector extension & RLS
   # ----------------------------------------------------------------------------
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     container_name: erppreflight-postgres
     restart: unless-stopped
     expose:
@@ -52,7 +52,7 @@ services:
   # Redis 7 (Cache, Distributed Locks & BullMQ Job Queues)
   # ----------------------------------------------------------------------------
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.2.16-alpine3.21@sha256:29e8589c3f9ba699b5f7aa4b3c7733c58852a3626439e619aa0ee78de08c6ca0
     container_name: erppreflight-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --save 60 1 --loglevel warning
@@ -84,7 +84,9 @@ services:
   # MinIO S3-Compatible Object Store (Quarantine, Clean & Reports Buckets)
   # ----------------------------------------------------------------------------
   minio:
-    image: elestio/minio:latest
+    # elestio/minio publishes only `latest`; the digest pins MinIO RELEASE.2025-09-07T16-13-09Z
+    # (image label "version"). Update the digest deliberately (Renovate: dashboard approval).
+    image: elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
     container_name: erppreflight-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -120,7 +122,7 @@ services:
   # ClamAV Antivirus Scanner (Ingestion Quarantine & Clean Verification)
   # ----------------------------------------------------------------------------
   clamav:
-    image: clamav/clamav:latest
+    image: clamav/clamav:1.5.4@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817
     container_name: erppreflight-clamav
     restart: unless-stopped
     expose:
@@ -192,6 +194,66 @@ services:
           - analysis-python
 
   # ----------------------------------------------------------------------------
+  # One-shot deployment jobs: pre-migration backup -> schema migration -> API
+  #   postgres (healthy) -> db-backup (exit 0) -> migrate (exit 0) -> api
+  # Both containers exit after their work; "Exited (0)" is their success state
+  # (Coolify may list them as exited — see DEPLOYMENT_GUIDE.md §6a). A failed backup or
+  # migration keeps the previous API container running and the new one from starting.
+  # ----------------------------------------------------------------------------
+  db-backup:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.db-backup
+    container_name: erppreflight-db-backup
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: erppreflight-postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-erppreflight}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATABASE: ${POSTGRES_DB:-erppreflight}
+      # auto = dump only when this release ships pending migrations; always; off (not recommended)
+      PREMIGRATION_BACKUP: ${PREMIGRATION_BACKUP:-auto}
+      PREMIGRATION_BACKUP_KEEP: ${PREMIGRATION_BACKUP_KEEP:-10}
+    volumes:
+      - premigration_backups:/backups
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - erppreflight-net
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: erppreflight-migrate
+    restart: "no"
+    command: ["migrate"]
+    # The image HEALTHCHECK probes the HTTP server, which this job never starts.
+    healthcheck:
+      disable: true
+    depends_on:
+      db-backup:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      MIGRATIONS_DIR: /app/packages/database/migrations
+      DATABASE_URL: postgres://${POSTGRES_USER:-erppreflight}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@erppreflight-postgres:5432/${POSTGRES_DB:-erppreflight}
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - erppreflight-net
+
+  # ----------------------------------------------------------------------------
   # NestJS 11 Core API SaaS Backend (Auth, Ingestion, Tenancy, BullMQ, Reports)
   # ----------------------------------------------------------------------------
   api:
@@ -203,6 +265,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       minio:
@@ -215,8 +279,10 @@ services:
       NODE_ENV: production
       PORT: 3001
       API_PORT: 3001
-      # Migrations run once in infra/docker/api-entrypoint.sh as the schema owner (DATABASE_URL)
-      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+      # Migrations run in the one-shot `migrate` service above (after the `db-backup`
+      # pre-migration backup). AUTO_MIGRATE=true is the fallback: the API container then also
+      # applies pending migrations at start (idempotent; no automatic backup on that path).
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-false}
       STRICT_MIGRATIONS: ${STRICT_MIGRATIONS:-true}
       MIGRATIONS_DIR: /app/packages/database/migrations
       DATABASE_URL: postgres://${POSTGRES_USER:-erppreflight}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@erppreflight-postgres:5432/${POSTGRES_DB:-erppreflight}
@@ -402,6 +468,8 @@ volumes:
     name: erppreflight_minio_data
   clamav_db:
     name: erppreflight_clamav_db
+  premigration_backups:
+    name: erppreflight_premigration_backups
 
 # ------------------------------------------------------------------------------
 # Isolated Internal Docker Network & Coolify Proxy Ingress Network

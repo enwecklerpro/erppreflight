@@ -286,7 +286,7 @@ e, a, s = sys.argv[1:4]; scheme, rest = e.split("://", 1)
 print(f"{scheme}://{u.quote(a, safe=str())}:{u.quote(s, safe=str())}@{rest}")' "$MC_EP" "$S3_ACCESS_KEY" "$S3_SECRET_KEY")
   for b in $BUCKETS; do
     docker run --rm --network "$MC_NET" -e HOME=/tmp -e "MC_HOST_x=$MC_URL" --entrypoint mc \
-      "${MC_IMAGE:-elestio/minio:latest}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
+      "${MC_IMAGE:-elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
   done
 
   set +e
