@@ -370,6 +370,13 @@ WEB_URL=http://localhost:3000 API_URL=http://localhost:3001 MAIL_DEV_OUTBOX_TOKE
 WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-account-ui-smoke.cjs
 # Public site EN/DE (home, pricing, solutions, knowledge incl. 404, legal pages, sitemap/robots, CSP headers)
 WEB_URL=... node scripts/e2e-public-smoke.cjs [shotDir]
+# Playwright (tests/e2e): live journey + axe-core WCAG 2.2 AA audit of login, projects, workspace, findings,
+# finding detail, analyze, settings, public home EN/DE (serious/critical = fail) + auth UI contract tests.
+# Default config: without PLAYWRIGHT_BASE_URL only the contract suite runs (dev server on :3000).
+PLAYWRIGHT_BASE_URL=http://localhost:3000 API_BASE_URL=http://localhost:3001 MAIL_DEV_OUTBOX_TOKEN=... \
+  CHROMIUM_PATH=... pnpm exec playwright test                            # all suites
+PW_BROWSERS=chromium,firefox,webkit pnpm run test:e2e:live               # live suites only (playwright.live.config.ts)
+pnpm run typecheck:e2e
 # Audit chain, usage metering, plan limits (402), trial, exports, admin, flags, support (~64 checks);
 # Stripe webhook checks only when the API runs with the same STRIPE_WEBHOOK_SECRET
 API_BASE_URL=... SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... MAIL_DEV_OUTBOX_TOKEN=... [STRIPE_WEBHOOK_SECRET=whsec_...] \

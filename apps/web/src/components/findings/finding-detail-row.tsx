@@ -182,11 +182,11 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isSha256Valid ? (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-sans font-semibold">
+                        <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-sans font-semibold">
                           <CheckCircle2 className="size-3" /> Verified Hash
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-amber-600 font-sans font-semibold">
+                        <span className="flex items-center gap-1 text-amber-700 font-sans font-semibold">
                           <AlertCircle className="size-3" /> Unverified Hash
                         </span>
                       )}

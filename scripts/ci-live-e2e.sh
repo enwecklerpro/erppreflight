@@ -38,6 +38,8 @@
 #   E2E_CLAMAV_TIMEOUT seconds to wait for clamd PONG when starting infra [900]
 #   E2E_BACKUP_DRILL  1 = run the backup/restore drill after the smoke tests [1]
 #   E2E_PG_CONTAINER [erppreflight-postgres]  E2E_PG_USER [erppreflight]   (drill: pg_dump runs in it)
+#   E2E_PLAYWRIGHT_CONFIG [playwright.live.config.ts]  PW_BROWSERS [chromium] (CI: chromium,firefox,webkit)
+#   MAIL_DEV_OUTBOX_TOKEN dev-mailbox token for the API (MAIL_TRANSPORT=dev) and the suites [random]
 #   E2E_MC_NETWORK [erppreflight-network]  E2E_MC_ENDPOINT [http://erppreflight-minio:9000]
 #                     docker network + MinIO URL for the `mc` container (local: host / http://localhost:9000)
 # ==============================================================================
@@ -65,6 +67,10 @@ mkdir -p "$ART/screenshots"
 # Test-only secrets: random per run unless the workflow provides them. Never production values.
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+# E-mail: dev transport with a random outbox token. The smoke suites and the Playwright live suite
+# read verification / reset links from GET /api/v1/dev/mail/messages (X-Dev-Mailbox-Token).
+# NODE_ENV=production refuses to start without MAIL_TRANSPORT / MAIL_FROM.
+export MAIL_DEV_OUTBOX_TOKEN="${MAIL_DEV_OUTBOX_TOKEN:-$(openssl rand -hex 24)}"
 
 PIDS=()
 log() { echo "[live-e2e] $(date -u +%H:%M:%S) $*"; }
@@ -168,6 +174,8 @@ start_api() { # $1 = log file suffix
       JWT_SECRET="$JWT_SECRET" JWT_EXPIRES_IN=1h MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
       CORS_ORIGIN="http://localhost:$WEB_PORT" \
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
+      MAIL_TRANSPORT=dev MAIL_FROM="ERP Preflight <no-reply@e2e.local>" MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" \
+      APP_PUBLIC_URL="http://localhost:$WEB_PORT" \
       AUTH_RATE_LIMIT_SCALE=20
     exec node dist/src/main.js
   ) > "$ART/api$1.log" 2>&1 &

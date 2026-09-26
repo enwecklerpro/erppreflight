@@ -19,7 +19,7 @@
     "codegen:api": "pnpm --filter @erppreflight/web codegen:api",
     "test:e2e": "playwright test",
     "test:e2e:mocked": "pnpm exec playwright test tests/e2e/preflight-pipeline.mocked-ui.spec.ts",
-    "test:e2e:live": "pnpm exec playwright test tests/e2e/preflight-pipeline.live.spec.ts",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts",
     "smoke:live": "bash scripts/e2e-live-smoke.sh",
     "smoke:ui": "node scripts/e2e-ui-smoke.cjs",
     "smoke:commercial": "python3 scripts/e2e-commercial-smoke.py",
@@ -28,11 +28,14 @@
     "smoke:analyze": "node scripts/e2e-analyze-smoke.cjs",
     "smoke:tools": "node scripts/e2e-tools-smoke.cjs",
     "smoke:findings": "node scripts/e2e-findings-smoke.cjs",
-    "smoke:i18n": "node scripts/e2e-i18n-smoke.cjs"
+    "smoke:i18n": "node scripts/e2e-i18n-smoke.cjs",
+    "test:e2e:a11y": "playwright test -c playwright.live.config.ts tests/e2e/accessibility.live.spec.ts",
+    "typecheck:e2e": "tsc -p tests/e2e/tsconfig.json"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",
     "@types/node": "^22.13.0",
+    "axe-core": "4.13.0",
     "rimraf": "^6.0.1",
     "turbo": "^2.4.4",
     "typescript": "^5.7.3"

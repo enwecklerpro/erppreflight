@@ -66,7 +66,8 @@ export function ConfidenceBadge({
     >
       {showIcon && <Icon className={`${isSm ? 'size-3' : 'size-3.5'} shrink-0`} aria-hidden="true" />}
       <span>{conf.label}</span>
-      <span className="opacity-70 font-mono text-[10px]">({displayScore})</span>
+      {/* Full badge colour (no opacity): the score must keep >= 4.5:1 contrast (WCAG 1.4.3). */}
+      <span className="font-mono text-[10px]">({displayScore})</span>
     </span>
   );
 }
