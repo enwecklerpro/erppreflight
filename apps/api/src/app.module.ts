@@ -54,6 +54,8 @@ import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.
 import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PublicToolsModule } from './modules/public-tools/public-tools.module';
+import { TenantAccessModule } from './modules/tenant-access/tenant-access.module';
+import { ImpersonationMiddleware } from './modules/tenant-access/impersonation.middleware';
 
 @Module({
   imports: [
@@ -117,10 +119,14 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
     ReleaseIntelligenceModule,
     NotificationsModule,
     PublicToolsModule,
+    TenantAccessModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    // Impersonation credentials are verified, policy-checked and audited on EVERY route
+    // before tenant resolution (modules/tenant-access/impersonation.middleware.ts).
+    consumer.apply(ImpersonationMiddleware).forRoutes('*');
     consumer
       .apply(TenancyMiddleware)
       .exclude(

@@ -221,15 +221,18 @@ describe('AuthService', () => {
     expect(mockJwt.sign).not.toHaveBeenCalled();
   });
 
-  it('should select the membership deterministically (preferred, else oldest active organization) in SQL', async () => {
+  it('should select the membership deterministically (preferred, else active before suspended, else oldest) in SQL', async () => {
     mockDb.query = vi.fn().mockResolvedValueOnce({ rows: [] });
     await expect(service.createSession('11111111-1111-4111-8111-111111111111')).rejects.toThrow(
       UnauthorizedException
     );
     const sql: string = (mockDb.query as any).mock.calls[0][0];
-    expect(sql).toMatch(/ORDER BY \(om\.organization_id = \$2::uuid\) DESC NULLS LAST, om\.created_at ASC/);
+    expect(sql).toMatch(
+      /ORDER BY \(om\.organization_id = \$2::uuid\) DESC NULLS LAST, \(o\.status = 'ACTIVE'\) DESC,\s+om\.created_at ASC/
+    );
     expect(sql).toMatch(/LIMIT 1/);
-    expect(sql).toMatch(/o\.status = 'ACTIVE'/);
+    // Members of a suspended organization still get a session (403 TENANT_SUSPENDED on tenant routes).
+    expect(sql).toMatch(/o\.status IN \('ACTIVE', 'SUSPENDED'\)/);
     // A malformed preferred organization id is ignored (never interpolated)
     await expect(service.createSession('11111111-1111-4111-8111-111111111111', { preferredOrganizationId: "x' OR 1=1" })).rejects.toThrow();
     expect((mockDb.query as any).mock.calls[1][1][1]).toBeNull();

@@ -1,8 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { IngestionService } from './ingestion.service';
 import { DatabaseService } from '../database/database.service';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
+import { gateJobForSuspendedTenant } from '../tenant-access/suspended-jobs';
 
 export interface IngestionJobData {
   fileId: string;
@@ -19,13 +21,16 @@ export class IngestionProcessor extends WorkerHost {
 
   constructor(
     private readonly ingestionService: IngestionService,
-    private readonly db: DatabaseService
+    private readonly db: DatabaseService,
+    @Optional() private readonly tenantAccess?: TenantAccessService
   ) {
     super();
   }
 
-  async process(job: Job<IngestionJobData>): Promise<void> {
+  async process(job: Job<IngestionJobData>, token?: string): Promise<void> {
     const { fileId, organizationId, projectId } = job.data;
+    // Suspended tenants (spec 10.7): ingestion is parked until reactivation.
+    await gateJobForSuspendedTenant(job, token, organizationId, this.tenantAccess, this.logger);
     this.logger.log(`Processing ingestion job for file ${fileId}`);
 
     const res = await this.db.query(

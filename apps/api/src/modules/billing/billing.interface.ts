@@ -64,6 +64,7 @@ export interface TenantUsage {
     canAddTeamMember: boolean;
     canUseAiTokens: boolean;
     canUseWhatIfSimulation: boolean;
+    canUseIpAllowlist: boolean;
   };
 }
 
@@ -78,4 +79,5 @@ export type EntitlementFeature =
   | 'CLOUD_ALM_SYNC'
   | 'ADD_TEAM_MEMBER'
   | 'AI_TOKENS'
+  | 'IP_ALLOWLIST'
   | 'WHAT_IF_SIMULATION';

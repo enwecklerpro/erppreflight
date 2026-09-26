@@ -34,6 +34,12 @@ export interface AuditSpec {
    * authenticated tenant (e.g. failed login → the account's primary org).
    */
   failureTenant?: 'loginEmail';
+  /**
+   * Explicit tenant ledger for platform-admin routes acting on ANOTHER tenant
+   * (e.g. /admin/tenants/:organizationId/suspend): takes precedence over the caller's
+   * own tenant context.
+   */
+  tenantId?: (ctx: AuditContext) => string | null | undefined;
   /** For successful unauthenticated calls (login/register), read tenant + actor from the response. */
   tenantFromResult?: (result: any) => { organizationId?: string; actorId?: string } | null | undefined;
 }

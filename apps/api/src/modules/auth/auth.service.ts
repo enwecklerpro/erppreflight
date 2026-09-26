@@ -402,8 +402,11 @@ export class AuthService implements OnApplicationBootstrap {
          SELECT om.organization_id, om.role, o.require_2fa
          FROM organization_members om
          JOIN organizations o ON o.id = om.organization_id
-         WHERE om.user_id = u.id AND o.status = 'ACTIVE'
-         ORDER BY (om.organization_id = $2::uuid) DESC NULLS LAST, om.created_at ASC, om.organization_id ASC
+         WHERE om.user_id = u.id AND o.status IN ('ACTIVE', 'SUSPENDED')
+         -- A suspended organization still yields a session (the web app shows the suspended
+         -- screen; tenant routes answer 403 TENANT_SUSPENDED), but an active one is preferred.
+         ORDER BY (om.organization_id = $2::uuid) DESC NULLS LAST, (o.status = 'ACTIVE') DESC,
+                  om.created_at ASC, om.organization_id ASC
          LIMIT 1
        ) m ON TRUE
        WHERE u.id = $1`,

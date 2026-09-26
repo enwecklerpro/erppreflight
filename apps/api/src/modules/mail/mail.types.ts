@@ -12,7 +12,14 @@ export type MailTemplateId =
   | 'ORGANIZATION_INVITATION'
   | 'TWO_FACTOR_ENABLED'
   | 'TWO_FACTOR_DISABLED'
-  | 'ACCOUNT_DELETED';
+  | 'ACCOUNT_DELETED'
+  // Tenant access administration and support (operations.templates.ts)
+  | 'TENANT_SUSPENDED'
+  | 'TENANT_REACTIVATED'
+  | 'TRIAL_EXTENDED'
+  | 'SUPPORT_TICKET_CREATED'
+  | 'SUPPORT_TICKET_REPLY'
+  | 'SUPPORT_TICKET_STATUS_CHANGED';
 
 export interface MailMessage {
   to: string;

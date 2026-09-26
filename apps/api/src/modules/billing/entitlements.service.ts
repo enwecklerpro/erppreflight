@@ -291,6 +291,7 @@ export class EntitlementsService {
         canAddTeamMember: withinLimit(teamMembersCount, limits.teamMembers),
         canUseAiTokens: withinLimit(aiTokensThisMonth, limits.aiTokensPerMonth),
         canUseWhatIfSimulation: state.limits.features.whatIfSimulation,
+        canUseIpAllowlist: state.limits.features.ipAllowlist,
       },
     };
   }
@@ -362,6 +363,14 @@ export class EntitlementsService {
       case 'AI_TOKENS':
         if (!usage.quotaStatus.canUseAiTokens)
           throw this.quotaError(usage, 'aiTokensPerMonth', usage.aiTokensThisMonth);
+        break;
+      case 'IP_ALLOWLIST':
+        if (!usage.quotaStatus.canUseIpAllowlist) {
+          throw new ForbiddenException({
+            code: 'PLAN_FEATURE_REQUIRED',
+            message: `IP allowlists are an Enterprise feature and not included in plan tier '${usage.effectiveTier}'. Contact sales to upgrade.`,
+          });
+        }
         break;
       case 'WHAT_IF_SIMULATION':
         if (!usage.quotaStatus.canUseWhatIfSimulation) {
