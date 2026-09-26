@@ -54,6 +54,7 @@ import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.
 import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PublicToolsModule } from './modules/public-tools/public-tools.module';
+import { GovernanceModule } from './modules/governance/governance.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
     ReleaseIntelligenceModule,
     NotificationsModule,
     PublicToolsModule,
+    GovernanceModule,
   ],
 })
 export class AppModule implements NestModule {
