@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build dependencies & compilation
-FROM node:22-alpine AS builder
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS builder
 
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.20.0 --activate
@@ -23,7 +23,7 @@ RUN pnpm --filter @erppreflight/schemas build && \
     pnpm --filter @erppreflight/api build
 
 # Stage 2: Production runner
-FROM node:22-alpine AS runner
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -39,8 +39,16 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
 COPY packages/ ./packages/
 COPY apps/api/package.json ./apps/api/
+# Hardening (spec 20.8 "no build tools if unnecessary"): the runtime only needs `node`.
+# After the production install, npm, yarn and corepack (whose bundled dependencies carry
+# fixable HIGH CVEs flagged by the blocking Trivy image scan) are removed with the caches.
 RUN corepack enable && corepack prepare pnpm@10.20.0 --activate && \
-    pnpm install --prod --frozen-lockfile
+    pnpm install --prod --frozen-lockfile && \
+    corepack disable && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
+           /root/.cache /root/.local/share/pnpm /root/.npm
 
 # Copy built artifacts
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
@@ -65,6 +73,6 @@ USER nestjs
 EXPOSE 3001
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health/liveness || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${PORT:-3001}/health/liveness || exit 1
 
 ENTRYPOINT ["./entrypoint.sh"]

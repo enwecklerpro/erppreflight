@@ -1,0 +1,122 @@
+name: Docker — Build, Trivy Image Scan & SBOM
+
+# Spec 12.4 "container scan", 12.15 "Trivy/container scan, SBOM generation", 20.5 SBOM,
+# 20.8 container hardening. Builds the three production images exactly as Coolify does
+# (context `.`, infra/docker/Dockerfile.*), never pushes, and fails on fixable HIGH/CRITICAL
+# vulnerabilities. Risk-accepted CVEs (with expiry) live in .trivyignore.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1' # weekly re-scan: new CVEs in unchanged images
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_VERSION: v0.74.0
+
+jobs:
+  image:
+    name: ${{ matrix.name }} image — build, scan, SBOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: infra/docker/Dockerfile.api
+            build-args: ''
+            smoke-port: ''
+            smoke-path: ''
+          - name: web
+            dockerfile: infra/docker/Dockerfile.web
+            build-args: |
+              NEXT_PUBLIC_API_URL=https://api.erppreflight.com
+            smoke-port: '3000'
+            smoke-path: /api/health
+          - name: analysis
+            dockerfile: infra/docker/Dockerfile.analysis
+            build-args: ''
+            smoke-port: '8000'
+            smoke-path: /health
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build-args }}
+          push: false
+          load: true
+          tags: erppreflight-${{ matrix.name }}:ci-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: false
+
+      - name: Image facts (non-root user, size)
+        run: |
+          IMG=erppreflight-${{ matrix.name }}:ci-${{ github.sha }}
+          USER_CFG=$(docker image inspect -f '{{.Config.User}}' "$IMG")
+          echo "user=$USER_CFG size=$(docker image inspect -f '{{.Size}}' "$IMG")"
+          if [ -z "$USER_CFG" ] || [ "$USER_CFG" = root ] || [ "$USER_CFG" = 0 ]; then
+            echo "::error::$IMG runs as root"; exit 1
+          fi
+
+      - name: Container start smoke test
+        if: matrix.smoke-port != ''
+        run: |
+          IMG=erppreflight-${{ matrix.name }}:ci-${{ github.sha }}
+          docker run -d --name smoke -p 127.0.0.1:18080:${{ matrix.smoke-port }} "$IMG"
+          for i in $(seq 1 60); do
+            curl -fsS "http://127.0.0.1:18080${{ matrix.smoke-path }}" && exit 0
+            sleep 2
+          done
+          docker logs smoke; exit 1
+
+      - name: Trivy image scan (blocking on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: erppreflight-${{ matrix.name }}:ci-${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: '1'
+          format: table
+
+      - name: SBOM (CycloneDX)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          skip-setup-trivy: true
+          scan-type: image
+          image-ref: erppreflight-${{ matrix.name }}:ci-${{ github.sha }}
+          format: cyclonedx
+          output: sbom-${{ matrix.name }}.cdx.json
+          exit-code: '0'
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          if-no-files-found: warn
+          retention-days: 90
