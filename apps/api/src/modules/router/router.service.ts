@@ -220,9 +220,13 @@ export class RouterService {
     }
     const gate = await this.ai.aiAllowed(tenantId);
     if (!gate.allowed) {
-      return gate.reason === 'POLICY'
-        ? { ...base, status: 'DISABLED_BY_POLICY', note: 'The organization data policy does not allow AI assistance; rule-based routing only.' }
-        : { ...base, status: 'PROVIDER_UNAVAILABLE', note: 'No AI provider is configured; rule-based routing only.' };
+      if (gate.reason === 'POLICY') {
+        return { ...base, status: 'DISABLED_BY_POLICY', note: 'The organization data policy does not allow AI assistance; rule-based routing only.' };
+      }
+      if (gate.reason === 'GOVERNANCE') {
+        return { ...base, status: 'PROVIDER_UNAVAILABLE', note: 'AI is switched off by the platform administrator (AI Admin); rule-based routing only.' };
+      }
+      return { ...base, status: 'PROVIDER_UNAVAILABLE', note: 'No AI provider is configured; rule-based routing only.' };
     }
     const engineList = (Object.keys(ENGINE_PROFILES) as EngineType[])
       .map((e) => `${e}: ${ENGINE_PROFILES[e].name} (${ENGINE_PROFILES[e].domain})`)
@@ -283,7 +287,7 @@ export class RouterService {
       };
     } catch (err: any) {
       if (err instanceof AiUnavailableError) {
-        const status = err.code === 'DISABLED_BY_POLICY' ? 'DISABLED_BY_POLICY' : err.code === 'BUDGET_EXCEEDED' ? 'BUDGET_EXCEEDED' : 'PROVIDER_UNAVAILABLE';
+        const status = err.code === 'DISABLED_BY_POLICY' ? 'DISABLED_BY_POLICY' : err.code === 'BUDGET_EXCEEDED' || err.code === 'COST_CEILING' ? 'BUDGET_EXCEEDED' : 'PROVIDER_UNAVAILABLE';
         return { ...base, status, note: `${err.message} Rule-based routing only.` };
       }
       this.logger.warn(`AI routing refinement failed: ${err?.message ?? err}`);

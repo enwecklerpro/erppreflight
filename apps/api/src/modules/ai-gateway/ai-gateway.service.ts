@@ -4,6 +4,9 @@ import { DatabaseService } from '../database/database.service';
 import { UsageService } from '../usage/usage.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { PlanLimitExceededException } from '../billing/plan-limit.exception';
+import { AiGovernanceService } from './ai-governance.service';
+import { defaultAiTaskPolicy, estimateTokens, routeAiCandidates, type AiRouteCandidate } from './ai-governance.routing';
+import type { AiExternalProvider, ResolvedAiTaskPolicy } from './ai-governance.types';
 import {
   AiProviderType,
   AiRequestOptions,
@@ -27,7 +30,8 @@ export class AiGatewayService {
     @Optional() private readonly db?: DatabaseService,
     @Optional() private readonly config?: ConfigService,
     @Optional() private readonly usage?: UsageService,
-    @Optional() private readonly entitlements?: EntitlementsService
+    @Optional() private readonly entitlements?: EntitlementsService,
+    @Optional() private readonly governance?: AiGovernanceService
   ) {
     this.initCircuitBreaker('ANTHROPIC');
     this.initCircuitBreaker('OPENAI');
@@ -102,18 +106,6 @@ export class AiGatewayService {
     return null;
   }
 
-  private trackTokens(tenantId: string, tokens: number) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    let usage = this.tenantTokenUsage.get(tenantId);
-    if (!usage || usage.month !== currentMonth) {
-      usage = { month: currentMonth, count: 0 };
-    }
-    usage.count += tokens;
-    this.tenantTokenUsage.set(tenantId, usage);
-    // Persistent per-tenant metering (spec 10.5); best-effort, never blocks the response.
-    void this.usage?.recordSafe(tenantId, 'AI_TOKENS', tokens, { resourceType: 'AI_REQUEST' });
-  }
-
   private scrubPii(text: string): string {
     let scrubbed = text;
     // Scrub passwords, tokens, API keys
@@ -125,63 +117,68 @@ export class AiGatewayService {
     return scrubbed;
   }
 
-  async explainFinding(
-    request: FindingExplanationRequest,
-    options: AiRequestOptions
-  ): Promise<any> {
-    const policy = await this.resolveTenantPolicy(options.tenantId, options.dataPolicy);
 
+  private static readonly EXPLANATION_SYSTEM =
+    'Explain SAP preflight findings and provide remediation steps. Never invent findings. Reply with JSON only: ' +
+    '{"explanation":"<string>","remediationSteps":["<string>", ...]}.';
+
+  async explainFinding(request: FindingExplanationRequest, options: AiRequestOptions): Promise<any> {
+    const policy = await this.resolveTenantPolicy(options.tenantId, options.dataPolicy);
     if (policy.deterministicOnly || policy.allowAiAssistance === false) {
       return this.generateDeterministicFindingExplanation(request);
     }
-
     const budgetCheck = await this.enforceTokenBudget(options.tenantId, 100);
     if (budgetCheck) return budgetCheck;
 
-    const preferredProvider = options.preferredProvider || this.getDefaultProvider();
-
-    if (this.isCircuitOpen(preferredProvider)) {
-      return this.generateDeterministicFindingExplanation(request);
-    }
-
+    const promptText =
+      `Title: ${request.title}\nDescription: ${request.description}\nCategory: ${request.category}\n` +
+      `Rule: ${request.ruleId}\nAffected: ${request.affectedObjects.join(', ')}`;
     try {
-      const response = await this.callProviderExplanation(preferredProvider, request, options);
-      this.recordSuccess(preferredProvider);
-      return response;
+      const completion = await this.completeJson(
+        { purpose: 'finding_explanation', system: AiGatewayService.EXPLANATION_SYSTEM, user: promptText, maxTokens: options.maxTokens },
+        options
+      );
+      const json: any = completion.json;
+      const explanation = typeof json?.explanation === 'string' ? json.explanation.slice(0, 4000) : null;
+      const steps = Array.isArray(json?.remediationSteps)
+        ? json.remediationSteps.filter((x: unknown) => typeof x === 'string').slice(0, 12).map((x: string) => x.slice(0, 600))
+        : [];
+      if (!explanation) {
+        return this.withUnavailableReason(this.generateDeterministicFindingExplanation(request), 'REJECTED_INVALID_OUTPUT');
+      }
+      return {
+        explanation,
+        remediationSteps: steps.length > 0 ? steps : [request.remediation || 'Inspect technical details and resolve release compatibility delta.'],
+        caveats: ['Assisted analysis result capped at epistemic confidence <= 0.60 (INFERRED).'],
+        confidenceScore: 0.6,
+        confidenceClass: 'INFERRED',
+        providerUsed: completion.provider,
+        deterministicBypass: false,
+      } satisfies FindingExplanationResponse;
     } catch (err: any) {
-      this.recordFailure(preferredProvider);
-      this.logger.error(`AI provider ${preferredProvider} failed: ${err.message}.`);
-      return this.generateDeterministicFindingExplanation(request);
+      const reason = err instanceof AiUnavailableError ? err.code : 'PROVIDER_UNAVAILABLE';
+      return this.withUnavailableReason(this.generateDeterministicFindingExplanation(request), reason);
     }
   }
 
-  async classifyIntent(
-    request: IntentClassificationRequest,
-    options: AiRequestOptions
-  ): Promise<any> {
+  async classifyIntent(request: IntentClassificationRequest, options: AiRequestOptions): Promise<any> {
     const policy = await this.resolveTenantPolicy(options.tenantId, options.dataPolicy);
-
     if (policy.deterministicOnly || policy.allowAiAssistance === false) {
       return this.generateDeterministicIntentClassification(request);
     }
-
     const budgetCheck = await this.enforceTokenBudget(options.tenantId, 100);
     if (budgetCheck) return budgetCheck;
-
-    const preferredProvider = options.preferredProvider || this.getDefaultProvider();
-
-    if (this.isCircuitOpen(preferredProvider)) {
-      return this.generateDeterministicIntentClassification(request);
-    }
-
     try {
-      const result = await this.callProviderIntent(preferredProvider, request, options);
-      this.recordSuccess(preferredProvider);
-      return result;
+      return await this.callProviderIntent(request, options);
     } catch (err: any) {
-      this.recordFailure(preferredProvider);
-      return this.generateDeterministicIntentClassification(request);
+      const reason = err instanceof AiUnavailableError ? err.code : 'PROVIDER_UNAVAILABLE';
+      return this.withUnavailableReason(this.generateDeterministicIntentClassification(request), reason);
     }
+  }
+
+  /** Deterministic fallback annotated with why AI was not used (kill switch, ceiling, …). */
+  private withUnavailableReason<T extends object>(response: T, reason: string): T & { aiUnavailableReason: string } {
+    return { ...response, aiUnavailableReason: reason };
   }
 
   generateDeterministicFindingExplanation(
@@ -263,14 +260,6 @@ export class AiGatewayService {
     };
   }
 
-  private getDefaultProvider(): AiProviderType {
-    const configured = this.config?.get<string>('AI_DEFAULT_PROVIDER')?.toUpperCase();
-    if (configured === 'ANTHROPIC') return 'ANTHROPIC';
-    if (configured === 'OPENAI') return 'OPENAI';
-    if (configured === 'OLLAMA_LOCAL') return 'OLLAMA_LOCAL';
-    return 'DETERMINISTIC_FALLBACK';
-  }
-
   private isCircuitOpen(provider: AiProviderType): boolean {
     const state = this.circuitBreakers.get(provider);
     if (!state) return false;
@@ -304,137 +293,11 @@ export class AiGatewayService {
     }
   }
 
-  private async callProviderExplanation(
-    provider: AiProviderType,
-    request: FindingExplanationRequest,
-    options: AiRequestOptions
-  ): Promise<FindingExplanationResponse> {
-    if (provider === 'DETERMINISTIC_FALLBACK') {
-      return this.generateDeterministicFindingExplanation(request);
-    }
-
-    const apiKey = this.config?.get<string>(`${provider}_API_KEY`);
-    if (!apiKey && provider !== 'OLLAMA_LOCAL') {
-      throw new Error(`API key for provider ${provider} is not configured.`);
-    }
-
-    const promptText = `Title: ${request.title}\nDescription: ${request.description}\nCategory: ${request.category}\nRule: ${request.ruleId}\nAffected: ${request.affectedObjects.join(', ')}`;
-    const scrubbedPrompt = this.scrubPii(promptText);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    let explanation = `[${provider} Assessed]: ${request.title}. Detailed impact evaluation on ${request.affectedObjects.join(', ')}.`;
-    let remediationSteps = ['Review technical rule parameters in SAP S/4HANA release notes.', 'Execute target verification test in non-production sandbox environment.'];
-
-    try {
-      if (provider === 'OPENAI') {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              { role: 'system', content: 'Explain SAP findings and provide remediation steps. Output strictly as JSON with keys "explanation" (string) and "remediationSteps" (array of strings).' },
-              { role: 'user', content: scrubbedPrompt }
-            ],
-            response_format: { type: 'json_object' },
-            max_tokens: options.maxTokens || 2000
-          }),
-          signal: controller.signal
-        });
-        
-        if (!response.ok) {
-          throw new Error(`OpenAI error: ${response.status} ${response.statusText}`);
-        }
-        
-        const data: any = await response.json();
-        const usage = data.usage;
-        if (usage) {
-          this.logger.log(`Tokens used - prompt: ${usage.prompt_tokens}, completion: ${usage.completion_tokens}, total: ${usage.total_tokens}`);
-          this.trackTokens(options.tenantId, usage.total_tokens);
-        }
-        
-        const content = data.choices[0]?.message?.content;
-        if (content) {
-          try {
-            const parsed = JSON.parse(content);
-            if (parsed.explanation) explanation = parsed.explanation;
-            if (parsed.remediationSteps && Array.isArray(parsed.remediationSteps)) {
-              remediationSteps = parsed.remediationSteps;
-            }
-          } catch (e) {}
-        }
-      } else if (provider === 'ANTHROPIC') {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey!,
-            'anthropic-version': '2023-06-01'
-          },
-          body: JSON.stringify({
-            model: 'claude-3-haiku-20240307',
-            system: 'Explain SAP findings and provide remediation steps. Output strictly as JSON with keys "explanation" and "remediationSteps".',
-            messages: [
-              { role: 'user', content: scrubbedPrompt }
-            ],
-            max_tokens: options.maxTokens || 2000
-          }),
-          signal: controller.signal
-        });
-
-        if (!response.ok) {
-          throw new Error(`Anthropic error: ${response.status} ${response.statusText}`);
-        }
-
-        const data: any = await response.json();
-        const usage = data.usage;
-        if (usage) {
-          const total = (usage.input_tokens || 0) + (usage.output_tokens || 0);
-          this.logger.log(`Tokens used - prompt: ${usage.input_tokens}, completion: ${usage.output_tokens}, total: ${total}`);
-          this.trackTokens(options.tenantId, total);
-        }
-
-        const content = data.content?.[0]?.text;
-        if (content) {
-          try {
-            const jsonStart = content.indexOf('{');
-            const jsonEnd = content.lastIndexOf('}') + 1;
-            const parsed = JSON.parse(content.substring(jsonStart, jsonEnd));
-            if (parsed.explanation) explanation = parsed.explanation;
-            if (parsed.remediationSteps && Array.isArray(parsed.remediationSteps)) {
-              remediationSteps = parsed.remediationSteps;
-            }
-          } catch (e) {}
-        }
-      }
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    return {
-      explanation,
-      remediationSteps,
-      caveats: ['Assisted analysis result capped at epistemic confidence <= 0.60 (INFERRED).'],
-      confidenceScore: 0.60,
-      confidenceClass: 'INFERRED',
-      providerUsed: provider,
-      deterministicBypass: false,
-    };
-  }
 
   private async callProviderIntent(
-    provider: AiProviderType,
     request: IntentClassificationRequest,
     options: AiRequestOptions
   ): Promise<IntentClassificationResponse> {
-    if (provider === 'DETERMINISTIC_FALLBACK') {
-      return this.generateDeterministicIntentClassification(request);
-    }
     const completion = await this.completeJson(
       {
         purpose: 'intent_classification',
@@ -442,9 +305,9 @@ export class AiGatewayService {
           'You route SAP problem descriptions to preflight engines. Reply with JSON only: ' +
           '{"engines":[{"engine":"<ENGINE_ID>","reason":"<short reason>"}]}. Never invent findings.',
         user: `Problem: ${request.problemDescription}\nFiles: ${(request.artifactFilenames ?? []).join(', ')}`,
-        maxTokens: options.maxTokens ?? 512,
+        maxTokens: options.maxTokens,
       },
-      { ...options, preferredProvider: provider }
+      options
     );
     const engines: Array<{ engine: string; reason: string }> = Array.isArray((completion.json as any)?.engines)
       ? (completion.json as any).engines
@@ -452,123 +315,144 @@ export class AiGatewayService {
           .slice(0, 5)
           .map((e: any) => ({ engine: String(e.engine), reason: String(e.reason ?? '').slice(0, 300) }))
       : [];
-    if (engines.length === 0) return this.generateDeterministicIntentClassification(request);
+    if (engines.length === 0) {
+      return this.withUnavailableReason(this.generateDeterministicIntentClassification(request), 'REJECTED_INVALID_OUTPUT');
+    }
     return {
       recommendedEngines: engines.map((e) => ({ engine: e.engine, confidence: 0.6, reason: e.reason })),
       suggestedWorkflow: engines.length > 1 ? 'MULTI_ENGINE_CHAIN' : 'SINGLE_ENGINE',
       confidenceScore: 0.6,
-      providerUsed: provider,
+      providerUsed: completion.provider,
       deterministicBypass: false,
     };
   }
 
-  /** Whether an external model may be used for this tenant (data policy + configured provider). */
-  async aiAllowed(tenantId: string): Promise<{ allowed: boolean; reason: 'POLICY' | 'NO_PROVIDER' | null; provider: AiProviderType }> {
-    const policy = await this.resolveTenantPolicy(tenantId);
-    const provider = this.getDefaultProvider();
-    if (policy.deterministicOnly || policy.allowAiAssistance === false) {
-      return { allowed: false, reason: 'POLICY', provider };
+  /**
+   * Effective AI Admin policy for a task (spec 10.11). Without the governance service
+   * (unit tests, tooling) the platform defaults apply. Fails closed: when the governance
+   * configuration cannot be read, no provider is called.
+   */
+  private async resolveTaskPolicy(task: string): Promise<ResolvedAiTaskPolicy> {
+    if (!this.governance) return defaultAiTaskPolicy(task, this.config);
+    try {
+      return await this.governance.resolvePolicy(task);
+    } catch (err: any) {
+      this.logger.error(`AI governance configuration unavailable for task ${task}: ${err?.message ?? err}`);
+      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', 'AI governance configuration is unavailable; AI is off.');
     }
-    if (provider === 'DETERMINISTIC_FALLBACK') return { allowed: false, reason: 'NO_PROVIDER', provider };
-    return { allowed: true, reason: null, provider };
+  }
+
+  private explicitProvider(options: AiRequestOptions): AiExternalProvider | null {
+    const p = options.preferredProvider;
+    return p && p !== 'DETERMINISTIC_FALLBACK' ? p : null;
+  }
+
+  /** Whether an external model may be used for this tenant and task (data policy + AI Admin governance). */
+  async aiAllowed(
+    tenantId: string,
+    task = 'problem_routing'
+  ): Promise<{ allowed: boolean; reason: 'POLICY' | 'NO_PROVIDER' | 'GOVERNANCE' | null; provider: AiProviderType }> {
+    const policy = await this.resolveTenantPolicy(tenantId);
+    if (policy.deterministicOnly || policy.allowAiAssistance === false) {
+      return { allowed: false, reason: 'POLICY', provider: 'DETERMINISTIC_FALLBACK' };
+    }
+    let taskPolicy: ResolvedAiTaskPolicy;
+    try {
+      taskPolicy = await this.resolveTaskPolicy(task);
+    } catch {
+      return { allowed: false, reason: 'GOVERNANCE', provider: 'DETERMINISTIC_FALLBACK' };
+    }
+    const route = routeAiCandidates(taskPolicy, null, this.config);
+    if (route.candidates.length === 0) {
+      return {
+        allowed: false,
+        reason: route.blocked === 'NO_PROVIDER' ? 'NO_PROVIDER' : 'GOVERNANCE',
+        provider: 'DETERMINISTIC_FALLBACK',
+      };
+    }
+    return { allowed: true, reason: null, provider: route.candidates[0].provider };
   }
 
   /**
-   * Structured JSON completion through the configured provider (Part 03 §3.9,
-   * section C §37). Enforces the tenant data policy and token budget, scrubs
-   * PII/secrets from the prompt, and records provider, model, tokens, latency and
-   * purpose (usage_events AI_TOKENS metadata + log). Throws AiUnavailableError when
-   * the policy forbids AI, no provider is configured, the circuit is open, the
-   * budget is exhausted or the provider fails. Callers validate `json` with a strict
-   * schema before using it (Part 17.17).
+   * Structured JSON completion through the governed provider route (Part 03 §3.9,
+   * section C §37, spec 10.11). Enforces, in this order: the tenant data policy, the
+   * AI Admin task configuration (enabled, provider kill switches, privacy mode), the
+   * tenant token budget and the task's monthly cost ceiling (worst-case projection of
+   * this call); then calls the primary provider and, on failure, the fallback. A
+   * killed provider is never called. Records provider, model, tokens, latency and
+   * purpose (usage_events AI_TOKENS metadata + AI spend ledger). Throws
+   * AiUnavailableError whenever no model may or can answer. Callers validate `json`
+   * with a strict schema; AI output is capped at INFERRED (0.60) by every caller.
    */
   async completeJson(
     request: { purpose: string; system: string; user: string; maxTokens?: number },
     options: AiRequestOptions
   ): Promise<AiCompletion> {
-    const policy = await this.resolveTenantPolicy(options.tenantId, options.dataPolicy);
-    if (policy.deterministicOnly || policy.allowAiAssistance === false) {
+    const tenantPolicy = await this.resolveTenantPolicy(options.tenantId, options.dataPolicy);
+    if (tenantPolicy.deterministicOnly || tenantPolicy.allowAiAssistance === false) {
       throw new AiUnavailableError('DISABLED_BY_POLICY', 'Organization data policy does not allow AI assistance.');
     }
-    const provider = options.preferredProvider || this.getDefaultProvider();
-    if (provider === 'DETERMINISTIC_FALLBACK') {
-      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', 'No AI provider is configured (AI_DEFAULT_PROVIDER).');
+    const policy = await this.resolveTaskPolicy(request.purpose);
+    const route = routeAiCandidates(policy, this.explicitProvider(options), this.config);
+    if (route.candidates.length === 0) {
+      await this.governance?.recordBlocked(request.purpose, route.killed[0] ?? null);
+      if (route.blocked === 'TASK_DISABLED') {
+        throw new AiUnavailableError('TASK_DISABLED', `AI task '${request.purpose}' is disabled by the platform administrator.`);
+      }
+      if (route.blocked === 'KILL_SWITCH') {
+        throw new AiUnavailableError('KILL_SWITCH', `AI provider ${route.killed.join(', ')} is switched off (kill switch).`);
+      }
+      if (route.blocked === 'PRIVACY_MODE') {
+        throw new AiUnavailableError('PRIVACY_MODE', `AI task '${request.purpose}' allows self-hosted providers only.`);
+      }
+      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', 'No AI provider is configured (AI_DEFAULT_PROVIDER / AI Admin).');
     }
-    const budget = await this.enforceTokenBudget(options.tenantId, request.maxTokens ?? 512);
+
+    // Admin-configured token limit caps the caller's request; unconfigured tasks keep the caller's value.
+    const requested = request.maxTokens ?? policy.maxTokens;
+    const maxTokens = Math.min(Math.max(policy.configured ? Math.min(requested, policy.maxTokens) : requested, 64), 4096);
+
+    const budget = await this.enforceTokenBudget(options.tenantId, maxTokens);
     if (budget) throw new AiUnavailableError('BUDGET_EXCEEDED', 'Monthly AI token budget exceeded.');
-    if (this.isCircuitOpen(provider)) {
-      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', `AI provider ${provider} circuit is open.`);
-    }
 
     const system = request.system;
     const user = this.scrubPii(request.user);
-    const maxTokens = Math.min(Math.max(request.maxTokens ?? 512, 64), 4096);
-    const started = Date.now();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    let model = '';
-    let text = '';
-    let inputTokens = 0;
-    let outputTokens = 0;
-    try {
-      if (provider === 'ANTHROPIC') {
-        const apiKey = this.config?.get<string>('ANTHROPIC_API_KEY');
-        if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
-        model = this.config?.get<string>('AI_ANTHROPIC_MODEL') || 'claude-opus-5';
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`Anthropic error: HTTP ${res.status}`);
-        const data: any = await res.json();
-        if (data.stop_reason === 'refusal') throw new Error('Anthropic model declined the request');
-        text = (data.content ?? []).filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('');
-        inputTokens = data.usage?.input_tokens ?? 0;
-        outputTokens = data.usage?.output_tokens ?? 0;
-        model = data.model ?? model;
-      } else {
-        // OPENAI or OLLAMA_LOCAL (any OpenAI-compatible chat completions endpoint).
-        const isLocal = provider === 'OLLAMA_LOCAL';
-        const apiKey = this.config?.get<string>(isLocal ? 'OLLAMA_LOCAL_API_KEY' : 'OPENAI_API_KEY');
-        if (!isLocal && !apiKey) throw new Error('OPENAI_API_KEY is not configured');
-        const base = isLocal
-          ? (this.config?.get<string>('OLLAMA_BASE_URL') || 'http://localhost:11434').replace(/\/+$/, '')
-          : 'https://api.openai.com';
-        model = isLocal
-          ? this.config?.get<string>('AI_OLLAMA_MODEL') || 'llama3.1'
-          : this.config?.get<string>('AI_OPENAI_MODEL') || 'gpt-4o-mini';
-        const res = await fetch(`${base}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: user },
-            ],
-            response_format: { type: 'json_object' },
-            max_tokens: maxTokens,
-          }),
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`${provider} error: HTTP ${res.status}`);
-        const data: any = await res.json();
-        text = data.choices?.[0]?.message?.content ?? '';
-        inputTokens = data.usage?.prompt_tokens ?? 0;
-        outputTokens = data.usage?.completion_tokens ?? 0;
-        model = data.model ?? model;
+
+    if (policy.costCeilingEurMonthly !== null && this.governance) {
+      const spent = await this.governance.spentThisMonth(request.purpose);
+      const projected = AiGovernanceService.costOf(policy, estimateTokens(system, user), maxTokens);
+      if (spent + projected > policy.costCeilingEurMonthly) {
+        await this.governance.recordBlocked(request.purpose, route.candidates[0].provider);
+        throw new AiUnavailableError(
+          'COST_CEILING',
+          `AI task '${request.purpose}' reached its monthly cost ceiling (${policy.costCeilingEurMonthly} EUR).`
+        );
       }
-      this.recordSuccess(provider);
-    } catch (err: any) {
-      this.recordFailure(provider);
-      this.logger.warn(`AI completion (${request.purpose}) via ${provider} failed: ${err?.message ?? err}`);
-      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', `AI provider ${provider} failed.`);
-    } finally {
-      clearTimeout(timeoutId);
     }
 
+    const started = Date.now();
+    let answer: { candidate: AiRouteCandidate; model: string; text: string; inputTokens: number; outputTokens: number } | null = null;
+    for (const candidate of route.candidates) {
+      if (this.isCircuitOpen(candidate.provider)) {
+        this.logger.warn(`AI completion (${request.purpose}): ${candidate.provider} circuit is open, skipping`);
+        continue;
+      }
+      try {
+        const out = await this.callProvider(candidate, system, user, maxTokens, policy.temperature);
+        this.recordSuccess(candidate.provider);
+        answer = { candidate, ...out };
+        break;
+      } catch (err: any) {
+        this.recordFailure(candidate.provider);
+        this.logger.warn(`AI completion (${request.purpose}) via ${candidate.provider} failed: ${err?.message ?? err}`);
+      }
+    }
+    if (!answer) {
+      throw new AiUnavailableError('PROVIDER_UNAVAILABLE', `AI provider ${route.candidates.map((c) => c.provider).join(' / ')} failed.`);
+    }
+
+    const { candidate, model, text, inputTokens, outputTokens } = answer;
+    const provider = candidate.provider;
     const latencyMs = Date.now() - started;
     const tokens = inputTokens + outputTokens;
     this.trackTokensWithMetadata(options.tenantId, tokens, {
@@ -578,8 +462,12 @@ export class AiGatewayService {
       inputTokens,
       outputTokens,
       latencyMs,
+      route: candidate.role,
     });
-    this.logger.log(`AI completion purpose=${request.purpose} provider=${provider} model=${model} tokens=${tokens} latencyMs=${latencyMs}`);
+    if (this.governance) await this.governance.recordCall(policy, provider, model, inputTokens, outputTokens);
+    this.logger.log(
+      `AI completion purpose=${request.purpose} provider=${provider} (${candidate.role}) model=${model} tokens=${tokens} latencyMs=${latencyMs}`
+    );
 
     let json: unknown = null;
     try {
@@ -590,6 +478,74 @@ export class AiGatewayService {
       json = null;
     }
     return { provider, model, json, tokens, latencyMs, purpose: request.purpose };
+  }
+
+  /** One provider call (Anthropic Messages API or any OpenAI-compatible chat completions endpoint). */
+  private async callProvider(
+    candidate: AiRouteCandidate,
+    system: string,
+    user: string,
+    maxTokens: number,
+    temperature: number | null
+  ): Promise<{ model: string; text: string; inputTokens: number; outputTokens: number }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    let model = candidate.model;
+    try {
+      if (candidate.provider === 'ANTHROPIC') {
+        const apiKey = this.config?.get<string>('ANTHROPIC_API_KEY');
+        if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            system,
+            messages: [{ role: 'user', content: user }],
+            ...(temperature !== null ? { temperature } : {}),
+          }),
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`Anthropic error: HTTP ${res.status}`);
+        const data: any = await res.json();
+        if (data.stop_reason === 'refusal') throw new Error('Anthropic model declined the request');
+        const text = (data.content ?? []).filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('');
+        model = data.model ?? model;
+        return { model, text, inputTokens: data.usage?.input_tokens ?? 0, outputTokens: data.usage?.output_tokens ?? 0 };
+      }
+      // OPENAI or OLLAMA_LOCAL (any OpenAI-compatible chat completions endpoint).
+      const isLocal = candidate.provider === 'OLLAMA_LOCAL';
+      const apiKey = this.config?.get<string>(isLocal ? 'OLLAMA_LOCAL_API_KEY' : 'OPENAI_API_KEY');
+      if (!isLocal && !apiKey) throw new Error('OPENAI_API_KEY is not configured');
+      const base = isLocal ? (candidate.endpoint ?? 'http://localhost:11434') : 'https://api.openai.com';
+      const res = await fetch(`${base}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: maxTokens,
+          ...(temperature !== null ? { temperature } : {}),
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`${candidate.provider} error: HTTP ${res.status}`);
+      const data: any = await res.json();
+      model = data.model ?? model;
+      return {
+        model,
+        text: data.choices?.[0]?.message?.content ?? '',
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private trackTokensWithMetadata(tenantId: string, tokens: number, metadata: Record<string, unknown>) {
@@ -613,7 +569,14 @@ export interface AiCompletion {
 
 export class AiUnavailableError extends Error {
   constructor(
-    public readonly code: 'DISABLED_BY_POLICY' | 'PROVIDER_UNAVAILABLE' | 'BUDGET_EXCEEDED',
+    public readonly code:
+      | 'DISABLED_BY_POLICY'
+      | 'PROVIDER_UNAVAILABLE'
+      | 'BUDGET_EXCEEDED'
+      | 'TASK_DISABLED'
+      | 'KILL_SWITCH'
+      | 'PRIVACY_MODE'
+      | 'COST_CEILING',
     message: string
   ) {
     super(message);
