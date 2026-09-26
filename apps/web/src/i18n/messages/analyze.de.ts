@@ -97,6 +97,16 @@ export const analyzeDe: AnalyzeMessages = {
       COMPLETED: 'Fertig',
       FAILED: 'Fehlgeschlagen',
       SKIPPED: 'Übersprungen',
+      CANCELLED: 'Abgebrochen',
+    },
+    reasons: {
+      CANCELLED:
+        '{count, plural, =0 {Auf Anforderung abgebrochen.} one {Auf Anforderung abgebrochen; # vor dem Abbruch gemeldeter Befund wurde verworfen (nicht veröffentlicht).} other {Auf Anforderung abgebrochen; # vor dem Abbruch gemeldete Befunde wurden verworfen (nicht veröffentlicht).}}',
+      LAB_CANCELLED: 'Auf Anforderung nach {done} von {total} Test(s) abgebrochen.',
+      NO_ELIGIBLE_FINDINGS: 'Kein belegter Blocker-, kritischer oder schwerwiegender Befund, aus dem ein Regressionstest abgeleitet werden kann.',
+      LAB_FIXTURES_PER_TEST: 'Fixture-Artefakte werden pro Test geladen und gehasht.',
+      LAB_NO_FINDINGS: 'Testlabor-Läufe vergleichen Engine-Ergebnisse mit erwarteten Resultaten; es werden keine Befunde gespeichert.',
+      LAB_NOT_APPLICABLE: 'Für Testlabor-Läufe nicht anwendbar.',
     },
     rulesDetail: '{done} von {total} Engine-Läufen',
     testsDetail: '{count} Regressionstest(s) erzeugt',

@@ -189,8 +189,9 @@ export class AnalysisProgressTracker {
     return this.record(stage, 'COMPLETED', detail);
   }
 
-  skip(stage: AnalysisStage, reason: string) {
-    return this.record(stage, 'SKIPPED', { reason });
+  /** `code` lets the web app show a translated reason (progress.reasons.<code>); `reason` stays the English fallback. */
+  skip(stage: AnalysisStage, reason: string, code?: string) {
+    return this.record(stage, 'SKIPPED', code ? { reason, code } : { reason });
   }
 
   /** Marks the current (or given) stage FAILED. */
@@ -207,12 +208,12 @@ export class AnalysisProgressTracker {
    * Marks the run as cancelled on the stage that was executing (or, for a run that never
    * started, the first stage still pending). Later stages stay PENDING.
    */
-  cancel(reason: string) {
+  cancel(reason: string, extra: Record<string, unknown> = {}) {
     const target =
       ANALYSIS_STAGES.find((s) => this.state.stages[s]?.state === 'RUNNING') ??
       ANALYSIS_STAGES.find((s) => this.state.stages[s]?.state === 'PENDING') ??
       'FINALIZING';
-    return this.record(target, 'CANCELLED', { reason: reason.slice(0, 300), cancelled: true });
+    return this.record(target, 'CANCELLED', { reason: reason.slice(0, 300), cancelled: true, code: 'CANCELLED', ...extra });
   }
 
   private async record(stage: AnalysisStage, status: ProgressEventStatus, detail?: Record<string, unknown>) {

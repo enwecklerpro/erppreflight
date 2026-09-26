@@ -391,7 +391,8 @@ export class AnalysisExecutor {
     await tracker.cancel(
       discardedFindings > 0
         ? `Cancelled on request; ${discardedFindings} finding(s) reported before the stop were discarded (not published).`
-        : 'Cancelled on request.'
+        : 'Cancelled on request.',
+      { discardedFindings }
     );
     const engineOutcomes: Record<string, EngineRunOutcome> = {};
     for (const c of calls) engineOutcomes[c.engine] = c.outcome;
@@ -621,7 +622,11 @@ export class AnalysisExecutor {
     try {
       const tests = buildRegressionTests(findingRows, targetRelease);
       if (tests.length === 0) {
-        await progress.skip('GENERATING_TESTS', 'No evidence-backed BLOCKER/CRITICAL/MAJOR finding to derive a regression test from.');
+        await progress.skip(
+          'GENERATING_TESTS',
+          'No evidence-backed BLOCKER/CRITICAL/MAJOR finding to derive a regression test from.',
+          'NO_ELIGIBLE_FINDINGS'
+        );
       } else {
         await progress.start('GENERATING_TESTS', { eligible: tests.length });
         await this.db.withTenantTransaction(organizationId, async (client) => {

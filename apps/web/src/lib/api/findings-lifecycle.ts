@@ -264,6 +264,8 @@ export const RegressionRunSchema = z.object({
   completedAt: z.string().nullable(),
   isBaseline: z.boolean().optional(),
   findingResolved: z.boolean().optional(),
+  /** Test Lab analysis (run history) that executed this run (migration 020). */
+  analysisId: z.string().nullable().optional(),
 });
 export type RegressionRun = z.infer<typeof RegressionRunSchema>;
 
@@ -290,6 +292,9 @@ export const RegressionTestSchema = z.object({
   findingStatus: FindingStatusEnum.nullable(),
   createdAt: z.string().nullable(),
   runs: z.array(RegressionRunSchema).optional(),
+  /** Generated test this case was promoted from, and the analysis that generated it (migration 020). */
+  generatedTestId: z.string().nullable().optional(),
+  originAnalysisId: z.string().nullable().optional(),
 });
 export type RegressionTest = z.infer<typeof RegressionTestSchema>;
 

@@ -90,7 +90,7 @@ export class LabAnalysisRecorder {
     );
     const progress = new AnalysisProgressTracker(this.db, args.organizationId, analysisId, this.logger);
     await progress.complete('UPLOAD_VALIDATED', { files: args.files.length, tests: args.total, kind: args.kind });
-    await progress.skip('PARSING', 'Fixture artifacts are fetched and hashed per test.');
+    await progress.skip('PARSING', 'Fixture artifacts are fetched and hashed per test.', 'LAB_FIXTURES_PER_TEST');
     await progress.start('RUNNING_RULES', { done: 0, total: args.total });
     const cancellation = new RunCancellation(this.db, args.organizationId, analysisId, this.logger).start();
     return {
@@ -125,8 +125,12 @@ export class LabAnalysisRecorder {
       failed: lab.failed,
       errored: lab.errored,
     });
-    await handle.progress.skip('MATCHING_EVIDENCE', 'Test Lab runs compare engine results with expected outcomes; no findings are persisted.');
-    await handle.progress.skip('GENERATING_TESTS', 'Not applicable to Test Lab runs.');
+    await handle.progress.skip(
+      'MATCHING_EVIDENCE',
+      'Test Lab runs compare engine results with expected outcomes; no findings are persisted.',
+      'LAB_NO_FINDINGS'
+    );
+    await handle.progress.skip('GENERATING_TESTS', 'Not applicable to Test Lab runs.', 'LAB_NOT_APPLICABLE');
     await handle.progress.start('FINALIZING');
     const res = await this.db.query(
       `UPDATE analyses
@@ -167,7 +171,11 @@ export class LabAnalysisRecorder {
       tenantId: handle.organizationId,
     });
     if (res?.rows?.length) {
-      await handle.progress.cancel(`Cancelled on request after ${handle.done} of ${handle.total} test(s).`);
+      await handle.progress.cancel(`Cancelled on request after ${handle.done} of ${handle.total} test(s).`, {
+        code: 'LAB_CANCELLED',
+        done: handle.done,
+        total: handle.total,
+      });
       return true;
     }
     return status?.rows?.[0]?.status === 'CANCELLED';

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { AnalysisRunLink } from '@/components/analysis-run/run-links';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from '@tanstack/react-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -171,6 +172,7 @@ function ReportsHubPage() {
                         {r.analysisKind === 'FULL_PREFLIGHT' && (
                           <span className="ml-1 rounded border border-border px-1 text-[10px]">{t('reportsHub.fullPreflightTag')}</span>
                         )}
+                        <AnalysisRunLink projectId={r.projectId} analysisId={r.analysisId} className="ml-1" />
                       </td>
                       <td className="px-4 py-2">{label('app.commercial.exports.type', r.reportType)}</td>
                       <td className="px-4 py-2 font-mono">{r.format}</td>

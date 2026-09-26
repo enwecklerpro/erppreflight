@@ -55,6 +55,7 @@ import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress
 import { FullPreflightPanel } from '@/components/analysis/full-preflight-panel';
 import { ProjectTabLabel, RunFullPreflightLabel, RunProgressDisclosure } from '@/components/analysis/project-workspace-extras';
 import { ProjectContextForm } from '@/components/projects/project-context-form';
+import { LaunchedRunLink, RunHistoryRowExtras } from '@/components/analysis-run/run-links';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
@@ -1075,6 +1076,7 @@ export default function ProjectWorkspacePage() {
                       <span className="text-muted-foreground">
                         • {new Date(run.createdAt).toLocaleString()}
                       </span>
+                      <RunHistoryRowExtras projectId={projectId} run={run} />
                       {(drift?.baseline?.id === run.id || (run as any).isBaseline) && (
                         <span
                           className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 inline-flex items-center gap-1"
@@ -1098,12 +1100,14 @@ export default function ProjectWorkspacePage() {
                           ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
                           : run.status === 'PARTIAL'
                           ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          : run.status === 'CANCELLED'
+                          ? 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
                           : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
                       }`}
                     >
                       {run.status}
                     </span>
-                    {(run.status === 'COMPLETED' || run.status === 'PARTIAL') && (
+                    {(run.status === 'COMPLETED' || run.status === 'PARTIAL') && !String(run.kind ?? '').startsWith('LAB_') && (
                       <>
                         <button
                           type="button"
@@ -1249,6 +1253,7 @@ export default function ProjectWorkspacePage() {
                   ? ' — status could not be refreshed; retrying.'
                   : ' — waiting for the analysis service…'}
               </span>
+              <LaunchedRunLink projectId={projectId} analysisId={activeAnalysisId} />
               {!isAnalysisRunning && (
                 <button
                   type="button"

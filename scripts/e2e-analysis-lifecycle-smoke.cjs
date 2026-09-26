@@ -341,7 +341,7 @@ function assert(cond, msg) {
 
   await step('12 UI: run history links to the detail page and shows the Test Lab run', async () => {
     await page.goto(`${WEB}/projects/${projectId}`);
-    await page.getByRole('button', { name: /Run History/ }).click();
+    await page.getByRole('button', { name: /Run History/ }).first().click();
     const lab = page.getByTestId(`run-kind-${labAnalysisId}`);
     await lab.waitFor({ timeout: 15000 });
     await page.getByTestId(`run-detail-link-${completedRun}`).click();
@@ -357,6 +357,7 @@ function assert(cond, msg) {
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     await dialog.getByLabel(/Reason/).fill('Smoke test cancel');
+    await page.screenshot({ path: `${OUT}/13a_cancel_dialog.png` });
     await dialog.getByTestId('analysis-cancel-confirm').click();
     await page.getByTestId('analysis-status').filter({ hasText: /Cancelled/ }).waitFor({ timeout: 60000 });
     const after = await api('GET', `/analyses/${id}`, A);
@@ -378,6 +379,7 @@ function assert(cond, msg) {
     await page.getByTestId('analysis-lab-results').waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(overflow <= 1, `horizontal overflow ${overflow}px at 375 px`);
+    await page.screenshot({ path: `${OUT}/14a_lab_run_de_375.png`, fullPage: true });
     await page.goto(`${WEB}/projects/${projectId}/analyses/00000000-0000-4000-8000-000000000000`);
     await page.getByTestId('analysis-not-found').waitFor({ timeout: 15000 });
     await page.setViewportSize({ width: 1400, height: 1000 });

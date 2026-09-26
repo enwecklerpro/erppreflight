@@ -43,6 +43,7 @@ import {
   type RegressionTest,
 } from '@/lib/api/findings-lifecycle';
 import { FindingStatusBadge } from './finding-status-badge';
+import { GeneratedFromRun } from '@/components/analysis-run/run-links';
 
 type RunStatus = 'PASSED' | 'FAILED' | 'ERROR';
 
@@ -221,6 +222,7 @@ function RegressionTestItem({ test, projectId }: { test: RegressionTest; project
               <FindingStatusBadge status={test.findingStatus as FindingStatus} size="sm" />
             </p>
           )}
+          {test.originAnalysisId && <GeneratedFromRun projectId={projectId} analysisId={test.originAnalysisId} />}
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-1.5">

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { CheckCircle2, Circle, CircleSlash, Loader2, Radio, RefreshCw, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, Circle, CircleSlash, Loader2, Radio, RefreshCw, XCircle } from 'lucide-react';
 import { ANALYSIS_STAGES, type AnalysisProgress, type AnalysisStage, type StageState } from '@erppreflight/schemas';
 import { useAnalysisProgress } from '@/hooks/useAnalysisProgress';
 import { useT } from '@/i18n/client';
@@ -13,6 +13,7 @@ const STATE_ICON: Record<StageState, React.ComponentType<{ className?: string; '
   COMPLETED: CheckCircle2,
   FAILED: XCircle,
   SKIPPED: CircleSlash,
+  CANCELLED: Ban,
 };
 
 const STATE_CLASS: Record<StageState, string> = {
@@ -21,6 +22,7 @@ const STATE_CLASS: Record<StageState, string> = {
   COMPLETED: 'border-emerald-500/60 text-emerald-700 dark:text-emerald-300',
   FAILED: 'border-destructive text-destructive',
   SKIPPED: 'border-border text-muted-foreground',
+  CANCELLED: 'border-amber-500/60 text-amber-800 dark:text-amber-300',
 };
 
 function stageDetail(t: ReturnType<typeof useT>, stage: AnalysisStage, detail: Record<string, unknown> | undefined): string | null {
@@ -34,9 +36,19 @@ function stageDetail(t: ReturnType<typeof useT>, stage: AnalysisStage, detail: R
   if (stage === 'MATCHING_EVIDENCE' && typeof detail.withEvidence === 'number') {
     return t('progress.evidenceDetail', { count: detail.withEvidence });
   }
+  // Server reasons carry a code for known situations (translated); the English reason is the fallback.
+  if (typeof detail.code === 'string' && REASON_CODES.has(detail.code)) {
+    return t(`progress.reasons.${detail.code}` as MessageKey, {
+      count: Number(detail.discardedFindings ?? 0),
+      done: Number(detail.done ?? 0),
+      total: Number(detail.total ?? 0),
+    });
+  }
   if (typeof detail.reason === 'string') return detail.reason;
   return null;
 }
+
+const REASON_CODES = new Set(['CANCELLED', 'LAB_CANCELLED', 'NO_ELIGIBLE_FINDINGS', 'LAB_FIXTURES_PER_TEST', 'LAB_NO_FINDINGS', 'LAB_NOT_APPLICABLE']);
 
 /** Pure presentational stepper (also used by tests). */
 export function ProgressStepperView({ progress, transport }: { progress: AnalysisProgress; transport?: 'sse' | 'poll' }) {
