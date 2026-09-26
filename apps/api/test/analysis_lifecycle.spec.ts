@@ -322,6 +322,43 @@ describe('AnalysisLifecycleService.rerun', () => {
   });
 });
 
+describe('AnalysisLifecycleService.detail', () => {
+  it('maps inputs, telemetry, cancellation and role-dependent permissions', async () => {
+    const rows = [
+      analysisRow({
+        status: 'CANCELLED',
+        started_at: new Date(NOW.getTime() + 2000),
+        completed_at: new Date(NOW.getTime() + 5000),
+        cancel_requested_at: new Date(NOW.getTime() + 4000),
+        cancelled_at: new Date(NOW.getTime() + 5000),
+        cancel_reason: 'wrong input',
+        orchestration: {
+          calls: [
+            { engine: 'OPD_GUARD', fileId: FILE_A, fileName: 'opd.xml', outcome: 'COMPLETED', findings: 2, rulesEvaluated: 10, durationMs: 30, engineVersion: '2.1.0' },
+            { engine: 'FORM_DOCTOR', fileId: FILE_A, fileName: 'opd.xml', outcome: 'FAILED', findings: 0, rulesEvaluated: 0, durationMs: 5, error: 'HTTP 500' },
+          ],
+          cancelled: { discardedFindings: 2 },
+        },
+      }),
+    ];
+    const { service } = makeService(rows);
+    const d = await service.detail(ORG, OWNER, A1);
+    expect(d.analysis).toMatchObject({ status: 'CANCELLED', kind: 'STANDARD', durationMs: 3000 });
+    expect(d.telemetry).toMatchObject({ engineCalls: 2, completedCalls: 1, failedCalls: 1, rulesEvaluated: 10, totalEngineMs: 35, queueWaitMs: 2000 });
+    expect(d.cancellation).toMatchObject({ reason: 'wrong input', discardedFindings: 2 });
+    expect(d.inputs.recorded).toBe(true);
+    expect(d.inputs.files.map((f) => f.fileId)).toEqual([FILE_A, FILE_B]);
+    // No uploaded_files row any more -> reported as deleted (currentStatus null).
+    expect(d.inputs.files[0].currentStatus).toBeNull();
+    expect(d.calls[0].engineVersion).toBe('2.1.0');
+    expect(d.permissions).toEqual({ canCancel: false, canRerun: true, canExport: false });
+
+    const viewer = await service.detail(ORG, { id: USER, role: 'VIEWER', systemRole: null }, A1);
+    expect(viewer.permissions.canRerun).toBe(false);
+    await expect(service.detail(OTHER_ORG, OWNER, A1)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // JobsService.rerunAnalysis: new record, inputs, snapshot, BullMQ job id
 // ---------------------------------------------------------------------------------------------
