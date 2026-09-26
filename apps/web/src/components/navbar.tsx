@@ -122,7 +122,7 @@ export function Navbar() {
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-foreground">
+            <span className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               ERP Preflight
             </span>
           </Link>
@@ -141,7 +141,7 @@ export function Navbar() {
                 key={item.key}
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center space-x-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 font-semibold'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -164,7 +164,7 @@ export function Navbar() {
           {/* Cmd+K Search Button */}
           <button
             onClick={triggerCommandPalette}
-            className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs"
+            className="hidden md:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs"
             title={t('nav.searchTitle')}
           >
             <Search className="h-3.5 w-3.5" aria-hidden="true" />
@@ -177,7 +177,7 @@ export function Navbar() {
           {/* Demo Sandbox Link */}
           <Link
             href="/demo"
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 font-semibold transition-colors"
+            className="hidden xl:inline-flex whitespace-nowrap items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 font-semibold transition-colors"
           >
             <Sparkles className="h-3.5 w-3.5" />
             <span>{t('nav.demo')}</span>
@@ -219,7 +219,7 @@ export function Navbar() {
               </Link>
               <Link
                 href="/signup"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-sm"
+                className="inline-flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-sm"
               >
                 <span>{t('nav.signup')}</span>
               </Link>

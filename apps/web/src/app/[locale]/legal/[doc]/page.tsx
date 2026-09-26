@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { AlertTriangle, Info } from 'lucide-react';
-import { LOCALES, type Locale } from '../../../../i18n/config';
+import type { Locale } from '../../../../i18n/config';
 import { getMessages, getT, type TFunction } from '../../../../i18n/translate';
 import { LEGAL_DOCS, type LegalDoc } from '../../../../lib/routing';
 import { readLegalOperator, type LegalOperator } from '../../../../lib/legal';
@@ -10,12 +10,6 @@ import { CookieSettingsButton } from '../../../../components/public/cookie-conse
 import { resolveLocale } from '../../locale-params';
 
 type Params = Promise<{ locale: string; doc: string }>;
-
-export const dynamicParams = false;
-
-export function generateStaticParams() {
-  return LOCALES.flatMap((locale) => LEGAL_DOCS.map((doc) => ({ locale, doc })));
-}
 
 function isLegalDoc(value: string): value is LegalDoc {
   return (LEGAL_DOCS as readonly string[]).includes(value);

@@ -33,8 +33,8 @@ export const en = {
   },
   nav: {
     primary: 'Main navigation',
-    dashboard: 'Executive Dashboard',
-    projects: 'Project Workspaces',
+    dashboard: 'Dashboard',
+    projects: 'Projects',
     inspector: 'Analysis Inspector',
     templates: 'Templates',
     artifacts: 'Artifacts',

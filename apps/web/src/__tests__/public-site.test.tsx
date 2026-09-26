@@ -8,6 +8,7 @@ import { Markdown, parseMarkdown, parseInline, sanitizeHref } from '../component
 import { serializeJsonLd } from '../components/public/json-ld';
 import { readLegalOperator } from '../lib/legal';
 import { PUBLIC_PLANS } from '../lib/plans';
+import { buildContentSecurityPolicy, generateNonce } from '../lib/csp';
 import { CANONICAL_ENGINES } from '../lib/api-client';
 import { SOLUTION_SLUGS, enginesForSolution, solutionForEngine } from '../lib/solutions';
 
@@ -82,6 +83,23 @@ describe('structured data & operator data', () => {
       NEXT_PUBLIC_LEGAL_EMAIL: 'legal@example.com',
     });
     expect(op).toMatchObject({ configured: true, address: ['Street 1', '12345 City'], vatId: null });
+  });
+});
+
+describe('content security policy', () => {
+  it('uses a nonce, forbids framing/objects and allows only the API origin for connections', () => {
+    const nonce = generateNonce();
+    expect(nonce).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(generateNonce()).not.toBe(nonce);
+    const csp = buildContentSecurityPolicy({ nonce, apiUrl: 'https://api.erppreflight.com/api/v1', upgradeInsecureRequests: true });
+    expect(csp).toContain(`script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`);
+    expect(csp).toContain("connect-src 'self' https://api.erppreflight.com");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("base-uri 'self'");
+    expect(csp).toContain('upgrade-insecure-requests');
+    expect(csp).not.toContain('unsafe-eval');
+    expect(buildContentSecurityPolicy({ nonce, dev: true })).toContain("'unsafe-eval'");
   });
 });
 

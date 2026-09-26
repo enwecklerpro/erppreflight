@@ -12,8 +12,6 @@ import { Markdown } from '../../../../components/public/markdown';
 import { JsonLd, breadcrumbJsonLd } from '../../../../components/public/json-ld';
 import { resolveLocale } from '../../locale-params';
 
-export const revalidate = 300;
-
 type Params = Promise<{ locale: string; slug: string }>;
 
 type LoadResult = { status: 'ok'; article: KnowledgeArticle } | { status: 'missing' } | { status: 'error' };

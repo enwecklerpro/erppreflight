@@ -9,7 +9,9 @@ import {
 } from '../lib/seo';
 import { fetchKnowledgeListSafe, type KnowledgeSummary } from '../lib/knowledge';
 
-export const revalidate = 3600;
+// Rendered on request so newly published articles appear without a rebuild;
+// the knowledge API responses themselves are cached for 5 minutes.
+export const dynamic = 'force-dynamic';
 
 function priorityFor(route: string): number {
   if (route === '/') return 1.0;

@@ -20,6 +20,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # so the API base URL must be supplied as a build argument.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_APP_URL=https://erppreflight.com
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
 # Install dependencies and build shared packages & web
 RUN pnpm install --frozen-lockfile

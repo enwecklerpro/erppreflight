@@ -29,8 +29,8 @@ export const de: Messages = {
   },
   nav: {
     primary: 'Hauptnavigation',
-    dashboard: 'Management-Dashboard',
-    projects: 'Projekt-Workspaces',
+    dashboard: 'Dashboard',
+    projects: 'Projekte',
     inspector: 'Analyse-Inspektor',
     templates: 'Vorlagen',
     artifacts: 'Artefakte',

@@ -1,15 +1,14 @@
-import { routing } from '../../i18n/routing';
 import { resolveLocale, type LocaleParams } from './locale-params';
 
 /**
  * Localized public website (next-intl, `localePrefix: 'always'`):
- * `/en/...` and `/de/...`. Only the configured locales exist.
+ * `/en/...` and `/de/...`. Unknown locales 404 in `resolveLocale`.
+ *
+ * Rendered per request: the nonce-based Content-Security-Policy (middleware)
+ * cannot be applied to prebuilt static HTML. Data fetches stay cached
+ * (knowledge API responses revalidate every 5 minutes).
  */
-export const dynamicParams = false;
-
-export function generateStaticParams() {
-  return routing.locales.map((locale) => ({ locale }));
-}
+export const dynamic = 'force-dynamic';
 
 export default async function LocaleLayout({
   children,

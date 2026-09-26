@@ -2,22 +2,15 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowRight, BookOpen, CheckCircle2, Cpu, AlertCircle } from 'lucide-react';
-import { LOCALES } from '../../../../i18n/config';
 import { getMessages, getT } from '../../../../i18n/translate';
 import { localizePath } from '../../../../lib/routing';
-import { SOLUTION_SLUGS, enginesForSolution, isSolutionSlug } from '../../../../lib/solutions';
+import { enginesForSolution, isSolutionSlug } from '../../../../lib/solutions';
 import { localizedUrl, publicPageMetadata } from '../../../../lib/seo';
 import { fetchKnowledgeListSafe } from '../../../../lib/knowledge';
 import { JsonLd, breadcrumbJsonLd } from '../../../../components/public/json-ld';
 import { resolveLocale } from '../../locale-params';
 
 type Params = Promise<{ locale: string; slug: string }>;
-
-export const dynamicParams = false;
-
-export function generateStaticParams() {
-  return LOCALES.flatMap((locale) => SOLUTION_SLUGS.map((slug) => ({ locale, slug })));
-}
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const locale = await resolveLocale(params);

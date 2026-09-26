@@ -10,8 +10,6 @@ import { fetchKnowledgeList, type KnowledgeSummary } from '../../../lib/knowledg
 import { JsonLd, breadcrumbJsonLd } from '../../../components/public/json-ld';
 import { resolveLocale, type LocaleParams } from '../locale-params';
 
-export const revalidate = 300;
-
 export async function generateMetadata({ params }: { params: LocaleParams }): Promise<Metadata> {
   const locale = await resolveLocale(params);
   const t = getT(locale);
