@@ -2,10 +2,10 @@ name: CI — Build, Typecheck, Test, Migrations & Live E2E
 
 # Spec 12.4: install, lint, type check, unit/integration tests, Python tests, DB migration check,
 # build, E2E smoke. Every job below is a required gate (block merge on failure). Security scans
-# (gitleaks, Trivy, dependency audit) live in security.yml; image build + scan + SBOM in images.yml.
+# (gitleaks, Trivy, dependency audit) live in security.yml; image build + scan + SBOM in docker.yml.
 #
 # Third-party actions are pinned to full commit SHAs (spec 20.7 "no floating dependency");
-# the trailing comment names the release. Dependabot (.github/dependabot.yml) proposes updates.
+# the trailing comment names the release. Renovate (renovate.json) proposes updates.
 
 on:
   push:
@@ -96,6 +96,8 @@ jobs:
         run: python -m pytest services/analysis-python/tests -q --durations=10
       - name: Opaque-box E2E contract suite + redaction stress (tests/e2e)
         run: python -m pytest tests/e2e tests/empirical_redaction_stress.py -q -p no:cacheprovider
+      - name: ENGINE_CATALOG.md matches the engine registry
+        run: python scripts/generate-engine-catalog.py --check
 
   migration-check:
     name: DB migrations — fresh apply, idempotency, deterministic schema, RLS coverage
@@ -198,8 +200,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r services/analysis-python/requirements.txt
-      - name: Install Chromium for the UI smoke test
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install browsers (Chromium for the UI smoke; all three engines when the Playwright live suite exists)
+        run: |
+          if [ -f playwright.live.config.ts ]; then
+            pnpm exec playwright install --with-deps chromium firefox webkit
+          else
+            pnpm exec playwright install --with-deps chromium
+          fi
       - name: PostgreSQL 16 client
         run: |
           sudo apt-get update -qq

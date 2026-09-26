@@ -5,7 +5,7 @@ name: Security — Secrets, Vulnerabilities, IaC & Dependency Audit
 # Report-only: pnpm audit — the lockfile currently has open HIGH/CRITICAL advisories in dev/build
 # tooling (vitest, orval>undici, next>postcss). They are tracked with owners in
 # SECURITY_REVIEW.md §5; flip `continue-on-error` to false once that list is empty.
-# Container image scans + SBOMs run in images.yml.
+# Container image scans + SBOMs run in docker.yml.
 
 on:
   push:

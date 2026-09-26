@@ -1,0 +1,191 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "ERP Preflight supply-chain policy (spec 0.6 pinned bases, 20.7 dependency risk, Part 21 single library per concern). Pins GitHub Actions to commit SHAs and container bases to digests, groups routine updates, and never adds dependencies — the No-Dependency-Soup gate (pnpm run check:deps) still has to pass on every PR.",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests"
+  ],
+  "timezone": "Europe/Berlin",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "pin",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on the first day of the month"
+    ]
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ]
+  },
+  "osvVulnerabilityAlerts": true,
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "GitHub Actions: one weekly PR, SHA-pinned with version comment",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github-actions",
+      "pinDigests": true
+    },
+    {
+      "description": "Container base images (infra/docker/Dockerfile.*): digest-pinned; runtime majors change only together with CI (NODE_VERSION / PYTHON_VERSION in ci.yml)",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "container base images",
+      "pinDigests": true
+    },
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "node"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Compose infrastructure images: reviewed manually (stateful services — Postgres major upgrades need a dump/restore, see docs/runbooks/DISASTER_RECOVERY.md)",
+      "matchManagers": [
+        "docker-compose"
+      ],
+      "groupName": "compose infrastructure images",
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchManagers": [
+        "docker-compose"
+      ],
+      "matchPackageNames": [
+        "pgvector/pgvector"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Node: non-major updates of runtime dependencies, grouped per workspace area",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "node runtime dependencies (non-major)"
+    },
+    {
+      "description": "Node: dev/build tooling (vitest, eslint, typescript, orval, tailwind ...)",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "node dev tooling (non-major)"
+    },
+    {
+      "description": "Framework families move together",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@nestjs/**"
+      ],
+      "groupName": "nestjs"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "next",
+        "eslint-config-next",
+        "@next/**",
+        "react",
+        "react-dom",
+        "@types/react",
+        "@types/react-dom"
+      ],
+      "groupName": "next + react"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@tanstack/**"
+      ],
+      "groupName": "tanstack"
+    },
+    {
+      "description": "Major updates always need a human decision (and an ADR if they change the approved stack)",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true,
+      "labels": [
+        "dependencies",
+        "major"
+      ]
+    },
+    {
+      "description": "Python analysis service requirements",
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "groupName": "python analysis service",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ]
+    },
+    {
+      "description": "pnpm itself is pinned in package.json packageManager and in the Dockerfiles (corepack prepare pnpm@<version>); update both together by hand",
+      "matchPackageNames": [
+        "pnpm"
+      ],
+      "enabled": false
+    }
+  ]
+}

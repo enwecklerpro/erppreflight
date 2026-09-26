@@ -1,4 +1,4 @@
-name: Container Images — Build, Trivy Scan & SBOM
+name: Docker — Build, Trivy Image Scan & SBOM
 
 # Spec 12.4 "container scan", 12.15 "Trivy/container scan, SBOM generation", 20.5 SBOM,
 # 20.8 container hardening. Builds the three production images exactly as Coolify does

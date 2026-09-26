@@ -201,10 +201,23 @@ LIVE=${PIPESTATUS[0]}
 log "running UI smoke (scripts/e2e-ui-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" node scripts/e2e-ui-smoke.cjs "$ART/screenshots" 2>&1 | tee "$ART/smoke-ui.log"
 UI=${PIPESTATUS[0]}
+# Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
+# of this stack and must not start its own web server.
+PW=0
+PW_CONFIG="${E2E_PLAYWRIGHT_CONFIG:-playwright.live.config.ts}"
+if [ -f "$PW_CONFIG" ]; then
+  log "running Playwright suite ($PW_CONFIG)"
+  PLAYWRIGHT_BASE_URL="http://localhost:$WEB_PORT" WEB_URL="http://localhost:$WEB_PORT" \
+    API_BASE_URL="http://localhost:$API_PORT" \
+    pnpm exec playwright test -c "$PW_CONFIG" --output "$ART/playwright" 2>&1 | tee "$ART/playwright.log"
+  PW=${PIPESTATUS[0]}
+else
+  log "no $PW_CONFIG — Playwright suite skipped (API + UI smoke scripts cover the core loop)"
+fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up
