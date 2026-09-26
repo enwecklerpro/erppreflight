@@ -82,6 +82,39 @@ describe('FindingLifecycleService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('leaves the object-state baseline unknown for findings not produced by the current pipeline (v0 upgrade data)', async () => {
+    const run = async (engineVersion: string | null) => {
+      const calls: Array<{ sql: string; params: unknown[] }> = [];
+      const client = {
+        query: vi.fn(async (sql: string, params: unknown[] = []) => {
+          calls.push({ sql, params });
+          if (sql.includes('FROM findings f') && sql.includes('LEFT JOIN analyses')) {
+            return {
+              rows: [{
+                id: 'f-1', project_id: 'p-1', analysis_id: 'a-1', engine: 'CLEAN_CORE_OBJECT_GUARD', rule_id: 'R',
+                lifecycle_id: null, affected_objects: [{ name: 'MARA' }], source_file_name: 'legacy.abap',
+                target_release: null, analysis_target_release: 'S4H_2023', created_at: new Date('2025-01-01T00:00:00Z'),
+                object_state_hash: null, engine_version: engineVersion,
+                evidence: [{ sha256: 'b'.repeat(64), snippet: "CALL 'SYSTEM'" }],
+              }],
+            };
+          }
+          if (sql.includes('INSERT INTO finding_lifecycles')) return { rows: [{ id: 'lc-new' }] };
+          if (sql.includes('FROM finding_lifecycles')) return { rows: [{ ...LC, id: 'lc-new' }] };
+          return { rows: [] };
+        }),
+      };
+      await new FindingLifecycleService({} as any).ensureLifecycle(client as any, 'org', 'f-1');
+      const insert = calls.find((c) => c.sql.includes('INSERT INTO finding_lifecycles'))!;
+      const link = calls.find((c) => c.sql.includes('UPDATE findings SET lifecycle_id'))!;
+      return { lastObjectHash: insert.params[9], linkHash: link.params[1] };
+    };
+    expect(await run(null)).toEqual({ lastObjectHash: null, linkHash: null });
+    const current = await run('2.4.0');
+    expect(current.lastObjectHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(current.linkHash).toBe(current.lastObjectHash);
+  });
+
   it('bulk acknowledge reports per-finding failures instead of aborting', async () => {
     const { db } = fakeDb({ status: 'RESOLVED' });
     const res = await new FindingLifecycleService(db as any).bulk('org', owner, { findingIds: ['f-1'], action: 'ACKNOWLEDGE' });

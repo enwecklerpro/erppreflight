@@ -113,7 +113,7 @@ export class FindingLifecycleService {
   async ensureLifecycle(client: Queryable, tenantId: string, findingId: string): Promise<{ finding: any; lifecycle: any }> {
     const fRes = await client.query(
       `SELECT f.id, f.project_id, f.analysis_id, f.engine, f.rule_id, f.affected_objects, f.lifecycle_id,
-              f.source_file_name, f.target_release, f.created_at, f.object_state_hash,
+              f.source_file_name, f.target_release, f.created_at, f.object_state_hash, f.engine_version,
               a.target_release AS analysis_target_release,
               (SELECT e.artifact_path FROM evidence e WHERE e.finding_id = f.id ORDER BY e.created_at, e.id LIMIT 1) AS first_artifact,
               COALESCE((SELECT json_agg(json_build_object('sha256', e.sha256, 'snippet', e.snippet))
@@ -136,9 +136,16 @@ export class FindingLifecycleService {
 
     const artifactName = finding.source_file_name ?? finding.first_artifact ?? null;
     const key = lifecycleKey(lifecycleBaseKey(finding.engine, finding.rule_id, finding.affected_objects, artifactName), 0);
+    // The object-state hash is only comparable when the evidence came from the current
+    // analysis pipeline (it records engine_version). Evidence of pre-017 findings (v0
+    // upgrade data), demo rows and imports uses other snippet / hash formats, so their
+    // baseline stays unknown and the next analysis establishes it; otherwise every
+    // decision on such a finding would lapse as "the affected object changed".
     const objHash =
       finding.object_state_hash ??
-      objectStateHash({ evidence: finding.evidence, affectedObjects: finding.affected_objects });
+      (finding.engine_version
+        ? objectStateHash({ evidence: finding.evidence, affectedObjects: finding.affected_objects })
+        : null);
     const release = finding.target_release ?? finding.analysis_target_release ?? null;
     const inserted = await client.query(
       `INSERT INTO finding_lifecycles (

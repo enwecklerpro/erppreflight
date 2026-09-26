@@ -23,6 +23,7 @@ import {
 import { z } from 'zod';
 import { FindingsService, FindFindingsRequest } from './findings.service';
 import { FindingLifecycleService, LifecycleActor } from './lifecycle/finding-lifecycle.service';
+import { LEGACY_REVIEW_STATUS_MAP } from './lifecycle/legacy-review-import.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -51,12 +52,7 @@ const LegacyReviewSchema = z
     suppressScope: z.enum(['FINDING_ONLY', 'OBJECT_RULE', 'TENANT_OVERRIDE']).optional(),
   })
   .passthrough();
-const LEGACY_STATUS_MAP = {
-  OPEN: 'OPEN',
-  VERIFIED: 'ACKNOWLEDGED',
-  ACCEPTED_RISK: 'ACCEPTED_RISK',
-  SUPPRESSED_FALSE_POSITIVE: 'FALSE_POSITIVE',
-} as const;
+const LEGACY_STATUS_MAP = LEGACY_REVIEW_STATUS_MAP;
 
 const statusAudit = (action: string) =>
   Audited({
