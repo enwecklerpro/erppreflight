@@ -46,7 +46,7 @@ export function ObjectTierBadge({
     <span
       role="status"
       aria-label={t('app.objects.tierAria', { label, description })}
-      className={`inline-flex items-center gap-1.5 font-semibold border rounded-full select-none transition-colors ${
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap font-semibold border rounded-full select-none transition-colors ${
         isSm ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
       } ${conf.className} ${className}`}
     >
