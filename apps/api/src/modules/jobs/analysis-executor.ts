@@ -17,6 +17,10 @@ import {
   RELEASED_OBJECTS_CONFIG_KEY,
   ReleasedObjectsConfiguration,
 } from '../knowledge-graph/released-objects.provider';
+import {
+  FindingLifecycleReconciler,
+  LifecycleRunContext,
+} from '../findings/lifecycle/finding-lifecycle.reconciler';
 
 /** Supplies the snapshot-derived released-object list for knowledge-aware engines (optional). */
 export interface ReleasedObjectsSource {
@@ -145,6 +149,9 @@ interface PreparedArtifact {
  * caller marks the analysis FAILED (and BullMQ may retry).
  */
 export class AnalysisExecutor {
+  /** Finding lifecycle bookkeeping (Part 01 §1.7 / Part 04 §4.10-4.11), owned by the findings module. */
+  private readonly lifecycle: FindingLifecycleReconciler;
+
   constructor(
     private readonly db: DatabaseService,
     private readonly storage: S3StorageService | undefined,
@@ -153,7 +160,9 @@ export class AnalysisExecutor {
     private readonly releasedObjects?: ReleasedObjectsSource,
     /** Observability hook: engine call latency + outcome (C §57). */
     private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void
-  ) {}
+  ) {
+    this.lifecycle = new FindingLifecycleReconciler(db, logger);
+  }
 
   /**
    * Knowledge-graph integration (additive): for CLEAN_CORE_OBJECT_GUARD the
@@ -281,6 +290,7 @@ export class AnalysisExecutor {
     const engineOutcomes: Record<string, EngineRunOutcome> = {};
     const knowledgeCache = new Map<string, ReleasedObjectsConfiguration | null>();
     const recordedSnapshots = new Set<string>();
+    const lifecycleRun = await this.lifecycle.beginRun({ analysisId, organizationId, projectId, targetRelease });
 
     for (const engine of engineTypes) {
       let engineCompleted = 0;
@@ -359,8 +369,21 @@ export class AnalysisExecutor {
               projectId,
               analysisId,
               engine,
-              validated.findings
+              validated.findings,
+              {
+                run: lifecycleRun,
+                artifactName: artifact.fileName ?? artifact.storagePath ?? 'inline',
+                sourceFileId: artifact.fileId,
+                engineVersion: engineVersionOf(validated.metrics),
+                ruleVersions: ruleVersionsOf(validated.metrics),
+                knowledgeSnapshotId:
+                  (knowledgeConfig as { released_objects?: { snapshotId?: string } })[RELEASED_OBJECTS_CONFIG_KEY]
+                    ?.snapshotId ?? null,
+              }
             );
+          }
+          if (validated.status === 'COMPLETED') {
+            this.lifecycle.markEvaluated(lifecycleRun, engine, artifact.fileName ?? artifact.storagePath ?? 'inline');
           }
 
           if (validated.status === 'PARTIAL') {
@@ -399,6 +422,8 @@ export class AnalysisExecutor {
         ? 'FAILED'
         : 'PARTIAL';
 
+    await this.lifecycle.finishRun(lifecycleRun);
+
     await this.db.query(
       `UPDATE analyses SET status = $1, completed_at = NOW() WHERE id = $2 AND organization_id = $3`,
       [finalStatus, analysisId, organizationId],
@@ -417,7 +442,15 @@ export class AnalysisExecutor {
     projectId: string,
     analysisId: string,
     engine: EngineType,
-    findings: Array<Record<string, any>>
+    findings: Array<Record<string, any>>,
+    lifecycle?: {
+      run: LifecycleRunContext;
+      artifactName: string | null;
+      sourceFileId: string | null;
+      engineVersion: string | null;
+      ruleVersions: Record<string, string>;
+      knowledgeSnapshotId: string | null;
+    }
   ): Promise<number> {
     let count = 0;
     await this.db.withTenantTransaction(organizationId, async (client) => {
@@ -479,11 +512,51 @@ export class AnalysisExecutor {
             ]
           );
         }
+        if (lifecycle) {
+          // Lifecycle bookkeeping never loses a finding: on error it is rolled back to the
+          // savepoint and the finding is linked lazily on first lifecycle access.
+          await client.query('SAVEPOINT finding_lifecycle');
+          try {
+            await this.lifecycle.attach(client, lifecycle.run, {
+              findingId,
+              engine,
+              finding: f,
+              artifactName: lifecycle.artifactName,
+              sourceFileId: lifecycle.sourceFileId,
+              engineVersion: lifecycle.engineVersion,
+              ruleVersions: lifecycle.ruleVersions,
+              knowledgeSnapshotId: lifecycle.knowledgeSnapshotId,
+            });
+            await client.query('RELEASE SAVEPOINT finding_lifecycle');
+          } catch (err: any) {
+            await client.query('ROLLBACK TO SAVEPOINT finding_lifecycle');
+            this.logger.warn(`Finding lifecycle update skipped for ${findingId}: ${err?.message ?? err}`);
+          }
+        }
         count++;
       }
     });
     return count;
   }
+}
+
+/** Engine version reported by the analysis service (metrics.additionalMetrics.engineVersion, telemetry fallback). */
+export function engineVersionOf(metrics: unknown): string | null {
+  const extra = (metrics as { additionalMetrics?: Record<string, any> } | undefined)?.additionalMetrics;
+  const v = extra?.engineVersion ?? extra?.telemetry?.engineVersion;
+  return typeof v === 'string' ? v : null;
+}
+
+/** Rule versions reported by the analysis service (metrics.additionalMetrics.ruleVersions). */
+export function ruleVersionsOf(metrics: unknown): Record<string, string> {
+  const raw = (metrics as { additionalMetrics?: Record<string, any> } | undefined)?.additionalMetrics?.ruleVersions;
+  const out: Record<string, string> = {};
+  if (raw && typeof raw === 'object') {
+    for (const [code, version] of Object.entries(raw)) {
+      if (typeof version === 'string') out[code] = version;
+    }
+  }
+  return out;
 }
 
 /**

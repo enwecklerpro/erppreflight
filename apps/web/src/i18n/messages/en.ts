@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { findingLifecycleEn } from './finding-lifecycle.en';
 
 /**
  * English dictionary — the reference key set. `de.ts` is typed as `Messages`,
@@ -527,6 +528,7 @@ export const en = {
     home: 'Go to the homepage',
     knowledge: 'Browse the knowledge base',
   },
+  findingLifecycle: findingLifecycleEn,
 };
 
 export type Messages = typeof en;

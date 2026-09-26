@@ -16,3 +16,4 @@ export * from './outbox';
 export * from './plans';
 export * from './feature-flags';
 export * from './account';
+export * from './finding-lifecycle';

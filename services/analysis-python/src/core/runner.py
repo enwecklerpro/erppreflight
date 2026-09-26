@@ -273,6 +273,16 @@ class EngineRunner:
             if response.status == AnalysisStatus.COMPLETED:
                 response.status = AnalysisStatus.PARTIAL
 
+        # Part 04 §4.10: engine + rule versions of the definitions that produced these findings
+        if response.metrics is None:
+            response.metrics = AnalysisMetrics()
+        response.metrics.additional_metrics["engineVersion"] = engine.version
+        response.metrics.additional_metrics["ruleVersions"] = {
+            code: engine.rule_version(code)
+            for code in sorted({f.rule_id for f in response.findings})
+            if code in catalog
+        }
+
         # M1: deterministic fingerprint and id (scoped to job so persisted ids never collide)
         seen: Dict[str, int] = {}
         for finding in response.findings:
