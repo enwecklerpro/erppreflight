@@ -15,23 +15,21 @@ import {
   kgKeys,
   type CreateWatchForm,
 } from '@/lib/knowledge-graph';
+import { useErrorText, useT } from '@/i18n/client';
 
-const TYPE_OPTIONS = [
-  { value: 'GAP', label: 'Gap — tell me when it becomes available' },
-  { value: 'API', label: 'API — tell me about deprecations' },
-  { value: 'SUCCESSOR_MAPPING', label: 'Successor mapping — tell me when the successor changes' },
-  { value: 'OBJECT', label: 'Any release change of this object' },
-];
+const TYPE_OPTIONS = ['GAP', 'API', 'SUCCESSOR_MAPPING', 'OBJECT'] as const;
 
 /** Release watch creation (TanStack Form + Zod, dirty tracking, server errors). */
 export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId: string; objectKey: string; defaultType: CreateWatchForm['watchType'] }) {
+  const t = useT();
+  const errText = useErrorText();
   const qc = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const catalog = useQuery({ queryKey: kgKeys.catalog, queryFn: ({ signal }) => fetchCatalog(signal), staleTime: 300_000 });
 
   const releaseOptions = [
-    { value: '', label: 'All releases with a recorded state' },
+    { value: '', label: t('app.kg.watchForm.allReleases') },
     ...(catalog.data?.products.flatMap((p) =>
       p.editions.flatMap((e) => e.releases.map((r) => ({ value: r.id, label: `${e.name} — ${r.label}` })))
     ) ?? []),
@@ -44,7 +42,7 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
       form.reset();
       void qc.invalidateQueries({ queryKey: kgKeys.watches });
     },
-    onError: (err) => setServerError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not create the watch'),
+    onError: (err) => setServerError(errText(err, t('app.kg.watchForm.createFailed'))),
   });
 
   const form = useForm({
@@ -73,7 +71,7 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
             aria-labelledby="watch-form-title"
           >
             <h2 id="watch-form-title" className="flex items-center gap-1.5 text-sm font-semibold">
-              <Eye className="size-4" aria-hidden="true" /> Watch {objectKey}
+              <Eye className="size-4" aria-hidden="true" /> {t('app.kg.watchForm.title', { object: objectKey })}
             </h2>
             {serverError ? (
               <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
@@ -82,21 +80,21 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
             ) : null}
             {created ? (
               <p role="status" className="flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
-                <CheckCircle2 className="size-3.5" aria-hidden="true" /> Watching: {created}.{' '}
+                <CheckCircle2 className="size-3.5" aria-hidden="true" /> {t('app.kg.watchForm.created', { label: created })}{' '}
                 <Link href="/knowledge-graph/watches" className="underline">
-                  Manage watches
+                  {t('app.kg.watchForm.manage')}
                 </Link>
               </p>
             ) : null}
             <form.Field
               name="watchType"
               children={(field) => (
-                <FormField id="watch-type" name={field.name} label="What should we watch for?" required error={field.state.meta.errors as any}>
+                <FormField id="watch-type" name={field.name} label={t('app.kg.watchForm.whatLabel')} required error={field.state.meta.errors as any}>
                   <FormSelect
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value as CreateWatchForm['watchType'])}
                     onBlur={field.handleBlur}
-                    options={TYPE_OPTIONS}
+                    options={TYPE_OPTIONS.map((v) => ({ value: v, label: t(`app.kg.watchForm.types.${v}`) }))}
                   />
                 </FormField>
               )}
@@ -107,8 +105,8 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
                 <FormField
                   id="watch-release"
                   name={field.name}
-                  label="Release"
-                  description={catalog.isError ? 'Release catalog unavailable — the watch will cover all releases.' : undefined}
+                  label={t('app.kg.watchForm.release')}
+                  description={catalog.isError ? t('app.kg.watchForm.catalogUnavailable') : undefined}
                   error={field.state.meta.errors as any}
                 >
                   <FormSelect
@@ -124,12 +122,12 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
             <form.Field
               name="label"
               children={(field) => (
-                <FormField id="watch-label" name={field.name} label="Label (optional)" error={field.state.meta.errors as any}>
+                <FormField id="watch-label" name={field.name} label={t('app.kg.watchForm.label')} error={field.state.meta.errors as any}>
                   <FormInput
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
-                    placeholder={`e.g. ${objectKey} for the 2025 upgrade`}
+                    placeholder={t('app.kg.watchForm.labelPlaceholder', { object: objectKey })}
                   />
                 </FormField>
               )}
@@ -140,7 +138,7 @@ export function CreateWatchForm({ objectId, objectKey, defaultType }: { objectId
               className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
               {mutation.isPending ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
-              {mutation.isPending ? 'Creating watch…' : 'Create release watch'}
+              {mutation.isPending ? t('app.kg.watchForm.creating') : t('app.kg.watchForm.submit')}
             </button>
           </form>
         </DirtyGuard>

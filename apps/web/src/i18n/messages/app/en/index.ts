@@ -27,6 +27,8 @@ import { templates } from './templates';
 import { landscapes } from './landscapes';
 import { artifacts } from './artifacts';
 import { sapNative } from './sapNative';
+import { kg } from './kg';
+import { notifications, inspector } from './notifications';
 
 export const appEn = {
   ui,
@@ -55,6 +57,9 @@ export const appEn = {
   landscapes,
   artifacts,
   sapNative,
+  kg,
+  notifications,
+  inspector,
 };
 
 export type AppMessages = typeof appEn;

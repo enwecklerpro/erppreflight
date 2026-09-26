@@ -26,6 +26,8 @@ import { templates } from './templates';
 import { landscapes } from './landscapes';
 import { artifacts } from './artifacts';
 import { sapNative } from './sapNative';
+import { kg } from './kg';
+import { notifications, inspector } from './notifications';
 
 export const appDe: AppMessages = {
   ui,
@@ -54,4 +56,7 @@ export const appDe: AppMessages = {
   landscapes,
   artifacts,
   sapNative,
+  kg,
+  notifications,
+  inspector,
 };

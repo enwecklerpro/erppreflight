@@ -15,15 +15,21 @@ import {
   notificationKeys,
   saveNotificationPreferences,
 } from '@/lib/knowledge-graph';
+import { useErrorText, useLabel, useT } from '@/i18n/client';
 
-const EVENT_LABEL: Record<string, string> = {
-  'analysis.completed': 'Analysis completed',
-  'analysis.failed': 'Analysis failed',
-  'finding.critical': 'Critical / blocker findings',
-  'release_watch.changed': 'Release watch changes',
-};
+/** Event codes contain dots (`analysis.completed`); dictionary keys use underscores. */
+function useEventLabel(): (eventType: string) => string {
+  const label = useLabel();
+  return (eventType: string) => {
+    const localized = label('app.notifications.events', eventType.replace(/\./g, '_'));
+    return localized === eventType.replace(/\./g, '_') ? eventType : localized;
+  };
+}
 
 function Preferences() {
+  const t = useT();
+  const errText = useErrorText();
+  const eventLabel = useEventLabel();
   const qc = useQueryClient();
   const prefs = useQuery({ queryKey: notificationKeys.preferences, queryFn: ({ signal }) => fetchNotificationPreferences(signal) });
   const channels = useQuery({ queryKey: notificationKeys.channels, queryFn: ({ signal }) => fetchNotificationChannels(signal) });
@@ -42,7 +48,7 @@ function Preferences() {
   useUnsavedChangesGuard({ isDirty: dirty, isSubmitting: save.isPending });
 
   if (prefs.isLoading) return <div className="h-40 animate-pulse rounded-xl bg-muted/50 motion-reduce:animate-none" aria-busy="true" />;
-  if (prefs.isError) return <QueryErrorState error={prefs.error} onRetry={() => prefs.refetch()} what="notification preferences" />;
+  if (prefs.isError) return <QueryErrorState error={prefs.error} onRetry={() => prefs.refetch()} title={t('app.kg.error.preferences')} />;
   const emailAvailable = channels.data?.email ?? false;
   return (
     <form
@@ -54,32 +60,32 @@ function Preferences() {
       aria-labelledby="prefs-title"
     >
       <h2 id="prefs-title" className="text-sm font-semibold">
-        Delivery preferences
+        {t('app.notifications.prefsTitle')}
       </h2>
       <p className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1"><Bell className="size-3" aria-hidden="true" /> In-app: on</span>
-        <span className="inline-flex items-center gap-1"><Webhook className="size-3" aria-hidden="true" /> Webhooks: configured by organization owners (signed)</span>
+        <span className="inline-flex items-center gap-1"><Bell className="size-3" aria-hidden="true" /> {t('app.notifications.inApp')}</span>
+        <span className="inline-flex items-center gap-1"><Webhook className="size-3" aria-hidden="true" /> {t('app.notifications.webhooks')}</span>
         <span className="inline-flex items-center gap-1">
-          <Mail className="size-3" aria-hidden="true" /> E-mail: {emailAvailable ? 'available' : 'not configured on this server'}
+          <Mail className="size-3" aria-hidden="true" /> {emailAvailable ? t('app.notifications.emailAvailable') : t('app.notifications.emailUnavailable')}
         </span>
       </p>
-      <table className="mt-3 w-full text-xs">
-        <caption className="sr-only">Notification channels per event</caption>
+      <table className="mt-3 w-full text-sm">
+        <caption className="sr-only">{t('app.notifications.prefsCaption')}</caption>
         <thead className="text-left text-muted-foreground">
           <tr>
-            <th scope="col" className="py-1">Event</th>
-            <th scope="col" className="py-1">In-app</th>
-            <th scope="col" className="py-1">E-mail</th>
+            <th scope="col" className="py-1">{t('app.notifications.colEvent')}</th>
+            <th scope="col" className="py-1">{t('app.notifications.colInApp')}</th>
+            <th scope="col" className="py-1">{t('app.notifications.colEmail')}</th>
           </tr>
         </thead>
         <tbody>
           {(draft ?? []).map((p, i) => (
             <tr key={p.eventType} className="border-t border-border">
-              <td className="py-1.5">{EVENT_LABEL[p.eventType] ?? p.eventType}</td>
+              <td className="py-1.5">{eventLabel(p.eventType)}</td>
               <td className="py-1.5">
                 <input
                   type="checkbox"
-                  aria-label={`In-app notifications for ${EVENT_LABEL[p.eventType] ?? p.eventType}`}
+                  aria-label={t('app.notifications.inAppLabel', { event: eventLabel(p.eventType) })}
                   checked={p.inApp}
                   onChange={(e) => setDraft((d) => d!.map((x, j) => (j === i ? { ...x, inApp: e.target.checked } : x)))}
                 />
@@ -87,7 +93,7 @@ function Preferences() {
               <td className="py-1.5">
                 <input
                   type="checkbox"
-                  aria-label={`E-mail notifications for ${EVENT_LABEL[p.eventType] ?? p.eventType}`}
+                  aria-label={t('app.notifications.emailLabel', { event: eventLabel(p.eventType) })}
                   checked={p.email}
                   disabled={!emailAvailable}
                   onChange={(e) => setDraft((d) => d!.map((x, j) => (j === i ? { ...x, email: e.target.checked } : x)))}
@@ -99,7 +105,7 @@ function Preferences() {
       </table>
       {save.isError ? (
         <p role="alert" className="mt-2 text-xs text-destructive">
-          {(save.error as Error).message}
+          {errText(save.error, t('app.notifications.saveFailed'))}
         </p>
       ) : null}
       <button
@@ -108,13 +114,14 @@ function Preferences() {
         className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
       >
         {save.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
-        {save.isPending ? 'Saving…' : dirty ? 'Save preferences' : 'Saved'}
+        {save.isPending ? t('app.notifications.saving') : dirty ? t('app.notifications.save') : t('app.notifications.saved')}
       </button>
     </form>
   );
 }
 
 export default function NotificationsPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [status, setStatus] = useState<'all' | 'unread'>('all');
   const list = useInfiniteQuery({
@@ -137,11 +144,11 @@ export default function NotificationsPage() {
       <section aria-labelledby="notif-title" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 id="notif-title" className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-            <Bell className="size-6 text-primary" aria-hidden="true" /> Notifications
-            <span className="text-sm font-normal text-muted-foreground">({unreadCount} unread)</span>
+            <Bell className="size-6 text-primary" aria-hidden="true" /> {t('app.notifications.title')}
+            <span className="text-sm font-normal text-muted-foreground">{t('app.notifications.unread', { count: unreadCount })}</span>
           </h1>
           <div className="flex items-center gap-2">
-            <div role="group" aria-label="Filter" className="inline-flex rounded-lg border border-border p-0.5 text-xs">
+            <div role="group" aria-label={t('app.notifications.filterLabel')} className="inline-flex rounded-lg border border-border p-0.5 text-sm">
               {(['all', 'unread'] as const).map((s) => (
                 <button
                   key={s}
@@ -150,7 +157,7 @@ export default function NotificationsPage() {
                   onClick={() => setStatus(s)}
                   className={`rounded-md px-2.5 py-1 ${status === s ? 'bg-primary text-primary-foreground' : ''}`}
                 >
-                  {s === 'all' ? 'All' : 'Unread'}
+                  {s === 'all' ? t('app.notifications.all') : t('app.notifications.unreadFilter')}
                 </button>
               ))}
             </div>
@@ -158,9 +165,9 @@ export default function NotificationsPage() {
               type="button"
               onClick={() => readAll.mutate()}
               disabled={unreadCount === 0 || readAll.isPending}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs disabled:opacity-40"
+              className="rounded-lg border border-border px-2.5 py-1 text-sm disabled:opacity-40"
             >
-              Mark all read
+              {t('app.notifications.markAllRead')}
             </button>
           </div>
         </div>
@@ -171,14 +178,12 @@ export default function NotificationsPage() {
             ))}
           </ul>
         ) : list.isError ? (
-          <QueryErrorState error={list.error} onRetry={() => list.refetch()} what="notifications" />
+          <QueryErrorState error={list.error} onRetry={() => list.refetch()} title={t('app.kg.error.notifications')} />
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border p-10 text-center">
             <BellOff className="size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">{status === 'unread' ? 'No unread notifications.' : 'No notifications yet.'}</p>
-            <p className="text-xs text-muted-foreground">
-              You will be notified about completed or failed analyses, critical findings and release watch changes.
-            </p>
+            <p className="text-sm font-medium">{status === 'unread' ? t('app.notifications.noUnread') : t('app.notifications.none')}</p>
+            <p className="text-sm text-muted-foreground">{t('app.notifications.emptyHint')}</p>
           </div>
         ) : (
           <>
@@ -194,7 +199,7 @@ export default function NotificationsPage() {
                 disabled={list.isFetchingNextPage}
                 className="w-full rounded-lg border border-border py-2 text-xs"
               >
-                {list.isFetchingNextPage ? 'Loading…' : 'Load older notifications'}
+                {list.isFetchingNextPage ? t('app.notifications.loadingMore') : t('app.notifications.loadOlder')}
               </button>
             ) : null}
           </>
