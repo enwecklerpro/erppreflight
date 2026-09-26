@@ -42,6 +42,8 @@ import { customInstance, getStoredAuthToken, setAuthHintCookie } from '../lib/ap
 import { useLogout } from '../lib/query/query-provider';
 import { OrganizationSwitcher } from './account/organization-switcher';
 import { AccountStatusBanner } from './account/account-status-banner';
+import { ImpersonationBanner } from './tenant-access/impersonation-banner';
+import { TenantAccessNotice } from './tenant-access/tenant-access-notice';
 import { useLocale, useT } from '../i18n/client';
 import { localizePath } from '../lib/routing';
 import { LanguageSwitcher } from './public/language-switcher';
@@ -247,6 +249,8 @@ export function Navbar() {
           )}
         </div>
       </div>
+      <ImpersonationBanner signedIn={!!currentUser} />
+      <TenantAccessNotice signedIn={!!currentUser} />
       <AccountStatusBanner signedIn={!!currentUser} />
     </header>
   );

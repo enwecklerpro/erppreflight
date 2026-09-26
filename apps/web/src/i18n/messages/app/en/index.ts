@@ -33,6 +33,7 @@ import { status, demo, changelog, trust, procurement, feedback, onboarding } fro
 import { objects } from './objects';
 import { changesets } from './changesets';
 import { traceability } from './traceability';
+import { tenantAccess } from './tenantAccess';
 
 export const appEn = {
   ui,
@@ -74,6 +75,7 @@ export const appEn = {
   objects,
   changesets,
   traceability,
+  tenantAccess,
 };
 
 export type AppMessages = typeof appEn;

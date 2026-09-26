@@ -67,6 +67,7 @@ export const PRIVATE_ROUTE_PREFIXES = [
   '/admin',
   '/onboarding',
   '/feedback',
+  '/suspended',
   '/knowledge-graph',
   '/notifications',
   '/login',

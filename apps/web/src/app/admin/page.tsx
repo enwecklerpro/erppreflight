@@ -39,6 +39,7 @@ import { ErrorState } from '@/components/commercial/states';
 import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { useFmt, useLabel, useMessages, useT } from '@/i18n/client';
 import { useRoleLabel } from '@/components/account/role-label';
+import { TenantAccessButton } from '@/components/tenant-access/tenant-access-admin';
 
 type Tab = 'overview' | 'business' | 'incidents' | 'support' | 'flags' | 'tenants' | 'users' | 'engines' | 'queues';
 
@@ -325,7 +326,7 @@ export default function SuperAdminPortal() {
           ) : (
             <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm min-w-[760px]">
+                <table className="w-full text-left text-sm min-w-[860px]">
                   <thead className="bg-muted text-xs uppercase font-semibold text-muted-foreground border-b border-border">
                     <tr>
                       <th scope="col" className={th}>{t('app.admin.tenants.colName')}</th>
@@ -336,16 +337,17 @@ export default function SuperAdminPortal() {
                       <th scope="col" className={th}>{t('app.admin.tenants.colAnalyses')}</th>
                       <th scope="col" className={th}>{t('app.admin.tenants.colStatus')}</th>
                       <th scope="col" className={th}>{t('app.admin.tenants.colCreated')}</th>
+                      <th scope="col" className={th}>{t('app.tenantAccess.admin.manage')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {tenantsQuery.isLoading ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.loading')}</td>
+                        <td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.loading')}</td>
                       </tr>
                     ) : filteredTenants.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.empty')}</td>
+                        <td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.empty')}</td>
                       </tr>
                     ) : (
                       filteredTenants.map((tn) => (
@@ -365,6 +367,9 @@ export default function SuperAdminPortal() {
                             </span>
                           </td>
                           <td className={`${td} text-xs text-muted-foreground`}>{fmt.date(tn.createdAt)}</td>
+                          <td className={td}>
+                            <TenantAccessButton tenant={tn} />
+                          </td>
                         </tr>
                       ))
                     )}

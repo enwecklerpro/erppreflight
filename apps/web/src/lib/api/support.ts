@@ -30,6 +30,7 @@ export async function createTicket(input: {
   findingId?: string;
   analysisId?: string;
   correlationId?: string;
+  locale?: 'en' | 'de';
 }): Promise<SupportTicket> {
   return parse(SupportTicketSchema, '/support/tickets', await customInstance('/support/tickets', { method: 'POST', body: JSON.stringify(input) }));
 }

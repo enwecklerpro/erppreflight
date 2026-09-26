@@ -38,6 +38,7 @@ export const AUTH_REQUIRED_PREFIXES = [
   '/admin',
   '/onboarding',
   '/feedback',
+  '/suspended',
 ] as const;
 
 /** HTTP-only session cookie set by the API when it shares the site's host. */
