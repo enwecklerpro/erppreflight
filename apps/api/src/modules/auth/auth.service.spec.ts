@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthService } from './auth.service';
 import { DatabaseService } from '../database/database.service';
 import { JwtService } from '@nestjs/jwt';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { EmailVerificationService } from './email-verification.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let mockDb: Partial<DatabaseService>;
   let mockJwt: Partial<JwtService>;
+  let mockVerification: { issueSafely: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockDb = {
@@ -16,9 +18,11 @@ describe('AuthService', () => {
     mockJwt = {
       sign: vi.fn().mockReturnValue('mock-jwt-token'),
     };
+    mockVerification = { issueSafely: vi.fn().mockResolvedValue(undefined) };
     service = new AuthService(
       mockDb as DatabaseService,
-      mockJwt as JwtService
+      mockJwt as JwtService,
+      mockVerification as unknown as EmailVerificationService
     );
   });
 
@@ -32,7 +36,7 @@ describe('AuthService', () => {
 
     const result = await service.register({
       email: 'test@example.com',
-      password: 'password123',
+      password: 'Correct-Horse-42',
       fullName: 'Test User',
       organizationName: 'Acme Corp',
     });
@@ -40,6 +44,38 @@ describe('AuthService', () => {
     expect(result.accessToken).toBe('mock-jwt-token');
     expect(result.user.email).toBe('test@example.com');
     expect(result.user.role).toBe('ORGANIZATION_OWNER');
+    expect(result.user.emailVerified).toBe(false);
+    // A verification e-mail is issued for every new account
+    expect(mockVerification.issueSafely).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'test@example.com' })
+    );
+    // The access token carries token_version 0 and a unique jti
+    const payload = (mockJwt.sign as any).mock.calls[0][0];
+    expect(payload.tv).toBe(0);
+    expect(typeof payload.jti).toBe('string');
+  });
+
+  it('should reject sign-up with a password that violates the policy', async () => {
+    mockDb.query = vi.fn();
+    await expect(
+      service.register({ email: 'test@example.com', password: 'password123', organizationName: 'Acme' })
+    ).rejects.toThrow(BadRequestException);
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it('should return a 2FA challenge instead of a session when TOTP is enabled', async () => {
+    const passwordHash = await (service as any).hashPassword('password123');
+    mockDb.query = vi.fn().mockResolvedValueOnce({
+      rows: [{ id: 'user-1', password_hash: passwordHash, status: 'ACTIVE', token_version: 3, totp_enabled_at: new Date() }],
+    });
+    const result: any = await service.login({ email: 'test@example.com', password: 'password123' });
+    expect(result.mfaRequired).toBe(true);
+    expect(result.challengeToken).toBe('mock-jwt-token');
+    expect(result.accessToken).toBeUndefined();
+    const [payload, options] = (mockJwt.sign as any).mock.calls[0];
+    expect(payload).toMatchObject({ sub: 'user-1', typ: 'mfa_challenge', tv: 3 });
+    expect(options).toEqual({ expiresIn: 300 });
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
   });
 
   it('should throw ConflictException if user email already exists', async () => {
@@ -50,7 +86,7 @@ describe('AuthService', () => {
     await expect(
       service.register({
         email: 'test@example.com',
-        password: 'password123',
+        password: 'Correct-Horse-42',
         organizationName: 'Acme Corp',
       })
     ).rejects.toThrow(ConflictException);
@@ -58,7 +94,8 @@ describe('AuthService', () => {
 
   it('should login an existing user with valid password', async () => {
     const passwordHash = await (service as any).hashPassword('password123');
-    mockDb.query = vi.fn().mockResolvedValueOnce({
+    // 1st query: credentials lookup, 2nd query: session (membership) lookup
+    mockDb.query = vi.fn().mockResolvedValue({
       rows: [
         {
           id: 'user-1',
@@ -67,13 +104,14 @@ describe('AuthService', () => {
           full_name: 'Test User',
           system_role: 'USER',
           status: 'ACTIVE',
+          token_version: 0,
           organization_id: 'org-1',
           role: 'LEAD_ARCHITECT',
         },
       ],
     });
 
-    const result = await service.login({
+    const result: any = await service.login({
       email: 'test@example.com',
       password: 'password123',
     });
@@ -151,15 +189,18 @@ describe('AuthService', () => {
     expect(mockJwt.sign).not.toHaveBeenCalled();
   });
 
-  it('should select the membership deterministically (oldest, active organization) in SQL', async () => {
+  it('should select the membership deterministically (preferred, else oldest active organization) in SQL', async () => {
     mockDb.query = vi.fn().mockResolvedValueOnce({ rows: [] });
-    await expect(
-      service.login({ email: 'x@example.com', password: 'whatever-pass' })
-    ).rejects.toThrow(UnauthorizedException);
+    await expect(service.createSession('11111111-1111-4111-8111-111111111111')).rejects.toThrow(
+      UnauthorizedException
+    );
     const sql: string = (mockDb.query as any).mock.calls[0][0];
-    expect(sql).toMatch(/ORDER BY om\.created_at ASC/);
+    expect(sql).toMatch(/ORDER BY \(om\.organization_id = \$2::uuid\) DESC NULLS LAST, om\.created_at ASC/);
     expect(sql).toMatch(/LIMIT 1/);
     expect(sql).toMatch(/o\.status = 'ACTIVE'/);
+    // A malformed preferred organization id is ignored (never interpolated)
+    await expect(service.createSession('11111111-1111-4111-8111-111111111111', { preferredOrganizationId: "x' OR 1=1" })).rejects.toThrow();
+    expect((mockDb.query as any).mock.calls[1][1][1]).toBeNull();
   });
 
   describe('bootstrapSuperAdmins', () => {

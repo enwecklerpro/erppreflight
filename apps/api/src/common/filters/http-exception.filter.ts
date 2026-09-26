@@ -35,6 +35,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const correlationId =
       request.headers['x-correlation-id'] || 'no-correlation-id';
 
+    // Optional machine-readable error code, e.g. EMAIL_NOT_VERIFIED (web UI branches on it).
+    const code =
+      typeof exceptionResponse === 'object' &&
+      exceptionResponse !== null &&
+      typeof (exceptionResponse as any).code === 'string'
+        ? (exceptionResponse as any).code
+        : undefined;
+
     const errorPayload = {
       statusCode: status,
       timestamp: new Date().toISOString(),
@@ -42,6 +50,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       method: request.method,
       correlationId,
       message,
+      ...(code ? { code } : {}),
     };
 
     if (status >= 500) {

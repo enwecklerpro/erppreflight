@@ -36,6 +36,48 @@ export const REGISTER_RATE_LIMIT: RateLimitRule = {
   maxPerIpAndEmail: 3,
 };
 
+export const VERIFY_EMAIL_RATE_LIMIT: RateLimitRule = {
+  name: 'verify-email',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 60,
+  maxPerIpAndEmail: 0,
+};
+
+export const RESEND_VERIFICATION_RATE_LIMIT: RateLimitRule = {
+  name: 'resend-verification',
+  windowMs: 60 * 60 * 1000,
+  maxPerIp: 20,
+  maxPerIpAndEmail: 0,
+};
+
+export const FORGOT_PASSWORD_RATE_LIMIT: RateLimitRule = {
+  name: 'forgot-password',
+  windowMs: 60 * 60 * 1000,
+  maxPerIp: 20,
+  maxPerIpAndEmail: 5,
+};
+
+export const RESET_PASSWORD_RATE_LIMIT: RateLimitRule = {
+  name: 'reset-password',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 30,
+  maxPerIpAndEmail: 0,
+};
+
+export const MFA_LOGIN_RATE_LIMIT: RateLimitRule = {
+  name: 'mfa-login',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 30,
+  maxPerIpAndEmail: 0,
+};
+
+export const INVITATION_RATE_LIMIT: RateLimitRule = {
+  name: 'invitation',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 60,
+  maxPerIpAndEmail: 0,
+};
+
 const MAX_TRACKED_KEYS = 50_000;
 
 /**

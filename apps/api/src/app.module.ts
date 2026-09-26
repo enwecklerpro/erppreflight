@@ -40,6 +40,7 @@ import { OutboxModule } from './modules/outbox/outbox.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
+import { AccountModule } from './modules/account/account.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
         connection: {
           host: config.get<string>('REDIS_HOST', 'localhost'),
           port: Number(config.get<number>('REDIS_PORT', 6379)),
+          db: Number(config.get<number>('REDIS_DB', 0)),
           password: config.get<string>('REDIS_PASSWORD') || undefined,
           maxRetriesPerRequest: null,
         },
@@ -95,6 +97,7 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
     AiGatewayModule,
     BillingModule,
     TelemetryModule,
+    AccountModule,
   ],
 })
 export class AppModule implements NestModule {

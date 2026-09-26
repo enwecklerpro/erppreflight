@@ -276,6 +276,10 @@ describe('H3/M6: environment validation', () => {
     S3_ACCESS_KEY: 'prod-access-key',
     S3_SECRET_KEY: 'prod-secret-key-value',
     MASTER_ENCRYPTION_KEY: 'c'.repeat(64),
+    MAIL_TRANSPORT: 'smtp',
+    SMTP_HOST: 'smtp.example.com',
+    MAIL_FROM: 'ERP Preflight <no-reply@example.com>',
+    APP_PUBLIC_URL: 'https://app.example.com',
   };
   let errSpy: any;
   beforeEach(() => {

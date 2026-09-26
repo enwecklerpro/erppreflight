@@ -6,6 +6,12 @@ export interface AuthTokenPayload {
   organizationId: string; // tenantId (UUID)
   role: string;
   systemRole?: string;
+  /** users.token_version at issuance; a mismatch means the session was revoked. */
+  tv?: number;
+  /** Unique token id, used for single-session logout (revoked_sessions). */
+  jti?: string;
+  /** Absent for access tokens; 'mfa_challenge' tokens are never accepted as sessions. */
+  typ?: string;
   iat?: number;
   exp?: number;
 }

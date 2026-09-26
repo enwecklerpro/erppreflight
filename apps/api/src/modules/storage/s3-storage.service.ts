@@ -5,6 +5,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   CreateBucketCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
@@ -283,6 +285,39 @@ export class S3StorageService implements OnModuleInit {
         Key: key,
       })
     );
+  }
+
+  /**
+   * Permanently deletes every object stored for an organization
+   * (`tenants/{organizationId}/` in the quarantine, clean and reports buckets).
+   * Used by organization deletion (GDPR erasure). Returns the number of objects deleted.
+   */
+  public async deleteTenantObjects(organizationId: string): Promise<number> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId)) {
+      throw new Error('deleteTenantObjects: organizationId must be a UUID');
+    }
+    const prefix = `tenants/${organizationId}/`;
+    let deleted = 0;
+    for (const bucket of [this.quarantineBucket, this.cleanBucket, this.reportsBucket]) {
+      let continuationToken: string | undefined;
+      do {
+        const page = await this.s3.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: continuationToken, MaxKeys: 1000 })
+        );
+        const keys = (page.Contents || []).map((o) => o.Key).filter((k): k is string => !!k && k.startsWith(prefix));
+        if (keys.length > 0) {
+          const result = await this.s3.send(
+            new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } })
+          );
+          if (result.Errors && result.Errors.length > 0) {
+            throw new Error(`Failed to delete ${result.Errors.length} object(s) from ${bucket}`);
+          }
+          deleted += keys.length;
+        }
+        continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (continuationToken);
+    }
+    return deleted;
   }
 
   /**

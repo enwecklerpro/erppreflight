@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ExportService } from './export.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { VerifiedEmailGuard } from '../auth/guards/verified-email.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -20,6 +21,7 @@ export class ExportController {
   constructor(private readonly exportService: ExportService) {}
 
   @Post('projects/:projectId/analyses/:analysisId/export')
+  @UseGuards(VerifiedEmailGuard)
   async triggerExport(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
@@ -71,6 +73,7 @@ export class ExportController {
   }
 
   @Get('analyses/:analysisId/reproducibility-bundle')
+  @UseGuards(VerifiedEmailGuard)
   async getReproducibilityBundle(
     @CurrentTenant() tenantId: string,
     @Param('analysisId') analysisId: string
@@ -86,6 +89,7 @@ export class ExportController {
   }
 
   @Get('projects/:projectId/analyses/:analysisId/offline-html')
+  @UseGuards(VerifiedEmailGuard)
   async getOfflineHtmlReport(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
