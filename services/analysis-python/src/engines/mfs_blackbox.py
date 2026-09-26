@@ -28,6 +28,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -42,6 +45,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
 
 
 # ==============================================================================
@@ -166,6 +171,65 @@ def _parse_time_sec(val: Any, timestamp_str: Optional[str] = None) -> float:
 # Point 1: Metadata & Point 3-7: Engine Implementation
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "MFS_CORRUPTED_TELEGRAM", "Malformed telegram record", Severity.MAJOR,
+        "Check the PLC / MFS telegram structure definition (/SCWM/MFS telegram structures) and the log export; "
+        "corrupted records were excluded from the reconstruction.", "DATA_INTEGRITY",
+    ),
+    RuleSpec(
+        "MFS_OUT_OF_ORDER_SEQUENCE", "Telegram sequence out of order or with gaps", Severity.MAJOR,
+        "Check the communication channel's sequence number handling and resend buffer (/SCWM/MFS_CP_CHANNEL "
+        "monitoring); lost telegrams must be resynchronised with the PLC.", "TELEGRAM_ORDERING",
+    ),
+    RuleSpec(
+        "MFS_DUPLICATE_TELEGRAM_SEND", "Duplicate telegram retransmission (retry storm)", Severity.MAJOR,
+        "Investigate missing / late ACKs that trigger retransmission; tune the resend interval and max retries in "
+        "the channel configuration.", "TELEGRAM_RETRY_STORM",
+    ),
+    RuleSpec(
+        "MFS_IMPOSSIBLE_TOPOLOGY_JUMP", "HU moved between non-adjacent conveyor points", Severity.CRITICAL,
+        "Verify the conveyor segment / communication point definitions against the physical layout and check "
+        "for missed scanner reads between the two points.", "CONVEYOR_TOPOLOGY",
+    ),
+    RuleSpec(
+        "MFS_MISSING_ACK_TIMEOUT", "Telegram not acknowledged within timeout", Severity.CRITICAL,
+        "Check PLC connectivity and the channel's ACK timeout; unacknowledged moves leave warehouse tasks open.",
+        "TELEGRAM_HANDSHAKE",
+    ),
+    RuleSpec(
+        "MFS_FIRST_CAUSAL_DIVERGENCE", "First causal divergence in the incident timeline", Severity.CRITICAL,
+        "Start the root-cause analysis at the referenced telegram; later anomalies are likely consequences.",
+        "CAUSAL_DIAGNOSTICS",
+    ),
+)
+
+
+class MfsInput(ContractModel):
+    signal_fields = ("telegrams", "type")
+    signal_message = "No MFS telegrams supplied: expected {'telegrams': [{type, hu_id, cp, seq_no, time_sec, …}]}."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV),
+    summary=(
+        "MFS telegram log: CSV/TSV/pipe log with a header row (type, hu_id, cp, seq_no, sender_plc, receiver_plc, "
+        "status, time_sec/timestamp; EDGE,<from>,<to> rows declare conveyor topology) or JSON "
+        "{'telegrams': [...], 'conveyor_edges': [[from, to]], 'configuration': {ack_timeout_seconds, max_retries}}. "
+        "Inline payloads are bounded by the service payload limit; multi-GB logs must be pre-filtered to the "
+        "incident window."
+    ),
+    required=("At least one telegram with a 'type'",),
+    json_model=MfsInput,
+    json_array_field="telegrams",
+    csv_signal_columns=("type", "hu_id", "cp"),
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class MFSBlackBoxEngine(BaseEngine):
     """Material Flow System (MFS) BlackBox Preflight & Causal Diagnostics Engine."""
@@ -173,6 +237,8 @@ class MFSBlackBoxEngine(BaseEngine):
     # Point 1: Metadata
     engine_type = EngineType.MFS_BLACKBOX
     rule_prefix = "MFS"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "MFS BlackBox"
     description = "Material Flow System / EWM telegram sequence and telegram buffer auditor"
     version = "1.0.0"
@@ -198,10 +264,7 @@ class MFSBlackBoxEngine(BaseEngine):
         # Check if raw_text is JSON
         stripped = raw_text.strip()
         if stripped.startswith("{") or stripped.startswith("["):
-            try:
-                data = self._parse_json_content(raw_text, artifact_path)
-            except Exception:
-                data = MFSNormalizedData()
+            data = self._parse_json_content(raw_text, artifact_path)
         elif stripped and ("\n" in stripped or "," in stripped or ";" in stripped or "|" in stripped or "\t" in stripped):
             data = self._parse_csv_content(raw_text, artifact_path)
         else:
@@ -257,7 +320,7 @@ class MFSBlackBoxEngine(BaseEngine):
 
     def _parse_json_content(self, text: str, artifact_path: str) -> MFSNormalizedData:
         """Parses structured JSON payload containing telegrams and conveyor edges."""
-        parsed = json.loads(text)
+        parsed = parse_json_payload(text, self.rule_prefix)
         data = MFSNormalizedData()
 
         # 1. Parse conveyor topology edges
@@ -270,10 +333,16 @@ class MFSBlackBoxEngine(BaseEngine):
         if isinstance(parsed, dict):
             cfg = parsed.get("configuration", parsed.get("options", {}))
             if isinstance(cfg, dict):
-                if "ack_timeout_seconds" in cfg:
-                    data.config.ack_timeout_seconds = float(cfg["ack_timeout_seconds"])
-                if "max_retries" in cfg:
-                    data.config.max_retries = int(cfg["max_retries"])
+                try:
+                    if "ack_timeout_seconds" in cfg:
+                        data.config.ack_timeout_seconds = float(cfg["ack_timeout_seconds"])
+                    if "max_retries" in cfg:
+                        data.config.max_retries = int(cfg["max_retries"])
+                except (TypeError, ValueError):
+                    raise EngineInputError(
+                        f"{self.rule_prefix}_INVALID_INPUT",
+                        "configuration.ack_timeout_seconds / max_retries must be numeric.",
+                    ) from None
 
         # 3. Parse telegrams stream
         telegrams_raw = parsed.get("telegrams", parsed) if isinstance(parsed, dict) else parsed
@@ -750,6 +819,19 @@ class MFSBlackBoxEngine(BaseEngine):
 
         # Parse inputs
         data, artifact_path, raw_text = self._parse_inputs(request)
+        if not data.telegrams:
+            if data.corrupted_rows:
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    f"None of the {len(data.corrupted_rows)} telegram records is valid (each needs at least a "
+                    "'type'); the telegram stream cannot be reconstructed.",
+                    line_number=data.corrupted_rows[0].get("line_number"),
+                )
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No MFS telegrams supplied: provide a telegram log (CSV with a type / hu_id / cp header, or JSON "
+                "{'telegrams': [...]}) — conveyor topology alone cannot be analysed.",
+            )
 
         # Run state machine evaluation
         findings, first_divergence, rules_evaluated = self._evaluate_state_machine(

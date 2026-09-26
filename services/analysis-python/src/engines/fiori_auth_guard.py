@@ -18,6 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple, Set
 from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     EngineType,
@@ -31,6 +34,8 @@ from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.models.finding import Finding
 from src.models.evidence import Evidence
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
 
 
 # =============================================================================
@@ -100,6 +105,86 @@ class Fiori403NormalizedContext(BaseModel):
 # Feature 31: Fiori 403 & Authorization Diagnostic Guard Engine
 # =============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+import re as _re
+
+RULES = rule_catalog(
+    RuleSpec(
+        "FIORI_CSRF_TOKEN_INVALID", "CSRF token missing or invalid on modifying request", Severity.CRITICAL,
+        "Fetch a token with 'X-CSRF-Token: Fetch' on a GET/HEAD, then send the token and session cookies with the "
+        "POST/PUT/PATCH/DELETE; check that proxies / Web Dispatcher keep the session cookie.", "Security / CSRF",
+    ),
+    RuleSpec(
+        "FIORI_ICF_INACTIVE", "ICF service node inactive (SICF)", Severity.BLOCKER,
+        "Activate the service node and its parents in SICF (or /IWFND/MAINT_SERVICE > ICF Node > Activate).",
+        "ICF Configuration",
+    ),
+    RuleSpec(
+        "FIORI_GATEWAY_SERVICE_NOT_ACTIVATED", "Gateway service not registered / no system alias", Severity.CRITICAL,
+        "Register and activate the OData service in /IWFND/MAINT_SERVICE (V2) or /IWFND/V4_ADMIN (V4) and assign "
+        "the correct system alias.", "Gateway Service Registration",
+    ),
+    RuleSpec(
+        "FIORI_AUTH_OBJECT_MISSING", "Authorization check failed (SU53)", Severity.CRITICAL,
+        "Add the failing authorization object values (e.g. S_SERVICE for the service hash, S_START) to the "
+        "user's PFCG role — via the Fiori business catalog / IAM app in the cloud — and regenerate the profile.",
+        "Authorization / Security",
+    ),
+    RuleSpec(
+        "FIORI_UCON_DENIED", "Blocked by UCON / RFC allowlist", Severity.CRITICAL,
+        "Add the service / RFC function to the UCON communication assembly (UCONCOCKPIT) allowlist or move it "
+        "out of the logging phase correctly.", "Network / UCON",
+    ),
+    RuleSpec(
+        "FIORI_CLOUD_CONNECTOR_DENIED", "Denied by SAP Cloud Connector", Severity.CRITICAL,
+        "Expose the backend resource path in the Cloud Connector access control and fix principal propagation "
+        "(trust / CN mapping).", "Infrastructure / Cloud Connector",
+    ),
+    RuleSpec(
+        "FIORI_403_INSUFFICIENT_TELEMETRY", "Root cause not determinable from supplied telemetry", Severity.MINOR,
+        "Capture an SU53 trace, the /IWFND/ERROR_LOG entry and the SICF status for the failing request and "
+        "re-run; the supplied data did not identify a root cause.", "Diagnostic Telemetry Gap",
+    ),
+)
+
+
+class Fiori403Input(ContractModel):
+    signal_fields = (
+        "http_response", "status_code", "status", "iwfnd_error_log", "error_logs", "error_log", "su53",
+        "su53_traces", "auth_trace", "icf_services", "sicf", "sicf_export", "ucon", "ucon_rules",
+        "cloud_connector", "cloud_connector_logs",
+    )
+    signal_message = (
+        "No 403 telemetry supplied: provide 'http_response', 'su53', 'iwfnd_error_log', 'icf_services', 'ucon' "
+        "or 'cloud_connector' data."
+    )
+
+
+def _fiori_text_check(text: str) -> Optional[str]:
+    if _re.search(r"^\s*HTTP/\d(\.\d)?\s+\d{3}", text, _re.M) or _re.search(
+        r"^\s*(GET|POST|PUT|DELETE|PATCH|HEAD|MERGE)\s+\S+", text, _re.M
+    ) or _re.search(r"authorization check failed|failed authorization", text, _re.I):
+        return None
+    return "text is neither an HTTP request/response dump nor an SU53 authorization trace."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.TEXT),
+    summary=(
+        "403 diagnostic telemetry: JSON {'http_response': {status_code, method, url, headers, body}, 'su53': [...], "
+        "'iwfnd_error_log': [...], 'icf_services': [...], 'ucon_rules': [...], 'cloud_connector_logs': [...]}, "
+        "an HTTP request/response text dump or SU53 text export, or SICF/SU53 CSV artifacts."
+    ),
+    required=("At least one telemetry source (HTTP trace, SU53, /IWFND/ERROR_LOG, SICF, UCON, Cloud Connector)",),
+    json_model=Fiori403Input,
+    json_array_field="su53",
+    text_check=_fiori_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class Fiori403Engine(BaseEngine):
     """
@@ -111,6 +196,8 @@ class Fiori403Engine(BaseEngine):
 
     engine_type = EngineType.FIORI_403_ROOT_CAUSE_DOCTOR
     rule_prefix = "FIORI_403"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Fiori 403 Root-Cause Doctor"
     description = "Deterministic 7-step decision-tree diagnosis across HTTP 403 / unauthorized errors"
     version = "2.0.0"
@@ -135,7 +222,6 @@ class Fiori403Engine(BaseEngine):
     RULE_AUTH_OBJECT_MISSING = "FIORI_AUTH_OBJECT_MISSING"
     RULE_UCON_DENIED = "FIORI_UCON_DENIED"
     RULE_CLOUD_CONNECTOR_DENIED = "FIORI_CLOUD_CONNECTOR_DENIED"
-    RULE_CATALOG_ROLE_MISSING = "FIORI_CATALOG_ROLE_MISSING"
     RULE_INSUFFICIENT_TELEMETRY = "FIORI_403_INSUFFICIENT_TELEMETRY"
 
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
@@ -148,6 +234,18 @@ class Fiori403Engine(BaseEngine):
 
         # 1. Parse and Normalize Inputs
         context, source_lines, artifact_path, raw_content_str = self._parse_inputs(request)
+        has_telemetry = bool(
+            context.http_response or context.error_logs or context.su53_traces or context.icf_services
+            or context.ucon_rules or context.cloud_connector_logs
+        )
+        if not has_telemetry:
+            supplied = bool((request.raw_content or "").strip()) or any(a.raw_content for a in request.artifacts)
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT" if supplied else f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No 403 diagnostic telemetry recognised: supply the failing HTTP request/response (status line, "
+                "headers, body), an SU53 trace, /IWFND/ERROR_LOG entries, SICF status, UCON rules or Cloud "
+                "Connector logs.",
+            )
         artifact_hash = EvidenceEngine.compute_sha256(raw_content_str)
 
         # 2. Execute Deterministic 7-Step Diagnostic Decision Tree
@@ -731,17 +829,14 @@ class Fiori403Engine(BaseEngine):
         if request.raw_content and request.raw_content.strip():
             raw_str = request.raw_content.strip()
             if raw_str.startswith("{") or raw_str.startswith("["):
-                try:
-                    parsed_json = json.loads(raw_str)
-                    if isinstance(parsed_json, dict):
-                        self._merge_dict_into_context(parsed_json, context, source_lines, 1)
-                    elif isinstance(parsed_json, list):
-                        # List of traces or logs
-                        for idx, item in enumerate(parsed_json):
-                            if isinstance(item, dict):
-                                self._merge_dict_into_context(item, context, source_lines, idx + 1)
-                except Exception:
-                    pass
+                parsed_json = parse_json_payload(raw_str, self.rule_prefix)
+                if isinstance(parsed_json, dict):
+                    self._merge_dict_into_context(parsed_json, context, source_lines, 1)
+                elif isinstance(parsed_json, list):
+                    # List of traces or logs
+                    for idx, item in enumerate(parsed_json):
+                        if isinstance(item, dict):
+                            self._merge_dict_into_context(item, context, source_lines, idx + 1)
             else:
                 # Text-based parsing (HTTP header dump or SU53 text dump)
                 self._parse_raw_text(raw_str, context, source_lines)
@@ -753,12 +848,9 @@ class Fiori403Engine(BaseEngine):
                 continue
             art_name = art.file_name or "artifact"
             if art.artifact_type == ArtifactType.JSON or art_name.endswith(".json"):
-                try:
-                    p_json = json.loads(content)
-                    if isinstance(p_json, dict):
-                        self._merge_dict_into_context(p_json, context, source_lines, 1)
-                except Exception:
-                    pass
+                p_json = parse_json_payload(content, self.rule_prefix)
+                if isinstance(p_json, dict):
+                    self._merge_dict_into_context(p_json, context, source_lines, 1)
             elif art.artifact_type == ArtifactType.CSV or art_name.endswith(".csv"):
                 self._parse_csv_artifact(content, art_name, context, source_lines)
             elif art.artifact_type == ArtifactType.TXT or art_name.endswith(".txt"):
@@ -841,6 +933,7 @@ class Fiori403Engine(BaseEngine):
         method = "GET"
         url = ""
 
+        saw_http = False
         in_su53_block = False
         current_auth_obj = None
         current_fields: Dict[str, str] = {}
@@ -856,12 +949,14 @@ class Fiori403Engine(BaseEngine):
                 parts = line_s.split()
                 if len(parts) >= 2 and parts[1].isdigit():
                     status_code = int(parts[1])
+                    saw_http = True
                 source_lines["http_headers"] = idx
             # Detect Method line: GET /sap/opu/odata/...
             elif any(line_s.startswith(m + " ") for m in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD")):
                 m_parts = line_s.split()
                 method = m_parts[0]
                 url = m_parts[1] if len(m_parts) > 1 else ""
+                saw_http = True
             # Header key: value
             elif ":" in line_s and not in_su53_block:
                 k, v = line_s.split(":", 1)
@@ -893,7 +988,8 @@ class Fiori403Engine(BaseEngine):
             )
             source_lines[f"su53_{current_auth_obj}"] = 1
 
-        if not context.http_response and (headers or status_code != 403):
+        # Header-like "key: value" lines alone are not an HTTP trace (they would turn any text into a 403).
+        if not context.http_response and saw_http:
             context.http_response = FioriHttpResponse(
                 status_code=status_code,
                 method=method,

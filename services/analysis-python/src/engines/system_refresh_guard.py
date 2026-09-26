@@ -27,6 +27,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -199,6 +202,78 @@ ACTIVE_JOB_STATUSES = {"P", "S", "R", "Y", "SCHEDULED", "RELEASED", "RUNNING", "
 # Feature 35: System Refresh & Data Masking Sanity Guard (Cardinal Axiom 2)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+import re as _re
+
+RULES = rule_catalog(
+    RuleSpec(
+        "REFRESH_INPUT_SID_MISMATCH", "Extract SID differs from the refreshed target SID", Severity.BLOCKER,
+        "Re-extract from the refreshed (target) system; checks against the wrong system are meaningless.",
+        "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_RFC_TARGETS_PRODUCTION", "RFC destinations still point to production", Severity.CRITICAL,
+        "Re-point or lock the listed SM59 destinations (post-copy automation / BDLS + RFC import) before "
+        "releasing the system; production calls from a copy corrupt productive data.", "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_SCOT_OUTBOUND_ACTIVE", "Outbound mail active without redirection", Severity.CRITICAL,
+        "Deactivate the SMTP node or configure a catch-all redirect in SCOT/SOST before restarting jobs.",
+        "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_LOGICAL_SYSTEM_UNADJUSTED", "Logical system names not converted (BDLS)", Severity.CRITICAL,
+        "Run BDLS for the client to convert the production logical system names and re-check ALE partner "
+        "profiles (WE20).", "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_CRITICAL_JOB_SCHEDULED", "Sensitive production jobs released in the copy", Severity.CRITICAL,
+        "Suspend released jobs (BTCTRNS1) after the copy and only re-release reviewed jobs.",
+        "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_PRODUCTION_PRINTER_ACTIVE", "Production printers active in the copy", Severity.MAJOR,
+        "Lock or re-point production output devices in SPAD to test devices.", "LANDSCAPE_ISOLATION",
+    ),
+    RuleSpec(
+        "REFRESH_ISOLATION_VERIFIED", "Isolation verified for the supplied sections", Severity.INFO,
+        "No action; the verdict covers exactly the supplied RFC, SCOT, logical-system, job and printer extracts.",
+        "LANDSCAPE_ISOLATION",
+    ),
+)
+
+
+class SystemRefreshInput(ContractModel):
+    signal_fields = (
+        "sid", "rfc_destinations", "scot", "logical_systems", "jobs", "printers", "post_refresh", "target",
+    )
+    signal_message = (
+        "System refresh check requires the refreshed system's extracts (sid, rfc_destinations, scot, "
+        "logical_systems, jobs, printers)."
+    )
+
+
+def _refresh_text_check(text: str) -> Optional[str]:
+    if _re.search(r"^\s*\[[A-Za-z0-9_]+\]\s*$", text, _re.M):
+        return None
+    return "CSV export must be organised in sections ([RFC_DESTINATIONS], [LOGICAL_SYSTEMS], [JOBS], [PRINTERS])."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.TEXT),
+    summary=(
+        "Post-refresh extracts of the target system: JSON {'sid', 'client', 'rfc_destinations', 'scot', "
+        "'logical_systems', 'jobs', 'printers', 'isolation_policy'} or a sectioned CSV export."
+    ),
+    required=("target SID", "RFC / SCOT / logical system / job / printer sections for a full verdict"),
+    json_model=SystemRefreshInput,
+    text_check=_refresh_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class SystemRefreshEngine(BaseEngine):
     """Authoritative preflight engine for system refresh and landscape isolation auditing."""
@@ -206,6 +281,8 @@ class SystemRefreshEngine(BaseEngine):
     # Point 1: Metadata
     engine_type = EngineType.SYSTEM_REFRESH_DELTA_GUARD
     rule_prefix = "REFRESH"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "System Refresh Delta Guard"
     description = "Post-refresh BDLS, RFC destination, and logical system change validator"
     version = "2.0.0"
