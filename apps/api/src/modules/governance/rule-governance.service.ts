@@ -387,6 +387,11 @@ export class RuleGovernanceService {
            deprecated_at = CASE WHEN $4::text = 'DEPRECATED' THEN NOW() WHEN $4::text = 'DRAFT' THEN NULL ELSE deprecated_at END,
            updated_by = $7::uuid, updated_at = NOW()
          WHERE rule_code = $1::text AND status = $3::text
+           -- Publish gate, re-checked atomically: no newer self-test (e.g. a FAILED one) may have
+           -- been recorded after the passing run the gate approved.
+           AND ($4::text <> 'PUBLISHED' OR NOT EXISTS (
+                 SELECT 1 FROM rule_self_test_runs r, rule_self_test_runs g
+                  WHERE g.id = $6::uuid AND r.rule_code = $1::text AND (r.created_at, r.id) > (g.created_at, g.id)))
          RETURNING rule_code
        )
        INSERT INTO rule_governance_events (rule_code, engine_type, event_type, from_status, to_status, rule_version,

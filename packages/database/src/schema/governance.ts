@@ -118,6 +118,19 @@ export const aiTaskSpend = pgTable(
   (t) => [primaryKey({ columns: [t.taskType, t.periodMonth, t.provider, t.model] })]
 );
 
+/** Atomic cost-ceiling ledger per task and month (spent + in-flight reservations). */
+export const aiTaskBudget = pgTable(
+  'ai_task_budget',
+  {
+    taskType: varchar('task_type', { length: 64 }).notNull(),
+    periodMonth: date('period_month').notNull(),
+    spentEur: numeric('spent_eur', { precision: 14, scale: 6 }).default('0').notNull(),
+    reservedEur: numeric('reserved_eur', { precision: 14, scale: 6 }).default('0').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.taskType, t.periodMonth] })]
+);
+
 export const knowledgeSourceSettings = pgTable('knowledge_source_settings', {
   adapterId: varchar('adapter_id', { length: 64 }).primaryKey(),
   critical: boolean('critical').default(false).notNull(),

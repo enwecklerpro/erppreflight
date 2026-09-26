@@ -24,6 +24,14 @@ const TASK_COLUMNS = `task_type, enabled, provider, primary_model, fallback_prov
 
 const MONTH_SQL = `(date_trunc('month', (NOW() AT TIME ZONE 'UTC'))::date)`;
 
+/** Worst-case cost held against a task's monthly ceiling while a provider call is in flight. */
+export interface AiBudgetReservation {
+  task: string;
+  /** Ledger month (YYYY-MM-01); null when the task has no ceiling (nothing reserved). */
+  periodMonth: string | null;
+  amountEur: number;
+}
+
 function asProvider(value: unknown): AiExternalProvider | null {
   return typeof value === 'string' && (AI_PROVIDERS as readonly string[]).includes(value) ? (value as AiExternalProvider) : null;
 }
@@ -103,15 +111,71 @@ export class AiGovernanceService {
     return (Math.max(inputTokens, 0) * policy.inputPriceEurPer1k + Math.max(outputTokens, 0) * policy.outputPriceEurPer1k) / 1000;
   }
 
-  /** Adds one completed call to the monthly ledger; returns the cost charged. Never throws. */
+  /**
+   * Atomically reserves the worst-case cost of one call against the task's monthly ceiling.
+   * One conditional upsert: the DO UPDATE ... WHERE is evaluated on the locked, latest row,
+   * so concurrent calls can never jointly pass the ceiling (no check-then-call race).
+   * Returns null when the reservation would exceed the ceiling. Throws on database errors
+   * (the gateway then fails closed).
+   */
+  async reserveBudget(policy: ResolvedAiTaskPolicy, projectedEur: number): Promise<AiBudgetReservation | null> {
+    if (policy.costCeilingEurMonthly === null) return { task: policy.task, periodMonth: null, amountEur: 0 };
+    const amount = Math.max(projectedEur, 0);
+    const res = await this.db.query(
+      `WITH spend AS (
+         SELECT COALESCE(SUM(cost_eur), 0) AS s FROM ai_task_spend WHERE task_type = $1 AND period_month = ${MONTH_SQL}
+       )
+       INSERT INTO ai_task_budget AS b (task_type, period_month, spent_eur, reserved_eur)
+       SELECT $1, ${MONTH_SQL}, spend.s, $2::numeric FROM spend WHERE spend.s + $2::numeric <= $3::numeric
+       ON CONFLICT (task_type, period_month) DO UPDATE
+         SET reserved_eur = b.reserved_eur + EXCLUDED.reserved_eur, updated_at = NOW()
+         WHERE b.spent_eur + b.reserved_eur + EXCLUDED.reserved_eur <= $3::numeric
+       RETURNING to_char(b.period_month, 'YYYY-MM-DD') AS period_month`,
+      [policy.task, amount, policy.costCeilingEurMonthly],
+      { bypassRls: true }
+    );
+    const period = res?.rows?.[0]?.period_month;
+    return period ? { task: policy.task, periodMonth: String(period), amountEur: amount } : null;
+  }
+
+  /** Releases a reservation whose call produced no billable answer. Never throws. */
+  async releaseBudget(reservation: AiBudgetReservation | null): Promise<void> {
+    if (!reservation?.periodMonth) return;
+    try {
+      await this.db.query(
+        `UPDATE ai_task_budget SET reserved_eur = GREATEST(reserved_eur - $3::numeric, 0), updated_at = NOW()
+          WHERE task_type = $1 AND period_month = $2::date`,
+        [reservation.task, reservation.periodMonth, reservation.amountEur],
+        { bypassRls: true }
+      );
+    } catch (err: any) {
+      this.logger.error(`AI budget release failed for task ${reservation.task}: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Adds one completed call to the monthly ledger (and settles its ceiling reservation); returns the cost charged. Never throws. */
   async recordCall(
     policy: ResolvedAiTaskPolicy,
     provider: AiExternalProvider,
     model: string,
     inputTokens: number,
-    outputTokens: number
+    outputTokens: number,
+    reservation: AiBudgetReservation | null = null
   ): Promise<number> {
     const cost = AiGovernanceService.costOf(policy, inputTokens, outputTokens);
+    if (reservation?.periodMonth) {
+      try {
+        await this.db.query(
+          `UPDATE ai_task_budget
+              SET reserved_eur = GREATEST(reserved_eur - $3::numeric, 0), spent_eur = spent_eur + $4::numeric, updated_at = NOW()
+            WHERE task_type = $1 AND period_month = $2::date`,
+          [reservation.task, reservation.periodMonth, reservation.amountEur, cost],
+          { bypassRls: true }
+        );
+      } catch (err: any) {
+        this.logger.error(`AI budget settlement failed for task ${policy.task}: ${err?.message ?? err}`);
+      }
+    }
     try {
       await this.db.query(
         `INSERT INTO ai_task_spend (task_type, period_month, provider, model, requests, input_tokens, output_tokens, cost_eur)

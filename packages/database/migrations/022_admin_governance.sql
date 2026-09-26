@@ -159,6 +159,21 @@ CREATE TABLE IF NOT EXISTS ai_task_spend (
     PRIMARY KEY (task_type, period_month, provider, model)
 );
 
+-- Cost ceiling enforcement without a check-then-call race: before a provider call the
+-- gateway reserves the worst-case cost of the call with ONE conditional upsert
+-- (ON CONFLICT ... DO UPDATE ... WHERE spent + reserved + projected <= ceiling, evaluated on
+-- the locked row), then settles the reservation with the actual cost (or releases it when
+-- no provider answered). Concurrent calls can therefore never overshoot the ceiling by more
+-- than the error of the worst-case projection itself.
+CREATE TABLE IF NOT EXISTS ai_task_budget (
+    task_type VARCHAR(64) NOT NULL,
+    period_month DATE NOT NULL CHECK (EXTRACT(DAY FROM period_month) = 1),
+    spent_eur NUMERIC(14,6) NOT NULL DEFAULT 0 CHECK (spent_eur >= 0),
+    reserved_eur NUMERIC(14,6) NOT NULL DEFAULT 0 CHECK (reserved_eur >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (task_type, period_month)
+);
+
 -- ------------------------------------------------------------------------------
 -- 3. Knowledge source sync governance (§10.12)
 -- ------------------------------------------------------------------------------
@@ -205,7 +220,7 @@ BEGIN
             TO erppreflight_app;
         REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON rule_governance, ai_task_configs, ai_provider_controls,
             knowledge_source_settings FROM erppreflight_app;
-        REVOKE ALL ON rule_self_test_runs, rule_governance_events, ai_task_spend, knowledge_source_alerts
-            FROM erppreflight_app;
+        REVOKE ALL ON rule_self_test_runs, rule_governance_events, ai_task_spend, ai_task_budget,
+            knowledge_source_alerts FROM erppreflight_app;
     END IF;
 END $$;

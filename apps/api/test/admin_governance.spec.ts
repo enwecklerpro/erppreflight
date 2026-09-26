@@ -135,6 +135,21 @@ describe('Rule Admin publish gate (spec 10.10)', () => {
     expect(upd.params[3]).toBe('PUBLISHED');
     expect(upd.params[4]).toBe(V1);
     expect(upd.params[5]).toBe('22222222-2222-2222-2222-222222222222');
+    // The gate is re-checked inside the UPDATE: a self-test recorded after the approved run blocks it.
+    expect(upd.sql).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM rule_self_test_runs r, rule_self_test_runs g/);
+  });
+
+  it('refuses the publish when a newer self-test was recorded between gate check and update', async () => {
+    const { service, queries } = makeService({ gov, latestRun: run('PASSED') });
+    // The atomic UPDATE matches no row (a newer run exists): nothing is published.
+    const db = (service as any).db;
+    const original = db.query.getMockImplementation();
+    db.query.mockImplementation(async (sql: string, params: any[] = []) =>
+      sql.includes('WITH up AS') ? (queries.push({ sql, params }), { rows: [] }) : original(sql, params)
+    );
+    await expect(service.transition('OPD_RULE_X', { to: 'PUBLISHED' }, actor)).rejects.toMatchObject({
+      response: { code: 'RULE_CONCURRENT_UPDATE' },
+    });
   });
 });
 
@@ -253,10 +268,12 @@ describe('AI Admin governance (spec 10.11)', () => {
     global.fetch = original;
   });
 
-  function gateway(p: ResolvedAiTaskPolicy, spent = 0) {
+  const RESERVATION = { task: 'intent_classification', periodMonth: '2026-09-01', amountEur: 0.5 };
+  function gateway(p: ResolvedAiTaskPolicy, reservation: any = RESERVATION) {
     const governance: any = {
       resolvePolicy: vi.fn(async () => p),
-      spentThisMonth: vi.fn(async () => spent),
+      reserveBudget: vi.fn(async () => reservation),
+      releaseBudget: vi.fn(async () => undefined),
       recordCall: vi.fn(async () => 0),
       recordBlocked: vi.fn(async () => undefined),
     };
@@ -284,9 +301,58 @@ describe('AI Admin governance (spec 10.11)', () => {
   it('cost ceiling: refuses the call once spend plus the worst-case projection exceeds the ceiling', async () => {
     const fetchMock = vi.fn(async () => okResponse());
     global.fetch = fetchMock as any;
-    const { gw } = gateway(policy({ costCeilingEurMonthly: 1, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1, maxTokens: 512 }), 0.9);
-    await expect(gw.completeJson({ purpose: 'intent_classification', system: 's', user: 'u' }, allow)).rejects.toBeInstanceOf(AiUnavailableError);
+    const p = policy({ costCeilingEurMonthly: 1, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1, maxTokens: 512 });
+    const { gw, governance } = gateway(p, null);
+    await expect(gw.completeJson({ purpose: 'intent_classification', system: 's', user: 'u' }, allow)).rejects.toMatchObject({ code: 'COST_CEILING' });
     expect(fetchMock).not.toHaveBeenCalled();
+    // Worst case reserved before any call: 1 input token + 512 output tokens at 1 EUR / 1k.
+    expect(governance.reserveBudget).toHaveBeenCalledWith(p, (1 + 512) / 1000);
+    expect(governance.recordBlocked).toHaveBeenCalledWith('intent_classification', 'OLLAMA_LOCAL');
+  });
+
+  it('cost ceiling: fails closed when the reservation cannot be written', async () => {
+    const fetchMock = vi.fn(async () => okResponse());
+    global.fetch = fetchMock as any;
+    const { gw, governance } = gateway(policy({ costCeilingEurMonthly: 5, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1 }));
+    governance.reserveBudget.mockRejectedValueOnce(new Error('db down'));
+    await expect(gw.completeJson({ purpose: 'intent_classification', system: 's', user: 'u' }, allow)).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('cost ceiling: settles the reservation with the actual cost, releases it when no provider answered', async () => {
+    const p = policy({ costCeilingEurMonthly: 5, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1 });
+    global.fetch = vi.fn(async () => okResponse()) as any;
+    const ok = gateway(p);
+    await ok.gw.completeJson({ purpose: 'intent_classification', system: 's', user: 'u' }, allow);
+    expect(ok.governance.recordCall).toHaveBeenCalledWith(p, 'OLLAMA_LOCAL', 'primary-model', 100, 50, RESERVATION);
+    expect(ok.governance.releaseBudget).not.toHaveBeenCalled();
+
+    global.fetch = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) })) as any;
+    const failing = gateway(p);
+    await expect(failing.gw.completeJson({ purpose: 'intent_classification', system: 's', user: 'u' }, allow)).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+    });
+    expect(failing.governance.releaseBudget).toHaveBeenCalledWith(RESERVATION);
+    expect(failing.governance.recordCall).not.toHaveBeenCalled();
+  });
+
+  it('cost ceiling reservation is one conditional upsert evaluated on the locked budget row', async () => {
+    const db: any = { query: vi.fn(async () => ({ rows: [] })) };
+    const svc = new AiGovernanceService(db);
+    const p = policy({ costCeilingEurMonthly: 2, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1 });
+    expect(await svc.reserveBudget(p, 0.75)).toBeNull();
+    const [sql, params, opts] = db.query.mock.calls[0];
+    expect(sql).toMatch(/INSERT INTO ai_task_budget/);
+    expect(sql).toMatch(/ON CONFLICT \(task_type, period_month\) DO UPDATE/);
+    expect(sql).toMatch(/WHERE b\.spent_eur \+ b\.reserved_eur \+ EXCLUDED\.reserved_eur <= \$3::numeric/);
+    expect(params).toEqual(['intent_classification', 0.75, 2]);
+    expect(opts).toEqual({ bypassRls: true });
+    db.query.mockResolvedValueOnce({ rows: [{ period_month: '2026-09-01' }] });
+    expect(await svc.reserveBudget(p, 0.75)).toEqual({ task: 'intent_classification', periodMonth: '2026-09-01', amountEur: 0.75 });
+    // No ceiling: nothing is reserved and the database is not touched.
+    db.query.mockClear();
+    expect(await svc.reserveBudget(policy({ costCeilingEurMonthly: null }), 1)).toEqual({ task: 'intent_classification', periodMonth: null, amountEur: 0 });
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it('uses the configured model, token cap and temperature, records spend, and falls back when the primary fails', async () => {
@@ -303,7 +369,7 @@ describe('AI Admin governance (spec 10.11)', () => {
     expect(first).toMatchObject({ model: 'primary-model', max_tokens: 256, temperature: 0.1 });
     expect(second.model).toBe('fallback-model');
     expect(out.tokens).toBe(150);
-    expect(governance.recordCall).toHaveBeenCalledWith(p, 'OLLAMA_LOCAL', 'primary-model', 100, 50);
+    expect(governance.recordCall).toHaveBeenCalledWith(p, 'OLLAMA_LOCAL', 'primary-model', 100, 50, null);
   });
 
   it('keeps AI-assisted explanations capped at INFERRED 0.60', async () => {

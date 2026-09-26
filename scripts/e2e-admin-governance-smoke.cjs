@@ -12,7 +12,8 @@
 //     be published, audit trail;
 //   * AI Admin: a local OpenAI-compatible stub is configured as the self-hosted provider; a call
 //     reaches it, the provider kill switch prevents the next call (stub hit count unchanged), the
-//     monthly cost ceiling refuses calls before they are sent, spend ledger + audit;
+//     monthly cost ceiling refuses calls before they are sent (also under a concurrent burst against a
+//     slow provider: atomic reservation, no overshoot), spend ledger + audit;
 //   * Knowledge Admin: EN draft -> technical review -> SEO review -> published -> visible on the
 //     public docs (API + web page) -> archived; knowledge graph admin view;
 //   * Source Sync Admin: stale alert for a critical never-synced source (alert + in-app notification
@@ -56,11 +57,13 @@ async function call(method, p, token, body) {
 /** OpenAI-compatible chat completions stub that counts calls (never contacted when a kill switch is on). */
 function startLlmStub() {
   let hits = 0;
+  let delayMs = 0;
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
-    req.on('end', () => {
+    req.on('end', async () => {
       hits += 1;
+      if (delayMs > 0) await sleep(delayMs);
       let model = 'stub-model';
       try {
         model = JSON.parse(body || '{}').model || model;
@@ -78,7 +81,14 @@ function startLlmStub() {
     });
   });
   return new Promise((resolve) =>
-    server.listen(0, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}`, hits: () => hits }))
+    server.listen(0, '127.0.0.1', () => resolve({
+      server,
+      url: `http://127.0.0.1:${server.address().port}`,
+      hits: () => hits,
+      setDelay: (ms) => {
+        delayMs = ms;
+      },
+    }))
   );
 }
 
@@ -211,6 +221,21 @@ async function main() {
     const hitsAtCeiling = stub.hits();
     const c3 = await classify();
     check('cost ceiling refuses the call before it is sent', c3.json.aiUnavailableReason === 'COST_CEILING' && stub.hits() === hitsAtCeiling, `${c3.json.aiUnavailableReason} hits=${stub.hits()}`);
+    // Concurrency: a burst of parallel calls against a slow provider must not jointly pass the
+    // ceiling (each call reserves its worst-case cost atomically before the provider is called).
+    const spendNow = async () => ((await call('GET', '/admin/ai', SA)).json.tasks ?? []).find((x) => x.task === task)?.spend?.costEur ?? 0;
+    const spent0 = await spendNow();
+    const ceiling = Math.floor((spent0 + 0.7) * 100) / 100;
+    await call('PUT', `/admin/ai/tasks/${task}`, SA, taskBody({ costCeilingEurMonthly: ceiling, inputPriceEurPer1k: 1, outputPriceEurPer1k: 1 }));
+    stub.setDelay(400);
+    const hitsAtBurst = stub.hits();
+    const burst = await Promise.all(Array.from({ length: 8 }, () => classify()));
+    stub.setDelay(0);
+    const spent1 = await spendNow();
+    const burstHits = stub.hits() - hitsAtBurst;
+    const refusedBurst = burst.filter((r) => r.json.aiUnavailableReason === 'COST_CEILING').length;
+    check('cost ceiling holds under concurrent calls (atomic reservation, no overshoot)', burstHits >= 1 && burstHits <= 2 && refusedBurst === 8 - burstHits && spent1 <= ceiling,
+      `ceiling=${ceiling} spent ${spent0.toFixed(3)}->${spent1.toFixed(3)} providerCalls=${burstHits} refused=${refusedBurst}`);
     const ov = await call('GET', '/admin/ai', SA);
     const t = (ov.json.tasks ?? []).find((x) => x.task === task);
     check('spend ledger counts calls and governance refusals', t && t.spend.requests >= 1 && t.spend.blockedRequests >= 2, t ? `requests=${t.spend.requests} blocked=${t.spend.blockedRequests}` : 'missing');

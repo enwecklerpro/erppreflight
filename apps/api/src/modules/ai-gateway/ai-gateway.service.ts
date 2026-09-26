@@ -4,7 +4,7 @@ import { DatabaseService } from '../database/database.service';
 import { UsageService } from '../usage/usage.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { PlanLimitExceededException } from '../billing/plan-limit.exception';
-import { AiGovernanceService } from './ai-governance.service';
+import { AiGovernanceService, type AiBudgetReservation } from './ai-governance.service';
 import { defaultAiTaskPolicy, estimateTokens, routeAiCandidates, type AiRouteCandidate } from './ai-governance.routing';
 import type { AiExternalProvider, ResolvedAiTaskPolicy } from './ai-governance.types';
 import {
@@ -418,10 +418,19 @@ export class AiGatewayService {
     const system = request.system;
     const user = this.scrubPii(request.user);
 
+    // Cost ceiling: the worst-case cost of this call is reserved atomically BEFORE any provider
+    // is called (concurrent calls cannot jointly pass the ceiling), settled with the actual cost
+    // afterwards, released when no provider answered.
+    let reservation: AiBudgetReservation | null = null;
     if (policy.costCeilingEurMonthly !== null && this.governance) {
-      const spent = await this.governance.spentThisMonth(request.purpose);
       const projected = AiGovernanceService.costOf(policy, estimateTokens(system, user), maxTokens);
-      if (spent + projected > policy.costCeilingEurMonthly) {
+      try {
+        reservation = await this.governance.reserveBudget(policy, projected);
+      } catch (err: any) {
+        this.logger.error(`AI cost ceiling check failed for task ${request.purpose}: ${err?.message ?? err}`);
+        throw new AiUnavailableError('PROVIDER_UNAVAILABLE', 'The AI cost ceiling could not be verified; AI is off for this request.');
+      }
+      if (!reservation) {
         await this.governance.recordBlocked(request.purpose, route.candidates[0].provider);
         throw new AiUnavailableError(
           'COST_CEILING',
@@ -448,6 +457,7 @@ export class AiGatewayService {
       }
     }
     if (!answer) {
+      await this.governance?.releaseBudget(reservation);
       throw new AiUnavailableError('PROVIDER_UNAVAILABLE', `AI provider ${route.candidates.map((c) => c.provider).join(' / ')} failed.`);
     }
 
@@ -464,7 +474,7 @@ export class AiGatewayService {
       latencyMs,
       route: candidate.role,
     });
-    if (this.governance) await this.governance.recordCall(policy, provider, model, inputTokens, outputTokens);
+    if (this.governance) await this.governance.recordCall(policy, provider, model, inputTokens, outputTokens, reservation);
     this.logger.log(
       `AI completion purpose=${request.purpose} provider=${provider} (${candidate.role}) model=${model} tokens=${tokens} latencyMs=${latencyMs}`
     );
