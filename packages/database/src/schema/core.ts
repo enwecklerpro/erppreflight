@@ -87,6 +87,8 @@ export const analyses = pgTable('analyses', {
   triggeredBy: uuid('triggered_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  /** Exact knowledge snapshot used by this run (migration 014, Part 17.3). FK in SQL only (avoids a schema import cycle). */
+  knowledgeSnapshotId: uuid('knowledge_snapshot_id'),
 });
 
 export const findings = pgTable('findings', {
