@@ -1,4 +1,5 @@
 import type { Messages } from './en';
+import { analyzeDe } from './analyze.de';
 
 /**
  * Deutsches Wörterbuch. Typisiert als `Messages`: fehlende oder zusätzliche
@@ -40,6 +41,7 @@ export const de: Messages = {
     settings: 'Einstellungen',
     admin: 'Administration',
     analyze: 'Analysieren',
+    reports: 'Berichte',
     billing: 'Abrechnung',
     audit: 'Audit-Log',
     retention: 'Aufbewahrung',
@@ -542,4 +544,5 @@ export const de: Messages = {
     home: 'Zur Startseite',
     knowledge: 'Wissensdatenbank durchsuchen',
   },
+  ...analyzeDe,
 };

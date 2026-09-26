@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { analyzeEn } from './analyze.en';
 
 /**
  * English dictionary — the reference key set. `de.ts` is typed as `Messages`,
@@ -44,6 +45,7 @@ export const en = {
     settings: 'Settings',
     admin: 'Admin',
     analyze: 'Analyze',
+    reports: 'Reports',
     billing: 'Billing',
     audit: 'Audit log',
     retention: 'Data retention',
@@ -526,6 +528,7 @@ export const en = {
     home: 'Go to the homepage',
     knowledge: 'Browse the knowledge base',
   },
+  ...analyzeEn,
 };
 
 export type Messages = typeof en;

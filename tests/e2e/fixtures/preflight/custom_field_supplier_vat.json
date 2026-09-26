@@ -1,0 +1,9 @@
+{
+  "field_name": "YY1_SUPPLIER_VAT",
+  "hops": [
+    ["MM_PURCHASE_ORDER_HEADER", "MM_PURCHASE_ORDER_FORM_OUTPUT"]
+  ],
+  "field_definitions": {
+    "MM_PURCHASE_ORDER_HEADER": { "type": "CHAR", "length": 20 }
+  }
+}

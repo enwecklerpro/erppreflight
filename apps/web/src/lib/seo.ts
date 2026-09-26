@@ -44,6 +44,8 @@ export const PUBLIC_INDEXABLE_ROUTES = [
 export const PRIVATE_ROUTE_PREFIXES = [
   '/dashboard',
   '/projects',
+  '/analyze',
+  '/reports',
   '/inspector',
   '/templates',
   '/artifacts',

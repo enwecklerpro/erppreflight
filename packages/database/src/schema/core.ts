@@ -68,6 +68,14 @@ export const projects = pgTable('projects', {
   targetRelease: varchar('target_release', { length: 50 }).default('S4H_2023').notNull(),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   baselineAnalysisId: uuid('baseline_analysis_id'), // We'll manually refer as there's a circular ref if done naively
+  /** Project mode context (migration 018, Part 01 §1.5). */
+  sourceErp: varchar('source_erp', { length: 80 }),
+  sourceVersion: varchar('source_version', { length: 80 }),
+  targetProduct: varchar('target_product', { length: 80 }),
+  targetEdition: varchar('target_edition', { length: 80 }),
+  deploymentType: varchar('deployment_type', { length: 40 }),
+  countries: jsonb('countries').default([]).notNull(),
+  modules: jsonb('modules').default([]).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -101,6 +109,13 @@ export const analyses = pgTable('analyses', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   /** Exact knowledge snapshot used by this run (migration 014, Part 17.3). FK in SQL only (avoids a schema import cycle). */
   knowledgeSnapshotId: uuid('knowledge_snapshot_id'),
+  /** Orchestration + stage progress (migration 018, Part 03 §3.8 / Part 05 §5.6). */
+  kind: varchar('kind', { length: 30 }).default('STANDARD').notNull(),
+  currentStage: varchar('current_stage', { length: 40 }),
+  progress: jsonb('progress').default({}).notNull(),
+  orchestration: jsonb('orchestration').default({}).notNull(),
+  problemStatement: text('problem_statement'),
+  routingId: uuid('routing_id'),
 });
 
 export const findings = pgTable('findings', {

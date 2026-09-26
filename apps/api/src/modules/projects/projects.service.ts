@@ -4,6 +4,7 @@ import { CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { createFindingFingerprint } from '@erppreflight/evidence';
 import * as crypto from 'node:crypto';
+import { ProjectContextUpdateSchema } from '@erppreflight/schemas';
 
 @Injectable()
 export class ProjectsService {
@@ -70,6 +71,49 @@ export class ProjectsService {
        WHERE organization_id = $4 AND id = $5
        RETURNING *`,
       [dto.name || null, dto.description ?? null, dto.targetRelease || null, organizationId, id]
+    );
+    if (!res.rows?.length) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
+    return toProjectResponse(res.rows[0]);
+  }
+
+  /**
+   * Updates the project mode context (Part 01 §1.5). Only keys present in the
+   * validated payload change; `null` clears a value. These values are the defaults
+   * for analysis target release, Full Project Preflight planning and the router.
+   */
+  async updateContext(organizationId: string, id: string, body: unknown) {
+    const parsed = ProjectContextUpdateSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'INVALID_PROJECT_CONTEXT',
+        message: 'Invalid project context',
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      });
+    }
+    await this.getProjectRow(organizationId, id);
+    const dto = parsed.data;
+    const columns: Array<[string, unknown]> = [];
+    if (dto.sourceErp !== undefined) columns.push(['source_erp', dto.sourceErp]);
+    if (dto.sourceVersion !== undefined) columns.push(['source_version', dto.sourceVersion || null]);
+    if (dto.targetProduct !== undefined) columns.push(['target_product', dto.targetProduct]);
+    if (dto.targetEdition !== undefined) columns.push(['target_edition', dto.targetEdition || null]);
+    if (dto.targetRelease !== undefined) columns.push(['target_release', dto.targetRelease]);
+    if (dto.deploymentType !== undefined) columns.push(['deployment_type', dto.deploymentType]);
+    if (dto.countries !== undefined) columns.push(['countries', JSON.stringify([...new Set(dto.countries)].sort())]);
+    if (dto.modules !== undefined) columns.push(['modules', JSON.stringify([...new Set(dto.modules)].sort())]);
+    if (columns.length === 0) {
+      return this.findOne(organizationId, id);
+    }
+    const sets = columns.map(([col], i) => `${col} = $${i + 1}`).join(', ');
+    const params = columns.map(([, v]) => v);
+    params.push(organizationId, id);
+    const res = await this.db.query(
+      `UPDATE projects SET ${sets}, updated_at = NOW()
+        WHERE organization_id = $${columns.length + 1} AND id = $${columns.length + 2}
+        RETURNING *`,
+      params
     );
     if (!res.rows?.length) {
       throw new NotFoundException(`Project with ID '${id}' not found`);
@@ -441,6 +485,7 @@ export function toProjectResponse(row: any) {
     targetRelease: row.target_release ?? row.targetRelease ?? 'S4H_2023',
     status: row.status ?? 'ACTIVE',
     baselineAnalysisId: row.baseline_analysis_id ?? row.baselineAnalysisId ?? null,
+    context: toProjectContext(row),
     createdBy: row.created_by ?? row.createdBy ?? null,
     totalFindings:
       row.total_findings !== undefined && row.total_findings !== null
@@ -448,6 +493,25 @@ export function toProjectResponse(row: any) {
         : undefined,
     createdAt: toIso(row.created_at ?? row.createdAt),
     updatedAt: toIso(row.updated_at ?? row.updatedAt),
+  };
+}
+
+function jsonArray(value: unknown): string[] {
+  const v = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** Project mode context (Part 01 §1.5, migration 018). */
+export function toProjectContext(row: any) {
+  return {
+    sourceErp: row.source_erp ?? null,
+    sourceVersion: row.source_version ?? null,
+    targetProduct: row.target_product ?? null,
+    targetEdition: row.target_edition ?? null,
+    targetRelease: row.target_release ?? null,
+    deploymentType: row.deployment_type ?? null,
+    countries: jsonArray(row.countries),
+    modules: jsonArray(row.modules),
   };
 }
 

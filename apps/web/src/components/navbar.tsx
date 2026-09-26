@@ -31,6 +31,7 @@ import {
   LifeBuoy,
   Network,
   Bell,
+  FileBarChart,
 } from 'lucide-react';
 import { NavMoreMenu, type NavLinkItem } from './nav-more-menu';
 import { NotificationsBell } from './notifications/notifications-bell';
@@ -67,15 +68,14 @@ export function Navbar() {
   const currentUser = authData?.user;
   const isSuperAdmin = currentUser?.systemRole === 'SUPER_ADMIN';
 
-  // Part 01 §1.3: a short primary bar (Home, Projects, Analyze, Knowledge[, Reports])
-  // and secondary areas in a menu. Items appear only when their page exists:
-  // Reports, Notifications, Integrations and Billing have no page yet.
-  // "Analyze" leads to the project workspaces, where the analysis launcher lives.
+  // Part 01 §1.3: a short primary bar (Home, Projects, Analyze, Knowledge, Reports)
+  // and secondary areas in a menu.
   const appPrimary: NavLinkItem[] = [
     { key: 'dashboard', label: t('nav.dashboard'), href: '/dashboard', icon: LayoutDashboard },
     { key: 'projects', label: t('nav.projects'), href: '/projects', icon: FolderGit2 },
-    { key: 'analyze', label: t('nav.analyze'), href: '/projects', icon: PlayCircle },
+    { key: 'analyze', label: t('nav.analyze'), href: '/analyze', icon: PlayCircle },
     { key: 'knowledge', label: t('nav.knowledge'), href: localizePath(locale, '/knowledge'), icon: BookOpen },
+    { key: 'reports', label: t('nav.reports'), href: '/reports', icon: FileBarChart },
   ];
   const appSecondary: NavLinkItem[] = [
     { key: 'inspector', label: t('nav.inspector'), href: '/inspector', icon: SearchCode },
@@ -147,9 +147,7 @@ export function Navbar() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const path = hrefPath(item.href);
-            // "Analyze" shares /projects; only "Projects" is marked current there.
-            const active =
-              item.key !== 'analyze' && (pathname === path || pathname.startsWith(`${path}/`));
+            const active = pathname === path || pathname.startsWith(`${path}/`);
 
             return (
               <Link

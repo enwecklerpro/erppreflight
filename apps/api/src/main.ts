@@ -71,6 +71,7 @@ async function bootstrap() {
       'X-Tenant-Id',
       'Idempotency-Key',
       'X-Correlation-Id',
+      'Last-Event-ID',
     ],
   });
 
