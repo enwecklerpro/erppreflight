@@ -22,9 +22,16 @@ badges, not only colours.
 1. Open `/signup`: organisation name, your name, e-mail, password (twice). Submitting creates your
    organisation (you are its owner) and signs you in.
 2. Next time use `/login`. Wrong credentials are rejected; repeated failures are rate-limited.
-3. Log out from the user menu — this also clears cached data in the browser.
+   Instead of the password you can choose **Send me a sign-in link**: we e-mail a link that signs you
+   in once and expires after 15 minutes (the answer is the same whether or not the address has an
+   account). With two-factor authentication you are still asked for your code; organisations that
+   enforce single sign-on send their members to the identity provider instead.
+3. Log out from the user menu — this ends the session on the server, removes the session cookie and
+   clears cached data in the browser. The session is kept only in an HTTP-only cookie; nothing that
+   could sign you in is stored in the browser's local storage.
 
-Password reset, 2FA and e-mail verification are not available yet.
+Password reset (sign-in page → *Forgot password?*), e-mail verification (banner after sign-up),
+two-factor authentication and the list of active sessions (**Settings → Security**) are available.
 
 ## 2. Create a project
 

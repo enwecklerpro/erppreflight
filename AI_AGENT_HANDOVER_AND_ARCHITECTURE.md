@@ -272,7 +272,8 @@ The API **refuses to start** in `NODE_ENV=production` when a required secret is 
 | `MASTER_ENCRYPTION_KEY` | yes | `openssl rand -hex 32`. Also keys secret-redaction masks. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | yes | MinIO root credentials. |
 | `NEXT_PUBLIC_API_URL` | yes | **Build-time** for the web image (build arg). Changing it needs a web rebuild. |
-| `CORS_ORIGIN` | yes | https origins only, comma-separated. |
+| `CORS_ORIGIN` | yes | https origins only, comma-separated. The only origins allowed to send credentialed requests and cookie-authenticated unsafe requests (CSRF guard, together with `APP_PUBLIC_URL`). |
+| `SESSION_COOKIE_DOMAIN`, `SESSION_COOKIE_SAMESITE`, `SESSION_COOKIE_SECURE` | optional | Browser session cookie attributes (default: host-only on the API host, `lax`, Secure in production). Web `erppreflight.com` + API `api.erppreflight.com` are the same site, so the defaults work; see `DEPLOYMENT_GUIDE.md` §4.1. |
 | `DB_RUNTIME_ROLE` | default `erppreflight_app` | NOBYPASSRLS role created by migration 010; tenant transactions `SET LOCAL ROLE` to it so RLS applies. `none` disables (not recommended). |
 | `APP_DATABASE_URL` | optional | Separate non-superuser runtime login. |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | optional | Creates one SUPER_ADMIN **only if the email does not exist yet**; never resets existing accounts. Password ≥ 12 chars. |
@@ -312,7 +313,7 @@ pnpm install
 # (AUTO_MIGRATE=true). 001-009 core platform; 010 RLS runtime role erppreflight_app; 011 account lifecycle;
 # 012 billing/usage/retention; 013 knowledge articles; 014 knowledge graph + release intelligence;
 # 015 connectors/identity/partner; 016 billing_events RLS; 017 finding lifecycle + Test Lab;
-# 018 analysis orchestration; 019 knowledge content workflow.
+# 018 analysis orchestration; 019 knowledge content workflow; 025 magic-link sign-in (MAGIC_LINK token purpose).
 # Verify: PG_ADMIN_URL=postgres://<user>:<pw>@localhost:5432 bash scripts/ci-migration-check.sh
 
 # Local infrastructure only (Postgres/pgvector, Redis, MinIO, ClamAV) from the production compose,
@@ -379,6 +380,9 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-findings
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analyze-smoke.cjs      # /analyze + router + SSE, 13
 WEB_URL=... API_BASE_URL=... [SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=...] node scripts/e2e-tools-smoke.cjs   # free tools + SEO pages, 24
 WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-i18n-smoke.cjs             # DE on every app page, 375/1440 px
+# Cookie-only browser session (no JWT in web storage), cookie flags, CSRF 403/2xx, logout revocation,
+# magic link end to end (single use, superseded, expired via DATABASE_URL, 2FA continuation)
+WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... DATABASE_URL=... node scripts/e2e-session-security-smoke.cjs   # pnpm smoke:session-security, 14 steps
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -392,7 +396,8 @@ PG_ADMIN_URL=... S3_ACCESS_KEY=... S3_SECRET_KEY=... bash scripts/ci-live-e2e.sh
 ```
 
 Account lifecycle endpoints:
-`/auth/{verify-email,verify-email/resend,password/forgot,password/reset,password/change,login/2fa,2fa/*,sessions,logout-all,switch-organization}`,
+`/auth/{verify-email,verify-email/resend,password/forgot,password/reset,password/change,login/2fa,2fa/*,sessions,logout-all,switch-organization,csrf}`,
+`/auth/magic-link` (request, always the same answer), `/auth/magic-link/{preview,verify}` (migration 025),
 `/organizations/{members,invitations,ownership-transfer,current/security,current/export}`, `/invitations/{preview,accept,accept-new}`,
 `/account/{export,deletion-impact}` and `DELETE /account` (migration 011).
 
@@ -407,7 +412,8 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 | Task / Change Request | Where to Work | Specific Files & Notes |
 |---|---|---|
 | **Add or edit UI views** | `apps/web/src/app/` | Must use TanStack Query (`useQuery`), loading skeletons, and accessible badges. |
-| **Add a new REST API endpoint** | `apps/api/src/modules/` | Add controller method with `@UseGuards(JwtAuthGuard, TenancyGuard)` and `@RequireEntitlement()`. |
+| **Add a new REST API endpoint** | `apps/api/src/modules/` | Add controller method with `@UseGuards(JwtAuthGuard, TenancyGuard)` and `@RequireEntitlement()`. The global `CsrfGuard` (`modules/auth/csrf.guard.ts`) already protects cookie-authenticated POST/PUT/PATCH/DELETE; mark endpoints that authenticate by signature/bearer only (webhooks, device APIs) with `@SkipCsrf()`. Endpoints that issue a session must go through `SessionCookieService.present()` (sets the HttpOnly cookie + CSRF cookie and never returns the token to browsers). |
+| **Browser auth in the web app** | `apps/web/src/lib/api/custom-instance.ts` | Cookie-only: `credentials: 'include'`, no `Authorization` header, `X-CSRF-Token` on unsafe methods (erp_csrf cookie → in-memory → `GET /auth/csrf`, one retry on `CSRF_REJECTED`). Never store a token in `localStorage`/`sessionStorage`; after sign-in call `storeSession()`/`markSignedIn()`, on sign-out `useLogout()`. |
 | **Database changes / New tables** | `packages/database/` | 1. Add a new SQL file `migrations/020_*.sql` (next free number; never edit an applied migration)<br>2. Every table with `organization_id` needs ENABLE + FORCE RLS and a policy (enforced by `scripts/ci-migration-check.sh`)<br>3. Add Drizzle table in `src/schema/`<br>4. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
 | **Add or update On-Prem Agent features** | `apps/local-agent/src/` | Commands in `cli.ts`, daemon tasks in `daemon.ts`, network checks in `probe.ts`. |
