@@ -7,6 +7,7 @@ import { FilterDef } from './types';
 import { DataTableFacetedFilter } from './data-table-faceted-filter';
 import { DataTableViewOptions } from './data-table-view-options';
 import { triggerExport } from './export';
+import { useT } from '../../i18n/client';
 
 export interface DataTableToolbarProps<TData> {
   table: Table<TData>;
@@ -21,10 +22,11 @@ export function DataTableToolbar<TData>({
   table,
   facetedFilters = [],
   searchColumnId,
-  searchPlaceholder = 'Filter records...',
+  searchPlaceholder,
   serverExportUrl,
   onExport,
 }: DataTableToolbarProps<TData>) {
+  const t = useT();
   const isFiltered =
     table.getState().columnFilters.length > 0 || !!table.getState().globalFilter;
 
@@ -58,21 +60,21 @@ export function DataTableToolbar<TData>({
       {/* Left side: Search & Faceted Filter Buttons */}
       <div className="flex flex-1 flex-wrap items-center gap-2">
         <div className="relative w-full max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" aria-hidden="true" />
           <input
             type="text"
             value={searchValue}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder={searchPlaceholder}
+            placeholder={searchPlaceholder ?? t('app.dataTable.filterPlaceholder')}
             className="w-full rounded-lg border border-input bg-background pl-9 pr-8 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
-            aria-label="Filter records"
+            aria-label={searchPlaceholder ?? t('app.dataTable.filterLabel')}
           />
           {searchValue && (
             <button
               type="button"
               onClick={() => handleSearchChange('')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label="Clear search"
+              aria-label={t('app.dataTable.clearSearch')}
             >
               <X className="size-3.5" />
             </button>
@@ -105,7 +107,7 @@ export function DataTableToolbar<TData>({
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
           >
             <X className="size-3.5" />
-            <span>Reset</span>
+            <span>{t('app.dataTable.reset')}</span>
           </button>
         )}
       </div>
@@ -117,7 +119,8 @@ export function DataTableToolbar<TData>({
           <button
             type="button"
             onClick={() => handleExport('csv')}
-            title="Export full filtered dataset to CSV (RFC 4180 with UTF-8 BOM)"
+            title={t('app.dataTable.exportCsvTitle')}
+            aria-label={t('app.dataTable.exportCsvTitle')}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
           >
             <FileSpreadsheet className="size-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -127,7 +130,8 @@ export function DataTableToolbar<TData>({
           <button
             type="button"
             onClick={() => handleExport('json')}
-            title="Export full filtered dataset to JSON"
+            title={t('app.dataTable.exportJsonTitle')}
+            aria-label={t('app.dataTable.exportJsonTitle')}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
           >
             <FileJson className="size-3.5 text-blue-600 dark:text-blue-400" />

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Table } from '@tanstack/react-table';
 import { SlidersHorizontal, Check } from 'lucide-react';
 import { cn } from './types';
+import { useT } from '../../i18n/client';
 
 export interface DataTableViewOptionsProps<TData> {
   table: Table<TData>;
@@ -12,6 +13,7 @@ export interface DataTableViewOptionsProps<TData> {
 export function DataTableViewOptions<TData>({
   table,
 }: DataTableViewOptionsProps<TData>) {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
@@ -38,10 +40,10 @@ export function DataTableViewOptions<TData>({
         onClick={() => setOpen((prev) => !prev)}
         className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40 shadow-xs transition-colors"
         aria-expanded={open}
-        aria-label="Toggle visible columns"
+        aria-label={t('app.dataTable.toggleColumnsLabel')}
       >
         <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-        <span>Columns</span>
+        <span>{t('app.dataTable.columns')}</span>
       </button>
 
       {open && (
@@ -50,7 +52,7 @@ export function DataTableViewOptions<TData>({
           className="absolute right-0 top-full z-50 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-xl animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider select-none">
-            Toggle Columns
+            {t('app.dataTable.toggleColumns')}
           </div>
           <div className="h-px bg-border my-1" />
 

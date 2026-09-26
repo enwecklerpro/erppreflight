@@ -1,10 +1,13 @@
 import type { Messages } from './en';
+import { appDe } from './app/de';
 
 /**
  * Deutsches Wörterbuch. Typisiert als `Messages`: fehlende oder zusätzliche
  * Schlüssel sind Compile-Fehler. Inhalte sind redaktionell übersetzt, nicht maschinell.
  */
 export const de: Messages = {
+  /** Angemeldete Anwendung (siehe ./app/de). */
+  app: appDe,
   common: {
     brand: 'ERP Preflight',
     tagline: 'Wissen, was bricht — bevor es die Produktion tut.',

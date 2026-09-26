@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { appEn } from './app/en';
 
 /**
  * English dictionary — the reference key set. `de.ts` is typed as `Messages`,
@@ -9,6 +10,8 @@ import { CANONICAL_ENGINES } from '../../lib/api-client';
  * Interpolation: `{name}` placeholders, resolved by `t(key, { name })`.
  */
 export const en = {
+  /** Authenticated application (see ./app/en). */
+  app: appEn,
   common: {
     brand: 'ERP Preflight',
     tagline: 'Know what will break before production does.',

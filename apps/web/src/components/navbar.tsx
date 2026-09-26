@@ -137,8 +137,8 @@ export function Navbar() {
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
-              ERP Preflight
+            <span className="text-lg sm:text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
+              {t('common.brand')}
             </span>
           </Link>
         </div>
@@ -213,13 +213,14 @@ export function Navbar() {
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
-                  {currentUser.systemRole}
+                  {currentUser.systemRole === 'SUPER_ADMIN' ? t('app.ui.systemRole.SUPER_ADMIN') : t('app.ui.systemRole.USER')}
                 </span>
               </div>
               <button
                 onClick={handleLogout}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                 title={t('nav.logoutTitle')}
+                aria-label={t('nav.logout')}
               >
                 <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
                 <span className="hidden sm:inline">{t('nav.logout')}</span>

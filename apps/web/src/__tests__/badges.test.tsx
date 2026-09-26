@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../test/render';
 import { Severity, ConfidenceClass, CleanCoreTier, SapObjectType } from '@erppreflight/schemas';
 import { SeverityBadge } from '../components/findings/severity-badge';
 import { ConfidenceBadge } from '../components/findings/confidence-badge';

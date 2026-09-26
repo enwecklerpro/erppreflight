@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../test/render';
 import { SupportStateBadge, TrustLevelBadge } from '../components/knowledge-graph/badges';
 import { ObjectDetailView, objectHref } from '../components/knowledge-graph/object-detail';
 import { NotificationItem } from '../components/notifications/notification-item';
@@ -86,6 +86,6 @@ describe('knowledge graph UI', () => {
     render(<ul><NotificationItem n={page.items[0]} onToggleRead={() => undefined} /></ul>);
     expect(screen.getByText('Unread')).toBeInTheDocument();
     expect(screen.getByLabelText('Severity: Medium')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Mark "New deprecation/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Mark “New deprecation/ })).toBeInTheDocument();
   });
 });

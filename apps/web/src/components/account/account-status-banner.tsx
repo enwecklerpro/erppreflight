@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { MailWarning, ShieldAlert } from 'lucide-react';
 import { accountKeys, fetchCurrentOrganizationDetails, fetchMe } from '@/lib/account-api';
 import { ResendVerificationButton } from './resend-verification-button';
+import { useRichT } from '@/i18n/client';
 
 /**
  * Account-state banners shown to signed-in users:
@@ -13,6 +14,7 @@ import { ResendVerificationButton } from './resend-verification-button';
  * - the active organization requires 2FA and the user has not enrolled.
  */
 export function AccountStatusBanner({ signedIn }: { signedIn: boolean }) {
+  const rt = useRichT();
   const me = useQuery({ queryKey: accountKeys.me, queryFn: fetchMe, enabled: signedIn, retry: false, staleTime: 30_000 });
   const org = useQuery({
     queryKey: accountKeys.currentOrganization,
@@ -34,10 +36,7 @@ export function AccountStatusBanner({ signedIn }: { signedIn: boolean }) {
           <div role="status" className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
             <p className="flex items-center gap-2">
               <MailWarning className="size-4 shrink-0" aria-hidden="true" />
-              <span>
-                <strong>Verify your e-mail address.</strong> Until then you can upload artifacts, but analyses and report
-                exports stay locked. We sent a link to {me.data.email}.
-              </span>
+              <span>{rt('app.shell.banner.verifyRich', { email: me.data.email ?? '', b: (c) => <strong>{c}</strong> })}</span>
             </p>
             <ResendVerificationButton compact />
           </div>
@@ -46,11 +45,14 @@ export function AccountStatusBanner({ signedIn }: { signedIn: boolean }) {
           <p role="status" className="flex items-center gap-2">
             <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
             <span>
-              <strong>Two-factor authentication required.</strong> This organization requires 2FA.{' '}
-              <Link href="/settings/security" className="font-semibold underline">
-                Enable it now
-              </Link>{' '}
-              to regain access to projects.
+              {rt('app.shell.banner.twoFactorRich', {
+                b: (c) => <strong>{c}</strong>,
+                link: (c) => (
+                  <Link href="/settings/security" className="font-semibold underline">
+                    {c}
+                  </Link>
+                ),
+              })}
             </span>
           </p>
         )}

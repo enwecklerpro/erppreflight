@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '../test/render';
 import { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '../components/data-table/data-table';
 import { FilterDef } from '../components/data-table/types';
@@ -191,7 +191,7 @@ describe('DataTable Enterprise Component', () => {
       fireEvent.click(filterBtn);
 
       // Popover should be open
-      const popover = screen.getByRole('dialog', { name: /Severity filter popover/i });
+      const popover = screen.getByRole('dialog', { name: /Severity filter/i });
       expect(popover).toBeInTheDocument();
 
       // Select 'Critical' checkbox
@@ -302,7 +302,7 @@ describe('DataTable Enterprise Component', () => {
       const searchInput = screen.getByLabelText('Filter records');
       fireEvent.change(searchInput, { target: { value: 'NonexistentFindingQuery999' } });
 
-      expect(screen.getByText(/No matching findings/i)).toBeInTheDocument();
+      expect(screen.getByText(/No matching records/i)).toBeInTheDocument();
 
       // Reset filters button
       const resetBtn = screen.getByRole('button', { name: /Reset all filters/i });
@@ -381,10 +381,10 @@ describe('DataTable Enterprise Component', () => {
         />
       );
 
-      expect(screen.getByText(/Failed to load data grid/i)).toBeInTheDocument();
+      expect(screen.getByText(/Could not load the table/i)).toBeInTheDocument();
       expect(screen.getByText(/Failed to load analysis findings/i)).toBeInTheDocument();
 
-      const retryBtn = screen.getByRole('button', { name: /Retry request/i });
+      const retryBtn = screen.getByRole('button', { name: /Try again/i });
       fireEvent.click(retryBtn);
 
       expect(onRetryMock).toHaveBeenCalledTimes(1);

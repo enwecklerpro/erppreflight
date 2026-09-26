@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { triggerExport } from './export';
+import { useT } from '../../i18n/client';
 
 export interface DataTableBulkActionsProps<TData> {
   table: Table<TData>;
@@ -29,6 +30,7 @@ export function DataTableBulkActions<TData>({
   onAcceptDeviation,
   onMarkResolved,
 }: DataTableBulkActionsProps<TData>) {
+  const t = useT();
   const selectedRows = table.getFilteredSelectedRowModel().rows;
   const count = selectedRows.length;
   const [feedback, setFeedback] = React.useState<string | null>(null);
@@ -54,24 +56,21 @@ export function DataTableBulkActions<TData>({
   };
 
   const handleAssign = () => {
-    if (onAssign) {
-      onAssign(selectedRows.map((r) => r.original));
-    }
-    showFeedback(`Consultant assigned to ${count} item(s)`);
+    if (!onAssign) return;
+    onAssign(selectedRows.map((r) => r.original));
+    showFeedback(t('app.dataTable.assigned', { count }));
   };
 
   const handleAcceptDeviation = () => {
-    if (onAcceptDeviation) {
-      onAcceptDeviation(selectedRows.map((r) => r.original));
-    }
-    showFeedback(`Deviation recorded for ${count} item(s)`);
+    if (!onAcceptDeviation) return;
+    onAcceptDeviation(selectedRows.map((r) => r.original));
+    showFeedback(t('app.dataTable.deviationRecorded', { count }));
   };
 
   const handleMarkResolved = () => {
-    if (onMarkResolved) {
-      onMarkResolved(selectedRows.map((r) => r.original));
-    }
-    showFeedback(`Marked ${count} item(s) as resolved`);
+    if (!onMarkResolved) return;
+    onMarkResolved(selectedRows.map((r) => r.original));
+    showFeedback(t('app.dataTable.resolved', { count }));
   };
 
   return (
@@ -81,7 +80,7 @@ export function DataTableBulkActions<TData>({
           {count}
         </span>
         <span className="text-xs font-semibold text-foreground select-none">
-          selected
+          {t('app.dataTable.selected')}
         </span>
       </div>
 
@@ -100,7 +99,7 @@ export function DataTableBulkActions<TData>({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
             >
               <FileSpreadsheet className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Export CSV</span>
+              <span>{t('app.dataTable.exportCsv')}</span>
             </button>
             <button
               type="button"
@@ -108,21 +107,24 @@ export function DataTableBulkActions<TData>({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
             >
               <FileJson className="size-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Export JSON</span>
+              <span>{t('app.dataTable.exportJson')}</span>
             </button>
           </div>
 
           <div className="h-4 w-px bg-border" />
 
-          {/* Batch Operations */}
+          {/* Batch operations: rendered only when the host wires a real handler. */}
+          {onAssign && (
           <button
             type="button"
             onClick={handleAssign}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
           >
             <UserCheck className="size-3.5 text-primary" />
-            <span>Assign</span>
+            <span>{t('app.dataTable.assign')}</span>
           </button>
+          )}
+          {onAcceptDeviation && (
 
           <button
             type="button"
@@ -130,8 +132,10 @@ export function DataTableBulkActions<TData>({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
           >
             <ShieldCheck className="size-3.5 text-amber-600 dark:text-amber-400" />
-            <span>Accept Deviation</span>
+            <span>{t('app.dataTable.acceptDeviation')}</span>
           </button>
+          )}
+          {onMarkResolved && (
 
           <button
             type="button"
@@ -139,8 +143,9 @@ export function DataTableBulkActions<TData>({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-xs"
           >
             <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>Mark Resolved</span>
+            <span>{t('app.dataTable.markResolved')}</span>
           </button>
+          )}
         </>
       )}
 
@@ -151,9 +156,9 @@ export function DataTableBulkActions<TData>({
         type="button"
         onClick={() => table.resetRowSelection()}
         className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-        aria-label="Clear selection"
+        aria-label={t('app.dataTable.clearSelection')}
       >
-        <X className="size-4" />
+        <X className="size-4" aria-hidden="true" />
       </button>
     </div>
   );
