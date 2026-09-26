@@ -237,13 +237,21 @@ export class GitAdapter implements ConnectorAdapter {
         extra.push(['http.extraHeader', `Authorization: Basic ${Buffer.from(`${user}:${ctx.credentials.token}`).toString('base64')}`]);
       }
       const env = this.gitEnv(sandbox, extra);
-      await this.run(
-        ['clone', '--depth', '1', '--single-branch', '--no-tags', '--branch', ctx.config.branch, '--', target.url.toString(), checkout],
-        sandbox,
-        env,
-        sandbox,
-        ctx.config.maxRepoBytes
-      );
+      const meter = (status: number | null, error: string | null) =>
+        ctx.recordOutbound?.({ connectorKey: ctx.connectorId, method: 'GIT_CLONE', host: target.host, attempt: 1, status, error });
+      try {
+        await this.run(
+          ['clone', '--depth', '1', '--single-branch', '--no-tags', '--branch', ctx.config.branch, '--', target.url.toString(), checkout],
+          sandbox,
+          env,
+          sandbox,
+          ctx.config.maxRepoBytes
+        );
+      } catch (err: any) {
+        await meter(null, String(err?.name || 'error').slice(0, 60));
+        throw err;
+      }
+      await meter(200, null);
       const commit = (await this.run(['rev-parse', 'HEAD'], checkout, env)).trim();
       return await consume(checkout, commit);
     } finally {

@@ -54,6 +54,7 @@ import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.
 import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PublicToolsModule } from './modules/public-tools/public-tools.module';
+import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
       inject: [ConfigService],
     }),
     DatabaseModule,
+    RateLimitModule,
     TenancyModule,
     AuthModule,
     WorkspacesModule,

@@ -4,9 +4,11 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  ServiceUnavailableException,
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { RateLimitBudget, RateLimiterService } from '../../rate-limit/rate-limiter.service';
 
 export interface RateLimitRule {
   /** Bucket namespace, e.g. 'login'. */
@@ -78,8 +80,6 @@ export const INVITATION_RATE_LIMIT: RateLimitRule = {
   maxPerIpAndEmail: 0,
 };
 
-const MAX_TRACKED_KEYS = 50_000;
-
 /**
  * Multiplier applied to all limits. Defaults to 1 in production and 20 elsewhere
  * (local E2E suites log in repeatedly from one IP). Override with AUTH_RATE_LIMIT_SCALE.
@@ -93,18 +93,21 @@ export function rateLimitScale(env: NodeJS.ProcessEnv = process.env): number {
 }
 
 /**
- * In-memory fixed-window limiter for unauthenticated auth endpoints (per API
- * instance). Keys are client IP and client IP + normalized email. Requires
- * Express `trust proxy` to be configured when running behind a reverse proxy
- * so `req.ip` is the real client address.
+ * Fixed-window limiter for unauthenticated / brute-forceable endpoints, backed by the
+ * shared Redis RateLimiterService so the budget holds across ALL API instances.
+ * Keys are client IP and client IP + normalized e-mail (both hashed in Redis). Requires
+ * Express `trust proxy` behind a reverse proxy so `req.ip` is the real client address.
+ * Redis unavailable: see RateLimitFailureMode (bounded in-memory fallback by default,
+ * HTTP 503 in 'closed' mode).
  */
 @Injectable()
 export class AuthRateLimitGuard implements CanActivate {
-  private readonly buckets = new Map<string, { count: number; resetAt: number }>();
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly limiter: RateLimiterService
+  ) {}
 
-  constructor(private readonly reflector: Reflector) {}
-
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const rule = this.reflector.getAllAndOverride<RateLimitRule | undefined>(AUTH_RATE_LIMIT_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -115,71 +118,27 @@ export class AuthRateLimitGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest();
     const res = context.switchToHttp().getResponse();
-    const now = Date.now();
     const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
-    const email =
-      typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase().slice(0, 320) : '';
-
-    this.sweep(now);
+    const rawEmail = req.body?.email ?? req.query?.email;
+    const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase().slice(0, 320) : '';
 
     const scale = rateLimitScale();
-    const checks: Array<[string, number]> = [
-      [`${rule.name}|ip|${ip}`, Math.ceil(rule.maxPerIp * scale)],
-    ];
+    const budgets: RateLimitBudget[] = [{ scope: 'ip', id: ip, limit: Math.ceil(rule.maxPerIp * scale) }];
     if (email && rule.maxPerIpAndEmail > 0) {
-      checks.push([
-        `${rule.name}|ipmail|${ip}|${email}`,
-        Math.ceil(rule.maxPerIpAndEmail * scale),
-      ]);
+      budgets.push({ scope: 'ipmail', id: `${ip}|${email}`, limit: Math.ceil(rule.maxPerIpAndEmail * scale) });
     }
 
-    for (const [key, limit] of checks) {
-      const bucket = this.buckets.get(key);
-      if (bucket && bucket.resetAt > now && bucket.count >= limit) {
-        const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-        if (res && typeof res.setHeader === 'function') {
-          res.setHeader('Retry-After', String(retryAfter));
-        }
-        throw new HttpException(
-          'Too many attempts. Please try again later.',
-          HttpStatus.TOO_MANY_REQUESTS
-        );
-      }
+    const decision = await this.limiter.consume(rule.name, budgets, rule.windowMs);
+    if (decision.allowed) {
+      return true;
     }
-
-    for (const [key] of checks) {
-      const bucket = this.buckets.get(key);
-      if (!bucket || bucket.resetAt <= now) {
-        this.buckets.set(key, { count: 1, resetAt: now + rule.windowMs });
-      } else {
-        bucket.count += 1;
-      }
+    const retryAfter = Math.max(1, Math.ceil(decision.retryAfterMs / 1000));
+    if (res && typeof res.setHeader === 'function') {
+      res.setHeader('Retry-After', String(retryAfter));
     }
-    return true;
-  }
-
-  /** Test helper. */
-  reset(): void {
-    this.buckets.clear();
-  }
-
-  private sweep(now: number): void {
-    if (this.buckets.size < MAX_TRACKED_KEYS) {
-      return;
+    if (decision.backend === 'unavailable') {
+      throw new ServiceUnavailableException('Sign-in protection is temporarily unavailable. Please try again shortly.');
     }
-    for (const [key, bucket] of this.buckets) {
-      if (bucket.resetAt <= now) {
-        this.buckets.delete(key);
-      }
-    }
-    // Still full (sustained attack from many sources): drop the oldest entries.
-    if (this.buckets.size >= MAX_TRACKED_KEYS) {
-      const excess = this.buckets.size - Math.floor(MAX_TRACKED_KEYS * 0.9);
-      let removed = 0;
-      for (const key of this.buckets.keys()) {
-        if (removed++ >= excess) break;
-        this.buckets.delete(key);
-      }
-    }
+    throw new HttpException('Too many attempts. Please try again later.', HttpStatus.TOO_MANY_REQUESTS);
   }
 }

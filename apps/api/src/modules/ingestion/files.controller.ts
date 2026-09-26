@@ -17,7 +17,6 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestPresignedUploadDto } from '@erppreflight/schemas';
 import { Audited, AuditContext } from '../audit/audited.decorator';
-import { Metered, MeteredContext } from '../usage/metered.decorator';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 
 /** Upload result → audit action (quarantine outcomes are security events). */
@@ -40,16 +39,6 @@ function uploadPayload({ result, request }: AuditContext): Record<string, unknow
   };
 }
 
-function uploadedBytes({ request, result }: MeteredContext): number {
-  if (result?.status !== 'CLEAN' && result?.status !== 'QUARANTINED') return 0;
-  if (request.file?.size) return Number(request.file.size);
-  const raw = request.body?.content ?? request.body?.rawContent;
-  return typeof raw === 'string' ? Buffer.byteLength(raw, 'utf-8') : 0;
-}
-
-const processedUpload = ({ result }: MeteredContext) =>
-  result?.status === 'CLEAN' || result?.status === 'QUARANTINED' ? 1 : 0;
-
 const UPLOAD_AUDIT = {
   action: uploadAction,
   targetType: 'ARTIFACT',
@@ -57,21 +46,8 @@ const UPLOAD_AUDIT = {
   payload: uploadPayload,
 };
 
-const UPLOAD_METERS = [
-  {
-    metric: 'ARTIFACT_UPLOAD' as const,
-    quantity: processedUpload,
-    resourceType: 'ARTIFACT',
-    resourceId: ({ result }: MeteredContext) => result?.fileId,
-    metadata: ({ result }: MeteredContext) => ({ status: result?.status ?? null }),
-  },
-  {
-    metric: 'ARTIFACT_BYTES' as const,
-    quantity: uploadedBytes,
-    resourceType: 'ARTIFACT',
-    resourceId: ({ result }: MeteredContext) => result?.fileId,
-  },
-];
+// Usage metering (ARTIFACT_UPLOAD + ARTIFACT_BYTES) is recorded by IngestionService.confirmUpload
+// exactly once per processed file for every upload path, so these routes carry no @Metered.
 
 // Multipart uploads are buffered in memory before quarantine; cap them (default 100 MB,
 // matching the web client) so a single request cannot exhaust API memory. Multer answers 413.
@@ -86,7 +62,6 @@ export class FilesController {
   @RequireEntitlement('UPLOAD_ARTIFACT')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
   @Audited(UPLOAD_AUDIT)
-  @Metered(...UPLOAD_METERS)
   async uploadArtifact(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
@@ -105,12 +80,10 @@ export class FilesController {
           mimeType: file.mimetype || 'application/octet-stream',
         }
       );
-      return await this.ingestionService.confirmUpload(
-        tenantId,
-        projectId,
-        presigned.fileId,
-        file.buffer
-      );
+      return await this.ingestionService.confirmUpload(tenantId, projectId, presigned.fileId, file.buffer, {
+        actorId: userId,
+        source: 'multipart',
+      });
     }
 
     if (body?.fileId) {
@@ -118,7 +91,8 @@ export class FilesController {
         tenantId,
         projectId,
         body.fileId,
-        body.content ? Buffer.from(body.content, 'utf-8') : undefined
+        body.content ? Buffer.from(body.content, 'utf-8') : undefined,
+        { actorId: userId, source: 'inline-confirm' }
       );
     }
 
@@ -135,12 +109,10 @@ export class FilesController {
           mimeType: body.mimeType || 'application/octet-stream',
         }
       );
-      return await this.ingestionService.confirmUpload(
-        tenantId,
-        projectId,
-        presigned.fileId,
-        buffer
-      );
+      return await this.ingestionService.confirmUpload(tenantId, projectId, presigned.fileId, buffer, {
+        actorId: userId,
+        source: 'inline',
+      });
     }
 
     if (body?.fileName && body?.fileSize) {
@@ -178,13 +150,16 @@ export class FilesController {
 
   @Post(':fileId/confirm')
   @Audited(UPLOAD_AUDIT)
-  @Metered(...UPLOAD_METERS)
   async confirmUpload(
     @CurrentTenant() tenantId: string,
+    @CurrentUser('id') userId: string,
     @Param('projectId') projectId: string,
     @Param('fileId') fileId: string
   ) {
-    return this.ingestionService.confirmUpload(tenantId, projectId, fileId);
+    return this.ingestionService.confirmUpload(tenantId, projectId, fileId, undefined, {
+      actorId: userId,
+      source: 'presigned',
+    });
   }
 
   @Get(':fileId/presign-download')

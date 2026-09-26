@@ -256,6 +256,8 @@ export const UsageMetricEnum = z.enum([
   'ARTIFACT_BYTES',
   'REPORT_EXPORT',
   'AI_TOKENS',
+  /** Outbound requests made by connectors (Jira, ServiceNow, Cloud ALM, OData, repository clones). */
+  'CONNECTOR_REQUEST',
 ]);
 export type UsageMetric = z.infer<typeof UsageMetricEnum>;
 

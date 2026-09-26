@@ -1,3 +1,4 @@
+import type { ConnectorAttemptInfo } from '../connector-http';
 import type { ConnectorHttp } from '../connector-http';
 import type { ConnectorType } from '../connector-registry';
 
@@ -8,6 +9,11 @@ export interface ConnectorContext<C = any, S = any> {
   config: C;
   credentials: S;
   http: ConnectorHttp;
+  /**
+   * Records an outbound request made outside `http` (e.g. the git CLI clone) for usage
+   * metering. Optional: absent in unit tests.
+   */
+  recordOutbound?: (info: ConnectorAttemptInfo) => Promise<void>;
 }
 
 /** Result of the capability handshake (Part 18.1). */

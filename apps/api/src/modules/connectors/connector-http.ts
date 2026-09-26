@@ -9,7 +9,9 @@ import {
 /**
  * Outbound HTTP for connectors: every call goes through the SSRF-hardened,
  * DNS-pinned client (common/security/outbound-request.ts), with
- *  - a per-connector token-bucket rate limiter,
+ *  - a per-connector token-bucket rate limiter (shared across API instances through
+ *    Redis when wired by ConnectorsService; in-memory TokenBucketLimiter otherwise),
+ *  - an optional per-attempt hook (usage metering of outbound requests),
  *  - bounded retries with exponential backoff + jitter for idempotent requests
  *    (network errors, 429, 502/503/504; Retry-After honoured, capped),
  *  - bounded response size and timeouts.
@@ -61,14 +63,31 @@ export function connectorOutboundPolicy(env: NodeJS.ProcessEnv = process.env): O
 }
 
 // ---------------------------------------------------------------------------
-// Token bucket rate limiter (per connector instance, per API process)
+// Token bucket rate limiter (per connector instance)
 // ---------------------------------------------------------------------------
+export interface ConnectorLimiter {
+  /** Takes one token or returns the wait time (ms) until one is available. */
+  take(key: string): { allowed: boolean; retryAfterMs: number } | Promise<{ allowed: boolean; retryAfterMs: number }>;
+}
+
+/** Outcome of one outbound attempt that reached the network (for metering). */
+export interface ConnectorAttemptInfo {
+  connectorKey: string;
+  method: string;
+  /** Host only — paths / query strings may carry identifiers and are never recorded. */
+  host: string;
+  attempt: number;
+  status: number | null;
+  error: string | null;
+}
+
 interface Bucket {
   tokens: number;
   updatedAt: number;
 }
 
-export class TokenBucketLimiter {
+/** Per-process token bucket (tests, and fallback when no shared limiter is wired). */
+export class TokenBucketLimiter implements ConnectorLimiter {
   private readonly buckets = new Map<string, Bucket>();
 
   constructor(
@@ -94,12 +113,38 @@ export class TokenBucketLimiter {
   }
 }
 
-const RATE_CAPACITY = Number(process.env.CONNECTOR_RATE_LIMIT_BURST || 20);
-const RATE_PER_SECOND = Number(process.env.CONNECTOR_RATE_LIMIT_PER_SECOND || 5);
-export const sharedConnectorLimiter = new TokenBucketLimiter(
-  Number.isFinite(RATE_CAPACITY) && RATE_CAPACITY > 0 ? RATE_CAPACITY : 20,
-  Number.isFinite(RATE_PER_SECOND) && RATE_PER_SECOND > 0 ? RATE_PER_SECOND : 5
-);
+export function connectorRateSettings(env: NodeJS.ProcessEnv = process.env): { burst: number; perSecond: number } {
+  const burst = Number(env.CONNECTOR_RATE_LIMIT_BURST || 20);
+  const perSecond = Number(env.CONNECTOR_RATE_LIMIT_PER_SECOND || 5);
+  return {
+    burst: Number.isFinite(burst) && burst > 0 ? burst : 20,
+    perSecond: Number.isFinite(perSecond) && perSecond > 0 ? perSecond : 5,
+  };
+}
+
+const RATE = connectorRateSettings();
+export const sharedConnectorLimiter = new TokenBucketLimiter(RATE.burst, RATE.perSecond);
+
+/** Minimal view of RateLimiterService.takeToken (keeps this module free of Nest DI). */
+export interface SharedTokenBucket {
+  takeToken(namespace: string, id: string, capacity: number, refillPerSecond: number): Promise<{ allowed: boolean; retryAfterMs: number }>;
+}
+
+/** Token bucket per connector instance shared by every API process (Redis). */
+export function distributedConnectorLimiter(
+  shared: SharedTokenBucket,
+  settings: { burst: number; perSecond: number } = connectorRateSettings()
+): ConnectorLimiter {
+  return { take: (key: string) => shared.takeToken('connector-http', key, settings.burst, settings.perSecond) };
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.slice(0, 200);
+  } catch {
+    return 'invalid-url';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Retry / backoff
@@ -143,15 +188,25 @@ export function createConnectorHttp(
   connectorKey: string,
   options: {
     policy?: OutboundPolicy;
-    limiter?: TokenBucketLimiter;
+    limiter?: ConnectorLimiter;
     fetchImpl?: typeof safeOutboundFetch;
     sleepImpl?: (ms: number) => Promise<void>;
+    /** Called once per attempt that reached the network (metering); failures are ignored. */
+    onAttempt?: (info: ConnectorAttemptInfo) => void | Promise<void>;
   } = {}
 ): ConnectorHttp {
   const policy = options.policy ?? connectorOutboundPolicy();
   const limiter = options.limiter ?? sharedConnectorLimiter;
   const doFetch = options.fetchImpl ?? safeOutboundFetch;
   const doSleep = options.sleepImpl ?? sleep;
+  const report = async (info: ConnectorAttemptInfo) => {
+    if (!options.onAttempt) return;
+    try {
+      await options.onAttempt(info);
+    } catch {
+      /* metering must never fail a connector call */
+    }
+  };
 
   async function request(req: ConnectorRequest): Promise<OutboundFetchResponse> {
     const method = req.method ?? 'GET';
@@ -160,12 +215,14 @@ export function createConnectorHttp(
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      const slot = limiter.take(connectorKey);
+      const slot = await limiter.take(connectorKey);
       if (!slot.allowed) {
         throw new ConnectorRateLimitedError(slot.retryAfterMs);
       }
+      const base = { connectorKey, method, host: hostOf(req.url), attempt };
+      let res: OutboundFetchResponse;
       try {
-        const res = await doFetch(req.url, {
+        res = await doFetch(req.url, {
           method,
           headers: { 'User-Agent': 'ERPPreflight-Connector/1.0', ...(req.headers || {}) },
           body: req.body,
@@ -173,23 +230,11 @@ export function createConnectorHttp(
           maxResponseBytes: req.maxResponseBytes ?? 5 * 1024 * 1024,
           policy,
         });
-        const ok = req.okStatuses ? req.okStatuses.includes(res.status) : res.status >= 200 && res.status < 300;
-        if (ok) return res;
-        const retryable = RETRYABLE_STATUSES.has(res.status);
-        const err = new ConnectorHttpError(
-          `Remote system returned HTTP ${res.status}`,
-          res.status,
-          snippet(res.text()),
-          retryable
-        );
-        if (retryable && attempt < attempts) {
-          lastError = err;
-          await doSleep(computeBackoffMs(attempt, res.headers['retry-after'] as string | undefined));
-          continue;
-        }
-        throw err;
       } catch (err: any) {
-        if (err instanceof ConnectorHttpError) throw err;
+        // Blocked by the SSRF policy = no request left this process: not metered.
+        if (!(err instanceof UnsafeOutboundUrlError)) {
+          await report({ ...base, status: null, error: String(err?.code || err?.name || 'error').slice(0, 60) });
+        }
         if (isTransientNetworkError(err) && attempt < attempts) {
           lastError = err;
           await doSleep(computeBackoffMs(attempt));
@@ -197,6 +242,17 @@ export function createConnectorHttp(
         }
         throw err;
       }
+      await report({ ...base, status: res.status, error: null });
+      const ok = req.okStatuses ? req.okStatuses.includes(res.status) : res.status >= 200 && res.status < 300;
+      if (ok) return res;
+      const retryable = RETRYABLE_STATUSES.has(res.status);
+      const err = new ConnectorHttpError(`Remote system returned HTTP ${res.status}`, res.status, snippet(res.text()), retryable);
+      if (retryable && attempt < attempts) {
+        lastError = err;
+        await doSleep(computeBackoffMs(attempt, res.headers['retry-after'] as string | undefined));
+        continue;
+      }
+      throw err;
     }
     throw lastError;
   }
