@@ -270,6 +270,9 @@ The API **refuses to start** in `NODE_ENV=production` when a required secret is 
 | `ENABLE_SWAGGER` | default `false` | Swagger UI is off in production unless `true`. |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | for billing | Without them checkout returns 503 (no fake URLs). |
 | `CLAMAV_MOCK_MODE` | must be `false` | Uploads fail closed if clamd is unreachable. |
+| `MAIL_TRANSPORT` / `MAIL_FROM` | yes | `smtp` (`SMTP_HOST/PORT/SECURE/USER/PASSWORD`), `http` (`MAIL_HTTP_PROVIDER=resend\|postmark`, `MAIL_HTTP_API_KEY`) or `dev` (stores mail in `mail_outbox`, readable at `GET /api/v1/dev/mail/messages?to=` with header `X-Dev-Mailbox-Token`; in production only with `MAIL_DEV_OUTBOX_TOKEN` ≥ 24 chars, for staging/E2E stacks). |
+| `APP_PUBLIC_URL` | yes (or `CORS_ORIGIN`) | Web origin used in verification / reset / invitation links. |
+| `EMAIL_VERIFICATION_REQUIRED` | default `true` | Unverified users can sign in, create projects and upload, but cannot run analyses, export reports, create API keys or invite members (403 `EMAIL_NOT_VERIFIED`). |
 | `AUTH_RATE_LIMIT_SCALE`, `TRUST_PROXY`, `BILLING_RETURN_ORIGINS`, `ALLOW_PRIVATE_LANDSCAPE_PROBES` | optional | See `.env.coolify.example`. |
 
 Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from the environment (§4.1.1).
@@ -330,8 +333,16 @@ analysis, tenancy, redaction or export, run both smoke tests against a running s
 API_BASE_URL=http://localhost:3001 pnpm smoke:live   # 21 API checks: register, upload+ClamAV, analysis,
                                                       # findings+evidence, 5 export formats, tenant isolation,
                                                       # secret redaction at rest
-WEB_URL=http://localhost:3000 pnpm smoke:ui          # Chromium: signup -> project -> upload -> launch -> finding
+WEB_URL=http://localhost:3000 pnpm smoke:ui          # Chromium: signup -> verify e-mail -> project -> upload -> launch -> finding
+WEB_URL=http://localhost:3000 node scripts/e2e-account-ui-smoke.cjs  # Chromium: reset password, 2FA enroll + login,
+                                                      # invitations, org switch, GDPR export + account deletion
 ```
+
+Both smoke tests follow e-mail links from the dev mailbox, so the API must run with `MAIL_TRANSPORT=dev`
+(pass `MAIL_DEV_OUTBOX_TOKEN` to the scripts when the API sets one). Account lifecycle endpoints:
+`/auth/{verify-email,verify-email/resend,password/forgot,password/reset,password/change,login/2fa,2fa/*,sessions,logout-all,switch-organization}`,
+`/organizations/{members,invitations,ownership-transfer,current/security,current/export}`, `/invitations/{preview,accept,accept-new}`,
+`/account/{export,deletion-impact}` and `DELETE /account` (migration 011).
 
 Local API run with production semantics: `pnpm --filter @erppreflight/api build`, then start
 `node apps/api/dist/src/main.js` with `NODE_ENV=production` and the variables from §4.4. The web must be built with
