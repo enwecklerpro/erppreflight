@@ -6,12 +6,14 @@ import { EngineType, TargetRelease, ArtifactType } from '@erppreflight/schemas';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
+import { OutboxService } from '../outbox/outbox.service';
+import { ReleasedObjectsProvider } from '../knowledge-graph/released-objects.provider';
 import {
   AnalysisExecutor,
+  AnalysisRunResult,
   AnalysisJobFile,
   applyDataPolicy,
   resolveArtifactType,
-  AnalysisRunResult,
 } from './analysis-executor';
 import { AuditService } from '../audit/audit.service';
 import { UsageService } from '../usage/usage.service';
@@ -57,7 +59,9 @@ export class AnalysisProcessor extends WorkerHost {
     private readonly config: ConfigService,
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly usage?: UsageService,
-    @Optional() private readonly retention?: RetentionService
+    @Optional() private readonly retention?: RetentionService,
+    @Optional() private readonly outbox?: OutboxService,
+    @Optional() private readonly releasedObjects?: ReleasedObjectsProvider
   ) {
     super();
     this.analysisUrl =
@@ -67,8 +71,63 @@ export class AnalysisProcessor extends WorkerHost {
       this.db,
       this.storageService,
       this.analysisUrl,
-      this.logger
+      this.logger,
+      this.releasedObjects
     );
+  }
+
+  /**
+   * Domain events for the notification engine / webhooks (Part 05 §5.10):
+   * analysis.completed | analysis.failed, plus finding.critical when the run
+   * persisted BLOCKER/CRITICAL findings. Best effort: never fails the job.
+   */
+  private async emitOutcome(
+    data: AnalysisJobData,
+    result: AnalysisRunResult | null,
+    error?: string
+  ): Promise<void> {
+    if (!this.outbox) return;
+    const { analysisId, organizationId, projectId, userId, engineTypes, targetRelease } = data;
+    try {
+      const failed = !result || result.finalStatus === 'FAILED';
+      await this.outbox.recordEvent(
+        organizationId,
+        failed ? 'analysis.failed' : 'analysis.completed',
+        'ANALYSIS',
+        analysisId,
+        {
+          analysisId,
+          projectId,
+          triggeredBy: userId ?? null,
+          engineTypes,
+          targetRelease,
+          status: result?.finalStatus ?? 'FAILED',
+          totalFindings: result?.totalFindings ?? 0,
+          engineOutcomes: result?.engineOutcomes ?? {},
+          ...(error ? { reason: error.slice(0, 500) } : {}),
+        }
+      );
+      if (!result || result.totalFindings === 0) return;
+      const sev = await this.db.query(
+        `SELECT severity, engine, COUNT(*)::int AS n FROM findings
+          WHERE analysis_id = $1 AND organization_id = $2 AND severity IN ('BLOCKER', 'CRITICAL')
+          GROUP BY severity, engine`,
+        [analysisId, organizationId],
+        { tenantId: organizationId }
+      );
+      if (!sev.rows.length) return;
+      const count = (s: string) => sev.rows.filter((r: any) => r.severity === s).reduce((a: number, r: any) => a + r.n, 0);
+      await this.outbox.recordEvent(organizationId, 'finding.critical', 'ANALYSIS', analysisId, {
+        analysisId,
+        projectId,
+        triggeredBy: userId ?? null,
+        blockerCount: count('BLOCKER'),
+        criticalCount: count('CRITICAL'),
+        engines: [...new Set(sev.rows.map((r: any) => r.engine))].sort(),
+      });
+    } catch (err: any) {
+      this.logger.warn(`Could not record analysis outcome event for ${analysisId}: ${err?.message ?? err}`);
+    }
   }
 
   async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>): Promise<void> {
@@ -100,6 +159,7 @@ export class AnalysisProcessor extends WorkerHost {
         legacyArtifactS3Key: data.artifactS3Key ?? null,
         legacyArtifactType: data.artifactType,
       });
+      await this.emitOutcome(data, result);
     } catch (err: any) {
       this.logger.error(`Analysis job ${analysisId} failed: ${err?.message ?? err}`);
       await this.db
@@ -120,6 +180,7 @@ export class AnalysisProcessor extends WorkerHost {
           error: String(err?.message ?? err).slice(0, 300),
         },
       });
+      await this.emitOutcome(data, null, String(err?.message ?? err));
       // Rethrow so BullMQ records the failure and applies its retry policy.
       throw err;
     }

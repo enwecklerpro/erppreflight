@@ -29,8 +29,11 @@ import {
   ScrollText,
   Archive,
   LifeBuoy,
+  Network,
+  Bell,
 } from 'lucide-react';
 import { NavMoreMenu, type NavLinkItem } from './nav-more-menu';
+import { NotificationsBell } from './notifications/notifications-bell';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance, getStoredAuthToken, setAuthHintCookie } from '../lib/api/custom-instance';
 import { useLogout } from '../lib/query/query-provider';
@@ -78,6 +81,8 @@ export function Navbar() {
     { key: 'inspector', label: t('nav.inspector'), href: '/inspector', icon: SearchCode },
     { key: 'templates', label: t('nav.templates'), href: '/templates', icon: Layers },
     { key: 'artifacts', label: t('nav.artifacts'), href: '/artifacts', icon: FileBox },
+    { key: 'knowledge-graph', label: t('nav.knowledgeGraph'), href: '/knowledge-graph', icon: Network },
+    { key: 'notifications', label: t('nav.notifications'), href: '/notifications', icon: Bell },
     { key: 'landscapes', label: t('nav.landscapes'), href: '/landscapes', icon: Server },
     { key: 'agent-gate', label: t('nav.agentGate'), href: '/agent-gate', icon: Bot },
     { key: 'matrix', label: t('nav.matrix'), href: '/matrix', icon: ShieldCheck },
@@ -197,6 +202,7 @@ export function Navbar() {
 
           {currentUser ? (
             <div className="flex items-center gap-3">
+              <NotificationsBell />
               <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
               <div className="hidden xl:flex flex-col items-end">
                 <span className="font-semibold text-foreground">{currentUser.email}</span>

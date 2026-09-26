@@ -48,6 +48,8 @@ export const en = {
     audit: 'Audit log',
     retention: 'Data retention',
     support: 'Support',
+    knowledgeGraph: 'Knowledge graph',
+    notifications: 'Notifications',
     more: 'More',
     secondary: 'More areas',
     solutions: 'Solutions',

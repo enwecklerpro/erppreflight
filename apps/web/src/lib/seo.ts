@@ -36,6 +36,8 @@ export const PUBLIC_INDEXABLE_ROUTES = [
   '/procurement',
   '/status',
   '/demo',
+  // Public free tool (Part 01 §1.11). Object pages below it decide index/noindex per page (Part 02 §2.9).
+  '/knowledge-graph/lookup',
 ] as const;
 
 /** Authenticated application routes and routes without indexable content. */
@@ -51,6 +53,8 @@ export const PRIVATE_ROUTE_PREFIXES = [
   '/admin',
   '/onboarding',
   '/feedback',
+  '/knowledge-graph',
+  '/notifications',
   '/login',
   '/signup',
   '/forgot-password',

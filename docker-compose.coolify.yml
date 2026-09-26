@@ -263,6 +263,8 @@ services:
       MAIL_HTTP_API_KEY: ${MAIL_HTTP_API_KEY:-}
       MAIL_DEV_OUTBOX_TOKEN: ${MAIL_DEV_OUTBOX_TOKEN:-}
       EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
+      KNOWLEDGE_SYNC_CRON: ${KNOWLEDGE_SYNC_CRON:-17 3 * * 1}
+      KNOWLEDGE_CR_FILES: ${KNOWLEDGE_CR_FILES:-}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health/liveness || exit 1"]
       interval: 10s

@@ -46,6 +46,9 @@ import { RetentionModule } from './modules/retention/retention.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { SupportModule } from './modules/support/support.module';
 import { AccountModule } from './modules/account/account.module';
+import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
+import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -101,6 +104,9 @@ import { AccountModule } from './modules/account/account.module';
     FeatureFlagsModule,
     SupportModule,
     AccountModule,
+    KnowledgeGraphModule,
+    ReleaseIntelligenceModule,
+    NotificationsModule,
   ],
 })
 export class AppModule implements NestModule {

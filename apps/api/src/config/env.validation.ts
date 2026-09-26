@@ -23,6 +23,9 @@ export const envSchema = z.object({
   // Billing provider: 'stripe' (needs STRIPE_SECRET_KEY), 'local' (non-production simulator) or 'none'.
   BILLING_PROVIDER: z.enum(['stripe', 'local', 'none']).optional(),
   TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  // Knowledge graph sync (docs/KNOWLEDGE_GRAPH.md): weekly cron in UTC or 'off'; optional repository file subset.
+  KNOWLEDGE_SYNC_CRON: z.string().optional(),
+  KNOWLEDGE_CR_FILES: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),

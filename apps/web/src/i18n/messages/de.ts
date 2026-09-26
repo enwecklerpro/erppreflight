@@ -44,6 +44,8 @@ export const de: Messages = {
     audit: 'Audit-Log',
     retention: 'Aufbewahrung',
     support: 'Support',
+    knowledgeGraph: 'Wissensgraph',
+    notifications: 'Benachrichtigungen',
     more: 'Mehr',
     secondary: 'Weitere Bereiche',
     solutions: 'Lösungen',
