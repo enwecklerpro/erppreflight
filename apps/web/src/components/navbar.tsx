@@ -22,6 +22,8 @@ import {
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
 import { useLogout } from '../lib/query/query-provider';
+import { OrganizationSwitcher } from './account/organization-switcher';
+import { AccountStatusBanner } from './account/account-status-banner';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -141,6 +143,7 @@ export function Navbar() {
 
           {currentUser ? (
             <div className="flex items-center gap-3">
+              <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
               <div className="hidden xl:flex flex-col items-end">
                 <span className="font-semibold text-foreground">{currentUser.email}</span>
                 <span
@@ -181,6 +184,7 @@ export function Navbar() {
           )}
         </div>
       </div>
+      <AccountStatusBanner signedIn={!!currentUser} />
     </header>
   );
 }

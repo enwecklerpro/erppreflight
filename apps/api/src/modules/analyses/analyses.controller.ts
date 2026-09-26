@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { AnalysesService } from './analyses.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { VerifiedEmailGuard } from '../auth/guards/verified-email.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -22,6 +23,7 @@ export class AnalysesController {
   constructor(private readonly analysesService: AnalysesService) {}
 
   @Post()
+  @UseGuards(VerifiedEmailGuard)
   @RequireEntitlement('RUN_ANALYSIS')
   @Audited({
     action: 'analysis.queued',

@@ -45,6 +45,7 @@ import { UsageModule } from './modules/usage/usage.module';
 import { RetentionModule } from './modules/retention/retention.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { SupportModule } from './modules/support/support.module';
+import { AccountModule } from './modules/account/account.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { SupportModule } from './modules/support/support.module';
     RetentionModule,
     FeatureFlagsModule,
     SupportModule,
+    AccountModule,
   ],
 })
 export class AppModule implements NestModule {

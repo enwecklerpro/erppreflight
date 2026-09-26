@@ -23,7 +23,8 @@
     "smoke:live": "bash scripts/e2e-live-smoke.sh",
     "smoke:ui": "node scripts/e2e-ui-smoke.cjs",
     "smoke:commercial": "python3 scripts/e2e-commercial-smoke.py",
-    "smoke:commercial-ui": "node scripts/e2e-commercial-ui.cjs"
+    "smoke:commercial-ui": "node scripts/e2e-commercial-ui.cjs",
+    "smoke:account-ui": "node scripts/e2e-account-ui-smoke.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

@@ -33,11 +33,31 @@ async function api(method, p, token, body, extraHeaders = {}) {
   return { status: res.status, body: json };
 }
 
+// Analyses/exports require a verified address; confirm it via the dev mailbox (MAIL_TRANSPORT=dev).
+async function verifyEmail(email) {
+  for (let i = 0; i < 30; i++) {
+    const res = await fetch(`${API}/dev/mail/messages?to=${encodeURIComponent(email)}`, {
+      headers: { 'X-Dev-Mailbox-Token': process.env.MAIL_DEV_OUTBOX_TOKEN || '' },
+    });
+    if (res.status === 404) throw new Error('dev mailbox unavailable: run the API with MAIL_TRANSPORT=dev');
+    const { items } = await res.json();
+    const link = items.filter((m) => m.template === 'EMAIL_VERIFICATION').flatMap((m) => m.links)[0];
+    if (link) {
+      const v = await api('POST', '/auth/verify-email', null, { token: link.split('token=')[1] });
+      if (v.status >= 300) throw new Error('verify-email failed ' + JSON.stringify(v.body));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`no verification e-mail for ${email}`);
+}
+
 async function setupTenant() {
   const r = Date.now() % 1000000;
   const email = `uicom${r}@e2e.local`;
   const reg = await api('POST', '/auth/register', null, { email, password: 'UiCommercialPass!2026', fullName: 'UI Commercial', organizationName: `UI Commercial ${r}` });
   if (!reg.body.accessToken) throw new Error('register failed ' + JSON.stringify(reg.body));
+  await verifyEmail(email);
   const token = reg.body.accessToken;
   const orgId = reg.body.user.organizationId;
   const proj = await api('POST', '/projects', token, { name: 'Commercial UI Project', description: 'ui', targetRelease: 'S4H_2023' });

@@ -4,6 +4,7 @@ import * as platformSchemas from './schema/platform';
 import * as templatesSchemas from './schema/templates';
 import * as catalogSchemas from './schema/catalog';
 import * as eventsSchemas from './schema/events';
+import * as accountSchemas from './schema/account';
 
 export const schema = {
   ...coreSchemas,
@@ -12,6 +13,7 @@ export const schema = {
   ...templatesSchemas,
   ...catalogSchemas,
   ...eventsSchemas,
+  ...accountSchemas,
 };
 
 // Re-export the schemas directly
@@ -21,6 +23,7 @@ export * from './schema/platform';
 export * from './schema/templates';
 export * from './schema/catalog';
 export * from './schema/events';
+export * from './schema/account';
 
 // Export types for core
 export type OrganizationRow = typeof coreSchemas.organizations.$inferSelect;

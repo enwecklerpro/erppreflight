@@ -2,10 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CreditCard, History, Key, LifeBuoy, Trash2 } from 'lucide-react';
+import { CreditCard, History, Key, LifeBuoy, ShieldCheck, Trash2, UserCog, Users } from 'lucide-react';
 
 const ITEMS = [
-  { href: '/settings', label: 'Developer & AI', icon: Key },
+  { href: '/settings', label: 'Workspace & API', icon: Key },
+  { href: '/settings/members', label: 'Members', icon: Users },
+  { href: '/settings/security', label: 'Security', icon: ShieldCheck },
+  { href: '/settings/account', label: 'Account & privacy', icon: UserCog },
   { href: '/settings/billing', label: 'Plan & billing', icon: CreditCard },
   { href: '/settings/audit', label: 'Audit log', icon: History },
   { href: '/settings/retention', label: 'Data & reports', icon: Trash2 },

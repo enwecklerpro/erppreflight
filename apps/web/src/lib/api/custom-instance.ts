@@ -19,6 +19,8 @@ export interface ApiErrorResponse {
   correlationId?: string;
   timestamp?: string;
   path?: string;
+  /** Machine-readable error code, e.g. EMAIL_NOT_VERIFIED or MFA_ENROLLMENT_REQUIRED. */
+  code?: string;
 }
 
 export class ApiError extends Error {
@@ -27,6 +29,7 @@ export class ApiError extends Error {
   public readonly details?: string | string[];
   public readonly timestamp?: string;
   public readonly path?: string;
+  public readonly code?: string;
 
   constructor(status: number, data: ApiErrorResponse | string) {
     const message =
@@ -44,6 +47,7 @@ export class ApiError extends Error {
       this.details = data.message;
       this.timestamp = data.timestamp;
       this.path = data.path;
+      this.code = typeof data.code === 'string' ? data.code : undefined;
     }
   }
 }

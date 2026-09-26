@@ -8,12 +8,23 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { AuthRateLimitGuard } from './guards/auth-rate-limit.guard';
+import { VerifiedEmailGuard } from './guards/verified-email.guard';
+import { ActionTokenStore } from './action-token.store';
+import { EmailVerificationService } from './email-verification.service';
+import { AccountSecurityService } from './account-security.service';
+import { TwoFactorService } from './two-factor.service';
+import { SecurityAuditService } from './security-audit.service';
+import { SessionService } from './session.service';
 
 import { ApiKeysModule } from '../api-keys/api-keys.module';
+import { MailModule } from '../mail/mail.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
     ApiKeysModule,
+    MailModule,
+    AuditModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -28,7 +39,32 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard, AuthRateLimitGuard],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtAuthGuard,
+    RolesGuard,
+    AuthRateLimitGuard,
+    VerifiedEmailGuard,
+    ActionTokenStore,
+    EmailVerificationService,
+    AccountSecurityService,
+    TwoFactorService,
+    SecurityAuditService,
+    SessionService,
+  ],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    RolesGuard,
+    VerifiedEmailGuard,
+    AuthRateLimitGuard,
+    JwtModule,
+    AccountSecurityService,
+    TwoFactorService,
+    SecurityAuditService,
+    SessionService,
+    MailModule,
+  ],
 })
 export class AuthModule {}

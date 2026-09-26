@@ -20,6 +20,7 @@ import random
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -87,7 +88,31 @@ def register(tag):
     s, b, _ = call("POST", "/auth/register", body={
         "email": email, "password": "CommercialPass!2026", "fullName": tag, "organizationName": f"Org {tag} {random.randint(1000, 9999)}"})
     check(s in (200, 201) and "accessToken" in b, f"register {tag}", b)
+    verify_email(email)
     return b["accessToken"], b["user"]["organizationId"], email
+
+
+def verify_email(email):
+    """Confirm the address via the dev mailbox (API must run with MAIL_TRANSPORT=dev)."""
+    token = os.environ.get("MAIL_DEV_OUTBOX_TOKEN", "")
+    for _ in range(30):
+        req = urllib.request.Request(
+            f"{BASE}/dev/mail/messages?to={urllib.parse.quote(email)}",
+            headers={"X-Dev-Mailbox-Token": token})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as res:
+                items = json.loads(res.read() or b"{}").get("items", [])
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                check(False, "dev mailbox available (MAIL_TRANSPORT=dev)", exc.code)
+            items = []
+        links = [l for m in items if m.get("template") == "EMAIL_VERIFICATION" for l in m.get("links", [])]
+        if links:
+            s, b, _ = call("POST", "/auth/verify-email", body={"token": links[0].split("token=")[1]})
+            check(s in (200, 201), f"verify e-mail {email}", b)
+            return
+        time.sleep(0.5)
+    check(False, f"verification e-mail for {email}", "not received")
 
 
 def run_analysis(token, project_id, file_id):

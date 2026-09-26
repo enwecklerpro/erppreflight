@@ -1,5 +1,7 @@
 // Browser smoke test of the core user journey against a running web + API stack.
-// Usage: WEB_URL=http://localhost:3000 [CHROMIUM_PATH=/path/to/chromium] node scripts/e2e-ui-smoke.cjs [screenshotDir]
+// Usage: WEB_URL=http://localhost:3000 [API_URL=http://localhost:3001] [MAIL_DEV_OUTBOX_TOKEN=...] [CHROMIUM_PATH=/path/to/chromium] node scripts/e2e-ui-smoke.cjs [screenshotDir]
+// The API must run with MAIL_TRANSPORT=dev: the new account is verified by following the
+// verification link from the dev mailbox (analyses are locked until the e-mail is verified).
 // Signs up a throwaway tenant, creates a project, uploads the golden OPD fixture, runs the
 // analysis from the UI and opens the finding with its evidence. Exits non-zero on any failure.
 const path = require('path');
@@ -7,6 +9,24 @@ const fs = require('fs');
 const { chromium } = require('@playwright/test');
 const ROOT = path.resolve(__dirname, '..');
 const WEB = (process.env.WEB_URL || 'http://localhost:3000').replace(/\/$/, '');
+// Default API origin: same host, web port + 1 (3000 -> 3001, 3200 -> 3201).
+const API = (process.env.API_URL || WEB.replace(/:(\d+)$/, (_m, p) => `:${Number(p) + 1}`)).replace(/\/$/, '');
+async function mailLink(to, template) {
+  for (let i = 0; i < 20; i++) {
+    const res = await fetch(`${API}/api/v1/dev/mail/messages?to=${encodeURIComponent(to)}`, {
+      headers: { 'X-Dev-Mailbox-Token': process.env.MAIL_DEV_OUTBOX_TOKEN || '' },
+    });
+    if (res.ok) {
+      const { items } = await res.json();
+      const link = items.filter((m) => m.template === template).flatMap((m) => m.links)[0];
+      if (link) return link;
+    } else if (res.status === 404) {
+      throw new Error('dev mailbox unavailable: run the API with MAIL_TRANSPORT=dev');
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`no ${template} e-mail for ${to}`);
+}
 const S = process.argv[2] || fs.mkdtempSync(path.join(require('os').tmpdir(), 'erp-ui-smoke-'));
 let failures = 0;
 (async () => {
@@ -30,6 +50,12 @@ let failures = 0;
     await pw.nth(0).fill('UiTesterPass!2026'); await pw.nth(1).fill('UiTesterPass!2026');
     await page.locator('button[type=submit]').click();
     await page.waitForURL(/\/(projects|onboarding)/, { timeout: 15000 });
+  });
+  await step('01b verify e-mail from the verification link', async () => {
+    await page.getByText(/Verify your e-mail address/).first().waitFor({ timeout: 15000 });
+    const link = await mailLink(`ui${R}@e2e.local`, 'EMAIL_VERIFICATION');
+    await page.goto(link);
+    await page.getByText('E-mail verified').first().waitFor({ timeout: 15000 });
   });
   await step('02 projects page', async () => {
     await page.goto(WEB + '/projects');

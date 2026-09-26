@@ -247,6 +247,22 @@ services:
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # E-mail delivery & account lifecycle (see .env.coolify.example)
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:?MAIL_TRANSPORT is required (smtp | http | dev)}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://erppreflight.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
+      SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
+      MAIL_HTTP_PROVIDER: ${MAIL_HTTP_PROVIDER:-resend}
+      MAIL_HTTP_URL: ${MAIL_HTTP_URL:-}
+      MAIL_HTTP_API_KEY: ${MAIL_HTTP_API_KEY:-}
+      MAIL_DEV_OUTBOX_TOKEN: ${MAIL_DEV_OUTBOX_TOKEN:-}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health/liveness || exit 1"]
       interval: 10s

@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { VerifiedEmailGuard } from '../auth/guards/verified-email.guard';
 import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -34,6 +35,7 @@ export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 
   @Post()
+  @UseGuards(VerifiedEmailGuard)
   @ApiOperation({ summary: 'Create an organization-scoped API key' })
   @Audited({
     action: 'api_key.created',

@@ -35,6 +35,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const correlationId =
       request.headers['x-correlation-id'] || 'no-correlation-id';
 
+
     const errorPayload = {
       statusCode: status,
       timestamp: new Date().toISOString(),
