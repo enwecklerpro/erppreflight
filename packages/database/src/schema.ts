@@ -9,6 +9,7 @@ import * as knowledgeSchemas from './schema/knowledge';
 import * as knowledgeArticleSchemas from './schema/knowledge-articles';
 import * as orchestrationSchemas from './schema/orchestration';
 import * as findingLifecycleSchemas from './schema/finding-lifecycle';
+import * as tenantAccessSchemas from './schema/tenant-access';
 
 export const schema = {
   ...coreSchemas,
@@ -22,6 +23,7 @@ export const schema = {
   ...knowledgeArticleSchemas,
   ...orchestrationSchemas,
   ...findingLifecycleSchemas,
+  ...tenantAccessSchemas,
 };
 
 // Re-export the schemas directly
@@ -36,6 +38,7 @@ export * from './schema/knowledge';
 export * from './schema/knowledge-articles';
 export * from './schema/orchestration';
 export * from './schema/finding-lifecycle';
+export * from './schema/tenant-access';
 
 // Export types for core
 export type OrganizationRow = typeof coreSchemas.organizations.$inferSelect;

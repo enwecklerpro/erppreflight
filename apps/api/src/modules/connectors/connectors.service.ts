@@ -890,6 +890,9 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
       `SELECT organization_id, id FROM connector_instances
         WHERE status = 'ACTIVE' AND connector_type NOT IN ('FILE')
           AND (last_checked_at IS NULL OR last_checked_at < NOW() - INTERVAL '10 minutes')
+          -- No outbound calls with the credentials of a suspended organization (spec 10.7).
+          AND NOT EXISTS (SELECT 1 FROM organizations o
+                           WHERE o.id = connector_instances.organization_id AND o.status = 'SUSPENDED')
         ORDER BY last_checked_at NULLS FIRST LIMIT 50`,
       [],
       { bypassRls: true }

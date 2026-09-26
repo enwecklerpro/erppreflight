@@ -15,6 +15,7 @@ import { IngestionService } from '../ingestion/ingestion.service';
 import { ConnectorsService } from './connectors.service';
 import { IntegrationAuditService } from './integration-audit.service';
 import { parseBody } from './zod-body';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
 import {
   canonicalJson,
   deviceRequestSigningString,
@@ -159,8 +160,20 @@ export class AgentDevicesService {
     private readonly db: DatabaseService,
     private readonly connectors: ConnectorsService,
     private readonly audit: IntegrationAuditService,
-    @Optional() private readonly ingestion?: IngestionService
+    @Optional() private readonly ingestion?: IngestionService,
+    @Optional() private readonly tenantAccess?: TenantAccessService
   ) {}
+
+  /**
+   * Devices of a SUSPENDED organization are refused (403 TENANT_SUSPENDED) and, when the
+   * organization has an IP allowlist, devices must call from an allowed address
+   * (403 IP_NOT_ALLOWED) — the device API does not pass through TenancyMiddleware.
+   */
+  private async enforceTenantAccess(organizationId: string, clientIp: string | null | undefined): Promise<void> {
+    if (!this.tenantAccess) return;
+    const denial = await this.tenantAccess.machineDenial(organizationId, clientIp ?? null, { ipAllowlist: true });
+    if (denial) throw new ForbiddenException({ code: denial.code, message: denial.message });
+  }
 
   signingKey() {
     return getAgentSigningKey();
@@ -364,6 +377,7 @@ export class AgentDevicesService {
       throw new UnauthorizedException('Enrollment token is invalid, expired or already used');
     }
     const organizationId: string = tok.organization_id;
+    await this.enforceTenantAccess(organizationId, clientIp);
     const deviceId = uuidv4();
     const credential = `erppf_dev_${crypto.randomBytes(32).toString('base64url')}`;
     const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
@@ -428,7 +442,13 @@ export class AgentDevicesService {
    * Authenticates a device request: credential (hash lookup) + Ed25519 request
    * signature by the enrolled device key + timestamp freshness.
    */
-  async authenticate(headers: Record<string, any>, method: string, path: string, rawBody: string): Promise<AuthenticatedDevice> {
+  async authenticate(
+    headers: Record<string, any>,
+    method: string,
+    path: string,
+    rawBody: string,
+    clientIp?: string | null
+  ): Promise<AuthenticatedDevice> {
     const auth = String(headers['authorization'] || '');
     const m = auth.match(/^Device\s+(\S+)$/i);
     if (!m) throw new UnauthorizedException('Device credential required');
@@ -451,6 +471,7 @@ export class AgentDevicesService {
     if (!verifyEd25519(device.public_key_pem, signingString, sig)) {
       throw new UnauthorizedException('Device request signature is invalid');
     }
+    await this.enforceTenantAccess(device.organization_id, clientIp);
     return device;
   }
 

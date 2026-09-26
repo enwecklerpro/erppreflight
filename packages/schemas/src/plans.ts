@@ -46,6 +46,8 @@ export interface PlanFeatures {
   airGappedExport: boolean;
   cloudAlmSync: boolean;
   reportBranding: boolean;
+  /** Organization IP allowlist (spec 10.2): enterprise network restriction. */
+  ipAllowlist: boolean;
 }
 
 export interface PlanRetention {
@@ -97,6 +99,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanTierId, PlanDefinition>> = Object
       airGappedExport: false,
       cloudAlmSync: false,
       reportBranding: false,
+      ipAllowlist: false,
     },
     retention: { auditLogDays: 7, maxArtifactRetentionDays: 7, maxReportRetentionDays: 30 },
     supportSlaHours: 72,
@@ -123,6 +126,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanTierId, PlanDefinition>> = Object
       airGappedExport: true,
       cloudAlmSync: false,
       reportBranding: false,
+      ipAllowlist: false,
     },
     retention: { auditLogDays: 30, maxArtifactRetentionDays: 30, maxReportRetentionDays: 90 },
     supportSlaHours: 24,
@@ -149,6 +153,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanTierId, PlanDefinition>> = Object
       airGappedExport: true,
       cloudAlmSync: true,
       reportBranding: true,
+      ipAllowlist: false,
     },
     retention: { auditLogDays: 90, maxArtifactRetentionDays: 90, maxReportRetentionDays: 365 },
     supportSlaHours: 8,
@@ -175,6 +180,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanTierId, PlanDefinition>> = Object
       airGappedExport: true,
       cloudAlmSync: true,
       reportBranding: true,
+      ipAllowlist: true,
     },
     retention: { auditLogDays: 365, maxArtifactRetentionDays: 3650, maxReportRetentionDays: 3650 },
     supportSlaHours: 1,
@@ -201,6 +207,7 @@ export const PLAN_CATALOG: Readonly<Record<PlanTierId, PlanDefinition>> = Object
       airGappedExport: true,
       cloudAlmSync: true,
       reportBranding: true,
+      ipAllowlist: true,
     },
     retention: { auditLogDays: 730, maxArtifactRetentionDays: 3650, maxReportRetentionDays: 3650 },
     supportSlaHours: 1,

@@ -5,6 +5,7 @@ import { ChangePasswordForm } from '@/components/account/change-password-form';
 import { TwoFactorPanel } from '@/components/account/two-factor-panel';
 import { SessionsPanel } from '@/components/account/sessions-panel';
 import { OrgSecurityPanel } from '@/components/account/org-security-panel';
+import { IpAllowlistPanel } from '@/components/tenant-access/ip-allowlist-panel';
 import { useT } from '@/i18n/client';
 
 export default function SecuritySettingsPage() {
@@ -19,6 +20,7 @@ export default function SecuritySettingsPage() {
         <ChangePasswordForm />
         <SessionsPanel />
         <OrgSecurityPanel />
+        <IpAllowlistPanel />
       </div>
     </div>
   );

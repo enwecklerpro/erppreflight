@@ -4,6 +4,7 @@ import * as React from 'react';
 import { AlertTriangle, CheckCircle2, CircleSlash, Clock, Info, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { ApiError } from '@/lib/api/custom-instance';
 import { useErrorText, useFmt, useLabel, useT } from '@/i18n/client';
+import { codedErrorKey } from '@/i18n/validation';
 
 /** Raw (untranslated) error text; prefer `useCommercialErrorText()` in components. */
 export function errorMessage(error: unknown): string {
@@ -23,6 +24,8 @@ export function useCommercialErrorText(): (error: unknown) => string {
   return React.useCallback(
     (error: unknown) => {
       if (error instanceof ApiError) {
+        // Suspension / IP allowlist / impersonation denials explain themselves.
+        if (codedErrorKey(error)) return errText(error);
         if (error.statusCode === 403) return t('app.commercial.forbidden');
         if (error.statusCode === 401) return t('app.commercial.sessionExpired');
       }

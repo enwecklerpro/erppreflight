@@ -24,6 +24,9 @@ export const envSchema = z.object({
   // Billing provider: 'stripe' (needs STRIPE_SECRET_KEY), 'local' (non-production simulator) or 'none'.
   BILLING_PROVIDER: z.enum(['stripe', 'local', 'none']).optional(),
   TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  // Support ticket e-mails (modules/support): operator inbox and its language.
+  SUPPORT_INBOX_EMAIL: z.string().email().optional().or(z.literal('')),
+  SUPPORT_INBOX_LOCALE: z.enum(['en', 'de']).optional(),
   // Knowledge graph sync (docs/KNOWLEDGE_GRAPH.md): weekly cron in UTC or 'off'; optional repository file subset.
   KNOWLEDGE_SYNC_CRON: z.string().optional(),
   KNOWLEDGE_CR_FILES: z.string().optional(),

@@ -379,6 +379,9 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
           WHERE id IN (
             SELECT id FROM webhook_deliveries
              WHERE status IN ('PENDING','FAILED') AND next_attempt_at <= NOW()
+               -- Suspended organizations (spec 10.7): deliveries wait until reactivation.
+               AND NOT EXISTS (SELECT 1 FROM organizations o
+                                WHERE o.id = webhook_deliveries.organization_id AND o.status = 'SUSPENDED')
              ORDER BY next_attempt_at LIMIT $1 FOR UPDATE SKIP LOCKED)
           RETURNING id, organization_id`,
         [limit],

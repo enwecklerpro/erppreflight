@@ -42,6 +42,7 @@ import {
   upsertAdminFeatureFlag,
 } from '@/lib/api/admin-ops';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { AdminTicketThread } from '@/components/tenant-access/ticket-thread';
 
 const card = 'bg-card border border-border rounded-xl p-5 shadow-sm';
 
@@ -493,6 +494,7 @@ export function SupportConsolePanel() {
                     {TICKET_STATUSES.map((s) => <option key={s} value={s}>{label('app.support.ticketStatus', s)}</option>)}
                   </select>
                 </label>
+                <AdminTicketThread ticketId={ticket.id} />
               </li>
             ))}
           </ul>

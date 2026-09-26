@@ -84,6 +84,23 @@ interface ErrorLike {
   name?: string;
   message?: string;
   statusCode?: number;
+  code?: string;
+}
+
+/** API error codes with their own dictionary text (tenant access: suspension, IP allowlist, impersonation). */
+const CODED_ERRORS: Record<string, MessageKey> = {
+  TENANT_SUSPENDED: 'app.tenantAccess.errors.TENANT_SUSPENDED',
+  IP_NOT_ALLOWED: 'app.tenantAccess.errors.IP_NOT_ALLOWED',
+  IMPERSONATION_READ_ONLY: 'app.tenantAccess.errors.IMPERSONATION_READ_ONLY',
+  IMPERSONATION_SECRET_ACCESS_DENIED: 'app.tenantAccess.errors.IMPERSONATION_SECRET_ACCESS_DENIED',
+  IMPERSONATION_EXPIRED: 'app.tenantAccess.errors.IMPERSONATION_EXPIRED',
+  IMPERSONATION_ENDED: 'app.tenantAccess.errors.IMPERSONATION_ENDED',
+};
+
+/** Dictionary key for a coded API error, if it has one. */
+export function codedErrorKey(error: unknown): MessageKey | null {
+  const code = (error as ErrorLike | null)?.code;
+  return typeof code === 'string' && code in CODED_ERRORS ? CODED_ERRORS[code] : null;
 }
 
 /**
@@ -95,6 +112,8 @@ export function localizeError(error: unknown, t: TFunction, fallback?: string): 
   const generic = fallback ?? t('app.validation.genericError');
   if (!error) return generic;
   const e = error as ErrorLike;
+  const coded = codedErrorKey(e);
+  if (coded) return t(coded);
   if (e.name === 'ZodError') return t('app.validation.unexpectedResponse');
   if (e.statusCode === 429) return t('app.validation.tooManyAttempts');
   if (e.name === 'TypeError' && /fetch|network|load failed/i.test(e.message ?? '')) return t('app.validation.networkError');

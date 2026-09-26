@@ -21,6 +21,8 @@ import { AuditService } from '../audit/audit.service';
 import { recordAnalysisError, recordAnalysisInputs } from './analysis-inputs';
 import { UsageService } from '../usage/usage.service';
 import { RetentionService } from '../retention/retention.service';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
+import { gateJobForSuspendedTenant } from '../tenant-access/suspended-jobs';
 
 export interface AnalysisJobData {
   analysisId: string;
@@ -69,7 +71,8 @@ export class AnalysisProcessor extends WorkerHost {
     @Optional() private readonly retention?: RetentionService,
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly releasedObjects?: ReleasedObjectsProvider,
-    @Optional() private readonly telemetry?: TelemetryService
+    @Optional() private readonly telemetry?: TelemetryService,
+    @Optional() private readonly tenantAccess?: TenantAccessService
   ) {
     super();
     this.analysisUrl =
@@ -160,7 +163,12 @@ export class AnalysisProcessor extends WorkerHost {
     }
   }
 
-  async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>): Promise<void> {
+  async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>, token?: string): Promise<void> {
+    // Suspended tenants (spec 10.7): analyses are parked until reactivation, schedule firings skipped.
+    const gate = await gateJobForSuspendedTenant(job, token, job.data?.organizationId, this.tenantAccess, this.logger, {
+      repeatable: job.name === 'scheduled-preflight',
+    });
+    if (gate === 'skip') return;
     if (job.name === 'scheduled-preflight') {
       await this.processScheduled(job as Job<ScheduledPreflightJobData>);
       return;

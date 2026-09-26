@@ -19,6 +19,8 @@ export const CreateTicketSchema = z
       .max(100)
       .regex(/^[A-Za-z0-9_.:-]+$/)
       .optional(),
+    /** Language of the requester's ticket e-mails (defaults to the request's language). */
+    locale: z.enum(['en', 'de']).optional(),
   })
   .strict();
 export type CreateTicketDto = z.infer<typeof CreateTicketSchema>;
@@ -43,6 +45,7 @@ function toTicket(r: any) {
     description: r.description,
     category: r.category,
     status: r.status,
+    locale: r.locale ?? 'en',
     projectId: r.project_id,
     analysisId: r.analysis_id,
     findingId: r.finding_id,
@@ -120,8 +123,8 @@ export class SupportService {
     const diagnostic = await this.diagnostic(orgId, dto);
     const res = await this.db.query(
       `INSERT INTO support_tickets (organization_id, created_by, subject, description, category, project_id,
-                                    analysis_id, finding_id, correlation_id, diagnostic)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+                                    analysis_id, finding_id, correlation_id, diagnostic, locale)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
         orgId,
         userId,
@@ -133,6 +136,7 @@ export class SupportService {
         dto.findingId ?? null,
         dto.correlationId ?? null,
         JSON.stringify(diagnostic),
+        dto.locale ?? 'en',
       ],
       { tenantId: orgId }
     );
@@ -164,6 +168,21 @@ export class SupportService {
       { bypassRls: true }
     );
     return (res.rows ?? []).map(toTicket);
+  }
+
+  /** Platform read of one ticket (operator console). */
+  async getTicket(ticketId: string) {
+    const res = await this.db.query(
+      `SELECT t.*, u.email AS created_by_email, o.name AS organization_name
+         FROM support_tickets t
+         JOIN organizations o ON o.id = t.organization_id
+         LEFT JOIN users u ON u.id = t.created_by
+        WHERE t.id = $1`,
+      [ticketId],
+      { bypassRls: true }
+    );
+    if (!res.rows?.length) throw new NotFoundException('Ticket not found');
+    return toTicket(res.rows[0]);
   }
 
   async updateTicketStatus(ticketId: string, status: z.infer<typeof TicketStatusEnum>) {

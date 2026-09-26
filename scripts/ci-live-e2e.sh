@@ -15,6 +15,8 @@
 #   -> scripts/e2e-analysis-lifecycle-smoke.cjs (run detail, cancel, rerun, Test Lab runs in history)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
 #   -> scripts/e2e-session-security-smoke.cjs (HttpOnly cookie session, CSRF, logout, magic link)
+#   -> scripts/e2e-tenant-admin-smoke.cjs (suspension, trial extension, impersonation, IP allowlist,
+#      support ticket e-mails; API + Chromium; dev mailbox and a bootstrapped super admin)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -60,6 +62,10 @@ REDIS_URL_E2E="${E2E_REDIS_URL:-redis://localhost:6379/0}"
 S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}"
 BUCKET_PREFIX="${E2E_BUCKET_PREFIX:-erppreflight}"
 CLAMAV_HOST="${CLAMAV_HOST:-localhost}"
+# Tenant-admin / governance smokes: a throwaway platform operator (the dev mailbox token is
+# MAIL_DEV_OUTBOX_TOKEN below, shared by every suite).
+E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-platform-ops@e2e.local}"
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-Ops!$(openssl rand -hex 10)Zz}"
 CLAMAV_PORT="${CLAMAV_PORT:-3310}"
 PYTHON="${PYTHON:-python3}"
 ART="$(mkdir -p "${E2E_ARTIFACTS:-$ROOT/e2e-artifacts}" && cd "${E2E_ARTIFACTS:-$ROOT/e2e-artifacts}" && pwd)"
@@ -175,7 +181,8 @@ start_api() { # $1 = log file suffix
       CORS_ORIGIN="http://localhost:$WEB_PORT" APP_PUBLIC_URL="http://localhost:$WEB_PORT" \
       MAIL_TRANSPORT=dev MAIL_FROM="ERP Preflight <no-reply@e2e.local>" MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" \
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
-      AUTH_RATE_LIMIT_SCALE=20
+      AUTH_RATE_LIMIT_SCALE=20 SUPPORT_INBOX_EMAIL=support-inbox@e2e.local \
+      ADMIN_BOOTSTRAP_EMAIL="$E2E_ADMIN_EMAIL" ADMIN_BOOTSTRAP_PASSWORD="$E2E_ADMIN_PASSWORD"
     exec node dist/src/main.js
   ) > "$ART/api$1.log" 2>&1 &
   API_PID=$!
@@ -244,6 +251,11 @@ if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
     node scripts/e2e-tools-smoke.cjs "$ART/screenshots-tools" 2>&1 | tee "$ART/smoke-tools.log"
   TOOLS=${PIPESTATUS[0]}
 fi
+log "running tenant access administration smoke (scripts/e2e-tenant-admin-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" REDIS_URL="$REDIS_URL_E2E" \
+  MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" SUPER_ADMIN_EMAIL="$E2E_ADMIN_EMAIL" SUPER_ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
+  node scripts/e2e-tenant-admin-smoke.cjs "$ART/screenshots-tenant-admin" 2>&1 | tee "$ART/smoke-tenant-admin.log"
+TENANT_ADMIN=${PIPESTATUS[0]}
 # Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
 # of this stack and must not start its own web server.
 PW=0
@@ -259,8 +271,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tenant-admin-smoke exit=$TENANT_ADMIN tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TENANT_ADMIN" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up

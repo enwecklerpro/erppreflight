@@ -395,6 +395,13 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analysis
 API_BASE_URL=... DOUBLES_FILE=/tmp/erppf-doubles.json DATABASE_URL=... METRICS_TOKEN=... MAIL_DEV_OUTBOX_TOKEN=... \
   node scripts/e2e-enterprise-live.cjs                                                        # 85 checks
 WEB_URL=... API_BASE_URL=... DOUBLES_FILE=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-integrations-ui.cjs <shotDir>   # 17 steps
+# Tenant access administration: impersonation (read-only, secrets denied, tenant-bound, audited, End, expiry),
+# suspension (403 TENANT_SUSPENDED, e-mails, queued job parked), trial extension (<= 90 days), IP allowlist
+# (Enterprise, CIDR validation, lockout 409, 403 IP_NOT_ALLOWED, TRUST_PROXY-aware), support ticket e-mails
+# + Chromium checks of the admin dialogs, banner, suspended screen (EN/DE), allowlist settings, ticket thread.
+# REDIS_URL (the API's Redis) enables the queue check; SUPPORT_INBOX_EMAIL on the API enables the inbox checks.
+WEB_URL=... API_BASE_URL=... SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... MAIL_DEV_OUTBOX_TOKEN=... [REDIS_URL=...] \
+  node scripts/e2e-tenant-admin-smoke.cjs [shotDir]                                          # pnpm smoke:tenant-admin, 37 steps
 # Everything the CI live-e2e job runs (infra, builds, API prod mode, smokes, backup/restore drill):
 PG_ADMIN_URL=... S3_ACCESS_KEY=... S3_SECRET_KEY=... bash scripts/ci-live-e2e.sh
 ```
@@ -404,6 +411,37 @@ Account lifecycle endpoints:
 `/auth/magic-link` (request, always the same answer), `/auth/magic-link/{preview,verify}` (migration 025),
 `/organizations/{members,invitations,ownership-transfer,current/security,current/export}`, `/invitations/{preview,accept,accept-new}`,
 `/account/{export,deletion-impact}` and `DELETE /account` (migration 011).
+
+Tenant access administration (module `apps/api/src/modules/tenant-access`, migration 021):
+- Super admin: `POST /admin/tenants/:id/{suspend,unsuspend,trial-extension,ip-allowlist/clear}` (mandatory reason,
+  @Audited into the TARGET tenant's chain + append-only `platform_audit_events`, owners e-mailed EN+DE),
+  `GET /admin/tenants/:id/{access,platform-audit}`, `POST|GET /admin/impersonations`, `POST /admin/impersonations/:id/end`,
+  `GET /admin/impersonations/:id/requests`. Web: "Access" button per tenant (`components/tenant-access/tenant-access-admin.tsx`).
+- Suspension: `TenancyMiddleware` → `TenantAccessService.enforce` answers 403 `TENANT_SUSPENDED` except auth/account/
+  invitations/org list/tenant status/support tickets (`tenant-access.policy.ts`); login keeps working (auth.service prefers
+  an ACTIVE org). Workers (`analysis`, `ingestion`, regression lab) park one-off jobs (delayed, re-checked every 5 min) and
+  skip schedule firings (`suspended-jobs.ts`). Web: `/suspended` page + banner (`tenant-access-notice.tsx`).
+- Impersonation: distinct JWT (`typ: impersonation`, `imp`, `act`, exp = session end ≤ 30 min), HttpOnly cookie
+  `erppreflight_impersonation` for browsers (overrides the operator session; the token is only returned in the body to
+  non-browser clients). `ImpersonationMiddleware` verifies the `impersonation_sessions` row on EVERY request (ended/expired →
+  401), applies `impersonation.policy.ts` (read-only by default → 403 `IMPERSONATION_READ_ONLY`; secrets, credentials,
+  account, API keys, SSO admin, billing writes, admin → 403 `IMPERSONATION_SECRET_ACCESS_DENIED`; READ_WRITE only with an
+  active tenant support grant) and audits every request (tenant chain + platform ledger, fail-closed 503). Banner:
+  `components/tenant-access/impersonation-banner.tsx` (countdown, End). Adding a secret-bearing route? Extend
+  `ALWAYS_DENIED` in `impersonation.policy.ts`. Policies compare the CASE-FOLDED path (`apiPath()`), because Express
+  routes case-insensitively (`/API-KEYS` reaches the api-keys controller). An `X-Api-Key` next to an impersonation
+  credential is refused (403 `IMPERSONATION_CREDENTIAL_CONFLICT`).
+- Machine credentials that bypass `TenancyMiddleware` check `TenantAccessService.machineDenial`: local agent devices
+  (`/agent-api/*`: enroll/heartbeat/result → 403 `TENANT_SUSPENDED` / `IP_NOT_ALLOWED`) and SCIM tokens (SCIM 403 while
+  suspended; the IP allowlist does not apply to SCIM — calls come from the IdP's cloud). Webhook retries and the connector
+  health sweep skip suspended organizations (resume after reactivation).
+- IP allowlist (Enterprise, `ipAllowlist` plan feature): `GET|PUT|DELETE /organizations/current/ip-allowlist`
+  (owners/security admins; ≤ 50 CIDR entries, IPv4/IPv6; 409 `IP_ALLOWLIST_LOCKOUT` unless `confirmLockout`), enforced for
+  every tenant-scoped request incl. API keys (403 `IP_NOT_ALLOWED`). The client address is Express `req.ip`, i.e. it follows
+  `TRUST_PROXY` (§4.4) — set it to the real proxy hop count. Settings UI: Security page.
+- Support tickets: `GET|POST /support/tickets/:id/messages`, `GET /admin/support/tickets/:id`,
+  `POST /admin/support/tickets/:id/messages` (reply + optional status); created/replied/status e-mails to the requester
+  (ticket language) and `SUPPORT_INBOX_EMAIL` (`SUPPORT_INBOX_LOCALE`), never to the message author.
 
 Local API run with production semantics: `pnpm --filter @erppreflight/api build`, then start
 `node apps/api/dist/src/main.js` with `NODE_ENV=production` and the variables from §4.4. The web must be built with

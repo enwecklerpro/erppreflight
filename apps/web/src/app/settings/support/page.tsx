@@ -10,9 +10,10 @@ import { SettingsNav } from '@/components/settings/settings-nav';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect, FormTextarea } from '@/components/form/form-inputs';
 import { ErrorState, Notice, SkeletonBlock, useCommercialErrorText } from '@/components/commercial/states';
-import { useFmt, useLabel, useT } from '@/i18n/client';
+import { useFmt, useLabel, useLocale, useT } from '@/i18n/client';
 import { vmsg } from '@/i18n/validation';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { CustomerTicketThread } from '@/components/tenant-access/ticket-thread';
 import { TICKET_CATEGORIES, createGrant, createTicket, fetchGrants, fetchMyTickets, revokeGrant, type TicketCategory } from '@/lib/api/support';
 
 const optionalUuid = z.string().trim().refine((v) => v === '' || /^[0-9a-f-]{36}$/i.test(v), vmsg('app.validation.uuidInvalid'));
@@ -44,6 +45,7 @@ function Guard({ isDirty, isSubmitting, children }: { isDirty: boolean; isSubmit
 function TicketForm() {
   const t = useT();
   const label = useLabel();
+  const locale = useLocale();
   const params = useSearchParams();
   const queryClient = useQueryClient();
   const create = useMutation({
@@ -71,6 +73,8 @@ function TicketForm() {
         ...(value.findingId ? { findingId: value.findingId } : {}),
         ...(value.analysisId ? { analysisId: value.analysisId } : {}),
         ...(value.correlationId ? { correlationId: value.correlationId } : {}),
+        // Language of the ticket e-mails sent to the requester.
+        locale,
       });
     },
   });
@@ -265,6 +269,7 @@ function SupportInner() {
                     <span className="text-muted-foreground">
                       · {label('app.support.categories', ticket.category)} · {label('app.support.ticketStatus', ticket.status)} · {fmt.dateTime(ticket.createdAt)}
                     </span>
+                    <CustomerTicketThread ticketId={ticket.id} />
                   </li>
                 ))}
               </ul>

@@ -16,6 +16,9 @@ import { DatabaseService } from '../database/database.service';
 import { cookieExtractor } from '../auth/strategies/jwt.strategy';
 import { AuditService } from '../audit/audit.service';
 import { DelegatedAccess, resolveDelegatedRole } from '../partners/partners.service';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
+import { IMPERSONATION_TOKEN_TYPE } from '../tenant-access/impersonation-token';
+import type { ImpersonationContext } from '../tenant-access/impersonation.service';
 import * as crypto from 'node:crypto';
 
 interface VerifiedTenant {
@@ -26,6 +29,8 @@ interface VerifiedTenant {
   delegated?: DelegatedAccess;
   /** The organization requires 2FA and this user has not enrolled yet. */
   mfaEnrollmentRequired?: boolean;
+  /** Request authenticated by a verified impersonation session (ImpersonationMiddleware). */
+  impersonating?: boolean;
 }
 
 /**
@@ -67,7 +72,8 @@ export class TenancyMiddleware implements NestMiddleware {
   constructor(
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
-    @Optional() private readonly audit?: AuditService
+    @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly tenantAccess?: TenantAccessService
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
@@ -89,6 +95,15 @@ export class TenancyMiddleware implements NestMiddleware {
         message:
           'This organization requires two-factor authentication. Enable it under Settings > Security to continue.',
         code: 'MFA_ENROLLMENT_REQUIRED',
+      });
+    }
+
+    // Suspension (403 TENANT_SUSPENDED) and organization IP allowlist (403 IP_NOT_ALLOWED),
+    // modules/tenant-access/tenant-access.policy.ts.
+    if (this.tenantAccess) {
+      await this.tenantAccess.enforce(req, verified.tenantId, {
+        systemRole: verified.systemRole,
+        impersonating: verified.impersonating,
       });
     }
 
@@ -131,6 +146,11 @@ export class TenancyMiddleware implements NestMiddleware {
     } catch {
       // Invalid/expired token: JwtAuthGuard returns 401 on protected routes.
       return null;
+    }
+
+    // Impersonation token: only valid together with the session verified by ImpersonationMiddleware.
+    if (payload?.typ === IMPERSONATION_TOKEN_TYPE) {
+      return this.resolveImpersonatedTenant(req, payload, headerTenantId);
     }
 
     // Only access tokens establish a tenant (2FA challenge tokens carry a typ claim).
@@ -194,6 +214,34 @@ export class TenancyMiddleware implements NestMiddleware {
     };
   }
 
+  /**
+   * The tenant of an impersonation session is fixed: an X-Tenant-Id naming another
+   * organization is rejected (403 IMPERSONATION_TENANT_MISMATCH).
+   */
+  private resolveImpersonatedTenant(req: Request, payload: any, headerTenantId: string | undefined): VerifiedTenant {
+    const ctx: ImpersonationContext | undefined = (req as any).impersonation;
+    if (!ctx || ctx.id !== payload?.imp || ctx.targetUserId !== payload?.sub) {
+      throw new UnauthorizedException({ code: 'IMPERSONATION_ENDED', message: 'The impersonation session is not active.' });
+    }
+    // Browsers: the HttpOnly impersonation cookie defines the tenant; the web app's stored
+    // X-Tenant-Id (the operator's own organization) is ignored. Bearer clients that name
+    // another organization are refused.
+    const fromCookie = (req as any).impersonationSource === 'cookie';
+    if (headerTenantId && headerTenantId !== ctx.organizationId && !fromCookie) {
+      throw new ForbiddenException({
+        code: 'IMPERSONATION_TENANT_MISMATCH',
+        message: 'An impersonation session is bound to one organization.',
+      });
+    }
+    return {
+      tenantId: ctx.organizationId,
+      userId: ctx.targetUserId,
+      tenantRole: ctx.memberRole,
+      systemRole: 'USER',
+      impersonating: true,
+    };
+  }
+
   private async recordDelegatedUse(tenantId: string, userId: string, delegated: DelegatedAccess): Promise<void> {
     const key = `${delegated.grantId}:${userId}`;
     const now = Date.now();
@@ -250,6 +298,11 @@ export class TenancyMiddleware implements NestMiddleware {
   }
 
   private extractToken(req: Request): string | null {
+    // A verified impersonation credential takes precedence (ImpersonationMiddleware).
+    const impersonationToken = (req as any).impersonationToken;
+    if (typeof impersonationToken === 'string' && impersonationToken) {
+      return impersonationToken;
+    }
     const auth = req.headers.authorization;
     if (typeof auth === 'string') {
       const match = auth.match(/^Bearer\s+(.+)$/i);

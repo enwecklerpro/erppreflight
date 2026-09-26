@@ -26,7 +26,7 @@ export const support = {
   ticketStatus: {
     OPEN: 'Open',
     IN_PROGRESS: 'In progress',
-    WAITING_FOR_CUSTOMER: 'Waiting for you',
+    WAITING_ON_CUSTOMER: 'Waiting for you',
     RESOLVED: 'Resolved',
     CLOSED: 'Closed',
   },

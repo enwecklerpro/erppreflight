@@ -34,6 +34,7 @@ import { changesets } from './changesets';
 import { traceability } from './traceability';
 import { magicLink } from './magicLink';
 import { analysisRun } from './analysisRun';
+import { tenantAccess } from './tenantAccess';
 
 export const appDe: AppMessages = {
   ui,
@@ -77,4 +78,5 @@ export const appDe: AppMessages = {
   traceability,
   magicLink,
   analysisRun,
+  tenantAccess,
 };
