@@ -79,6 +79,8 @@ export interface TriggerAnalysisPayload {
   targetRelease?: string;
   /** IDs of CLEAN uploaded files to analyse (min 1). */
   fileIds: string[];
+  /** API_CHANGE_GUARD: stored baseline to compare against (default: the project's active baseline). */
+  apiBaselineId?: string;
 }
 
 export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL';

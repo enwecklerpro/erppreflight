@@ -312,7 +312,7 @@ pnpm install
 # (AUTO_MIGRATE=true). 001-009 core platform; 010 RLS runtime role erppreflight_app; 011 account lifecycle;
 # 012 billing/usage/retention; 013 knowledge articles; 014 knowledge graph + release intelligence;
 # 015 connectors/identity/partner; 016 billing_events RLS; 017 finding lifecycle + Test Lab;
-# 018 analysis orchestration; 019 knowledge content workflow.
+# 018 analysis orchestration; 019 knowledge content workflow; 023 API Change Guard stored baselines (api_baselines).
 # Verify: PG_ADMIN_URL=postgres://<user>:<pw>@localhost:5432 bash scripts/ci-migration-check.sh
 
 # Local infrastructure only (Postgres/pgvector, Redis, MinIO, ClamAV) from the production compose,
@@ -379,6 +379,9 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-findings
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analyze-smoke.cjs      # /analyze + router + SSE, 13
 WEB_URL=... API_BASE_URL=... [SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=...] node scripts/e2e-tools-smoke.cjs   # free tools + SEO pages, 24
 WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-i18n-smoke.cjs             # DE on every app page, 375/1440 px
+# Gap Radar input contract, API Change Guard baselines (register/activate/delete, cross-tenant, oasdiff-level
+# categories vs active + explicit baseline), MFS log streaming (> ANALYSIS_STREAM_THRESHOLD_MB), baseline UI
+WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-engines-smoke.cjs [shotDir]   # pnpm smoke:engines, 16 steps
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -410,6 +413,8 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 | **Add a new REST API endpoint** | `apps/api/src/modules/` | Add controller method with `@UseGuards(JwtAuthGuard, TenancyGuard)` and `@RequireEntitlement()`. |
 | **Database changes / New tables** | `packages/database/` | 1. Add a new SQL file `migrations/020_*.sql` (next free number; never edit an applied migration)<br>2. Every table with `organization_id` needs ENABLE + FORCE RLS and a policy (enforced by `scripts/ci-migration-check.sh`)<br>3. Add Drizzle table in `src/schema/`<br>4. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
+| **API Change Guard baselines** | `apps/api/src/modules/api-baselines/`, `services/analysis-python/src/engines/api_change.py` | Registry `/projects/:projectId/api-baselines` (create from a CLEAN upload, list, `:id/activate`, DELETE; @Audited; migration 023). The executor sends the explicit (`apiBaselineId` on POST /analyses) or active baseline as `configuration.stored_baseline` (content + SHA-256, verified on both sides). Findings carry `changeCategory` (oasdiff-style id), `jsonPointer` / `xmlPath`, `specRole`. UI: `components/analysis/api-baselines-panel.tsx`. |
+| **Large logs / streaming engines** | `services/analysis-python/src/core/streaming.py`, `src/api/analyze_stream.py`, `apps/api/src/modules/jobs/analysis-executor.ts` | Engines with `supports_streaming` (MFS BlackBox) implement `analyze_stream(request, LineSource)` sharing the inline code path. The executor pipes CSV/TXT artifacts >= `ANALYSIS_STREAM_THRESHOLD_MB` that only streaming engines read from MinIO to `POST /api/v1/analyze/stream` (framed: JSON metadata line + bytes); call records show `transport`, `bytes`, `peakMemoryBytes`. |
 | **Add or update On-Prem Agent features** | `apps/local-agent/src/` | Commands in `cli.ts`, daemon tasks in `daemon.ts`, network checks in `probe.ts`. |
 | **Public website pages (EN/DE)** | `apps/web/src/app/[locale]/` | Server components only; call `resolveLocale(params)` (validates + `setRequestLocale`), export `generateMetadata` built with `publicPageMetadata()` from `lib/seo.ts` (canonical, hreflang, OG/Twitter). Add the path to `LOCALIZED_PUBLIC_ROUTES` (sitemap) and, for a new top-level segment, to `LOCALIZED_PUBLIC_EXACT/PREFIXES` in `lib/routing.ts`. |
 | **Route classification / SEO** | `apps/web/src/lib/seo.ts`, `lib/routing.ts` | Single route inventory: public (EN-only), localized public, private (noindex). New private segment = `layout.tsx` with `PRIVATE_ROUTE_METADATA` + entry in `PRIVATE_ROUTE_PREFIXES`; login-only segments also in `AUTH_REQUIRED_PREFIXES` (middleware redirects to `/login?next=`). Enforced by `__tests__/seo-routes.test.ts`. |

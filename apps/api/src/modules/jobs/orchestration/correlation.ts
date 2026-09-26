@@ -69,6 +69,13 @@ export interface EngineCallRecord {
   rulesEvaluated: number;
   durationMs: number;
   error?: string | null;
+  /** INLINE (payload in the request) or STREAM (piped from object storage to /api/v1/analyze/stream). */
+  transport?: 'INLINE' | 'STREAM';
+  bytes?: number;
+  /** Engine-reported peak memory of the call (tracemalloc inline, RSS growth when streamed). */
+  peakMemoryBytes?: number;
+  /** API_CHANGE_GUARD: the stored baseline the candidate was compared against. */
+  apiBaseline?: Record<string, unknown>;
 }
 
 export interface CorrelationGroup {

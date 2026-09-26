@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     ]
     CORS_ALLOW_CREDENTIALS: bool = True
     MAX_PAYLOAD_SIZE_MB: int = 50
+    # Streaming transport (POST /api/v1/analyze/stream): artifact size cap and spool directory (default: system
+    # temp dir). The body is spooled to disk, never held in memory.
+    MAX_STREAM_SIZE_MB: int = 20480
+    STREAM_SPOOL_DIR: str = ""
 
     DEFAULT_TIMEOUT_SECONDS: int = 120
     MAX_FINDINGS_PER_ANALYSIS: int = 1000

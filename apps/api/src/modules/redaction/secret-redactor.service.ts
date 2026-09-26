@@ -68,6 +68,18 @@ export class SecretRedactorService {
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
   private static readonly SAP_NAMESPACE_REGEX = /^\/[A-Z0-9_]{2,10}\/[A-Z0-9_]+$/i;
+  /**
+   * OData CSDL / EDMX attributes whose values are model identifiers (qualified type, entity, role and
+   * association names such as `API_SALES_ORDER_SRV.A_SalesOrderItemType`), never credentials. Masking them
+   * corrupted $metadata documents before API Change Guard could compare them.
+   */
+  private static readonly STRUCTURAL_XML_ATTRIBUTES = new Set<string>([
+    'Name', 'Type', 'EntityType', 'BaseType', 'Relationship', 'Association', 'FromRole', 'ToRole', 'Role',
+    'Namespace', 'Alias', 'Partner', 'Target', 'Term', 'Path', 'Property', 'EntitySet', 'Action', 'Function',
+    'ReturnType', 'Multiplicity', 'PropertyPath', 'NavigationPropertyPath', 'Qualifier', 'ContainsTarget',
+  ]);
+  /** A quoted identifier value: word characters, '.', '/', ':' and '-' only (no base64 padding, no spaces). */
+  private static readonly QUOTED_IDENTIFIER_VALUE = /^(["'])[A-Za-z_][\w.\/:-]*\1\/?$/;
   private static readonly SAP_ARCH_PREFIX_REGEX =
     /^(I_|C_|R_|P_|E_|CL_|IF_|CX_|ZCL_|ZIF_|ZCX_|BAPI_)[A-Z0-9_]+$/i;
 
@@ -274,8 +286,11 @@ export class SecretRedactorService {
       const rebuiltTokens: string[] = [];
 
       let previousToken = '';
+      let attributeName = '';
       for (const t of tokens) {
-        const cleanT = t.replace(/^['"`,;:()\[\]{}.<>]+|['"`,;:()\[\]{}.<>]+$/g, '');
+        // A trailing quote + self-closing slash (`"value"/`) belongs to the markup, not to the value: keeping
+        // it inside the candidate made the mask swallow the closing quote and broke the XML.
+        const cleanT = t.replace(/(['"`])\/$/, '$1').replace(/^['"`,;:()\[\]{}.<>]+|['"`,;:()\[\]{}.<>]+$/g, '');
         // Markup element names (`<Name`, `</Name`) and e-mail addresses are structure/PII,
         // not credentials; masking them corrupted XML artifacts before analysis.
         const isMarkupName = previousToken === '<' && /^\/?[A-Za-z_][\w.:-]*$/.test(t);
@@ -283,11 +298,20 @@ export class SecretRedactorService {
         // Data-binding / JSONPath expressions (Adobe Form XDP `ref="$.Header.Supplier.TaxNumber"/>`)
         // are form structure: masking them (and the adjacent quote) corrupted XDP templates.
         const isBindingPath = /^\$[A-Za-z_]*(\.[A-Za-z_]\w*|\[\*?\d*\])+$/.test(cleanT.replace(/["'`]*\/?$/, ''));
-        if (t !== '') previousToken = t;
+        // Identifier-valued OData model attributes (`EntityType="NS.Type"`, `Relationship="NS.assoc_X"`).
+        const isStructuralAttribute =
+          previousToken === '=' &&
+          SecretRedactorService.STRUCTURAL_XML_ATTRIBUTES.has(attributeName) &&
+          SecretRedactorService.QUOTED_IDENTIFIER_VALUE.test(t);
+        if (t !== '') {
+          if (t !== '=' && !/^\s+$/.test(t)) attributeName = t;
+          previousToken = t;
+        }
         if (
           !isMarkupName &&
           !isEmail &&
           !isBindingPath &&
+          !isStructuralAttribute &&
           this.isCandidateToken(cleanT) &&
           !cleanT.startsWith('[REDACTED:') &&
           !alreadyRedactedHashes.has(cleanT) &&

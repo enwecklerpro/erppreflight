@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { KnowledgeGraphService } from './knowledge-graph.service';
+import { extractCandidateNames } from './candidate-names';
+import { extractAbapGitCandidateNames, isZipBuffer } from './abapgit-object-scan';
 
 /** Configuration key carrying the snapshot-derived list (python: knowledge_client.CONFIG_KEYS). */
 export const RELEASED_OBJECTS_CONFIG_KEY = 'released_objects';
@@ -40,24 +42,9 @@ export interface ReleasedObjectsConfiguration {
 /** Engines that receive the snapshot-derived released-object list. */
 export const KNOWLEDGE_AWARE_ENGINES = new Set(['CLEAN_CORE_OBJECT_GUARD']);
 
-const MAX_CANDIDATES = 20_000;
 const MAX_OBJECTS = 5_000;
 
-/**
- * Candidate SAP object names referenced by an artifact: ABAP-style identifiers
- * (incl. namespaces like /BOBF/CL_X). Deliberately over-inclusive: only names
- * that exist in the knowledge graph are forwarded to the engine.
- */
-export function extractCandidateNames(text: string): string[] {
-  const out = new Set<string>();
-  const re = /(?:\/[A-Z0-9_]{1,10}\/)?[A-Z_][A-Z0-9_]{2,59}/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    out.add(m[0].toUpperCase());
-    if (out.size >= MAX_CANDIDATES) break;
-  }
-  return [...out];
-}
+export { extractCandidateNames };
 
 @Injectable()
 export class ReleasedObjectsProvider {
@@ -67,16 +54,32 @@ export class ReleasedObjectsProvider {
 
   /**
    * Builds the released-object list for the objects referenced in a text
-   * artifact. Returns null (and the engine runs with its built-in rules) when
-   * the artifact is binary, references nothing known, or no snapshot exists.
+   * artifact or in the members of an abapGit repository ZIP (base64). Returns
+   * null (and the engine runs with its built-in rules) when the artifact is a
+   * non-ZIP binary or an unsafe archive, references nothing known, or no
+   * snapshot exists.
    */
   async forArtifact(
     rawContent: string | null,
     encoding: 'utf-8' | 'base64',
     targetRelease: string
   ): Promise<ReleasedObjectsConfiguration | null> {
-    if (!rawContent || encoding !== 'utf-8') return null;
-    const names = extractCandidateNames(rawContent);
+    if (!rawContent) return null;
+    let names: string[];
+    if (encoding === 'utf-8') {
+      names = extractCandidateNames(rawContent);
+    } else {
+      // Binary artifact: abapGit repository ZIPs are scanned member by member (bounded, safety-checked).
+      const buffer = Buffer.from(rawContent, 'base64');
+      if (!isZipBuffer(buffer)) return null;
+      try {
+        names = (await extractAbapGitCandidateNames(buffer)).names;
+      } catch (err: any) {
+        // Unsafe / unreadable archive: the engine rejects it with its own diagnostics; no overlay.
+        this.logger.warn(`abapGit object scan skipped: ${err?.message ?? err}`);
+        return null;
+      }
+    }
     if (names.length === 0) return null;
     try {
       const result = await this.knowledge.classifyObjects({ names, targetRelease });

@@ -171,6 +171,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_SERVICE_NAME: erppreflight-analysis
+      # Streaming transport for multi-GB delimited logs (spooled to disk, bounded memory)
+      MAX_STREAM_SIZE_MB: ${MAX_STREAM_SIZE_MB:-20480}
+      STREAM_SPOOL_DIR: ${STREAM_SPOOL_DIR:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s
@@ -229,6 +232,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       ANALYSIS_SERVICE_URL: http://erppreflight-analysis:8000
+      ANALYSIS_STREAM_THRESHOLD_MB: ${ANALYSIS_STREAM_THRESHOLD_MB:-8}
       S3_ENDPOINT: http://erppreflight-minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}

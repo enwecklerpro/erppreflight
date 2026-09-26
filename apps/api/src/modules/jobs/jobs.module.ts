@@ -6,6 +6,7 @@ import { AnalysisProcessor } from './analysis.processor';
 import { StorageModule } from '../storage/storage.module';
 import { RetentionModule } from '../retention/retention.module';
 import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
+import { ApiBaselinesModule } from '../api-baselines/api-baselines.module';
 import { EngineCatalogService } from './orchestration/engine-catalog.service';
 import { ArtifactProfilerService } from './orchestration/artifact-profiler.service';
 
@@ -15,6 +16,7 @@ import { ArtifactProfilerService } from './orchestration/artifact-profiler.servi
     StorageModule,
     RetentionModule,
     KnowledgeGraphModule,
+    ApiBaselinesModule,
   ],
   controllers: [JobsController],
   providers: [JobsService, AnalysisProcessor, EngineCatalogService, ArtifactProfilerService],

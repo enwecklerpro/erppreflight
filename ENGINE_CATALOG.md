@@ -14,7 +14,7 @@ Runner-level input codes available to every engine (`<PREFIX>_` + suffix): `INSU
 | Engine type (API value) | Name | Rule prefix | Artifact types | Binary input | Version |
 |---|---|---|---|---|---|
 | `ACCOUNT_DETERMINATION_PREFLIGHT` | Account Determination Preflight | `ACCT` | JSON, CSV | no | 1.0.0 |
-| `API_CHANGE_GUARD` | API Change Guard | `API` | JSON, EDMX, XML, TXT | no | 2.0.0 |
+| `API_CHANGE_GUARD` | API Change Guard | `API` | JSON, EDMX, XML, TXT | no | 2.1.0 |
 | `CHANGE_POINTER_COVERAGE_AUDITOR` | Change Pointer Coverage Auditor | `CP` | JSON, CSV, TXT | no | 2.0.0 |
 | `CLEAN_CORE_OBJECT_GUARD` | Clean Core Object Guard | `CLEAN_CORE` | ABAP, ZIP, TXT, JSON | yes | 2.0.0 |
 | `CUSTOM_FIELD_FLOW_DOCTOR` | Custom Field Flow Doctor | `FIELD` | JSON, TXT, XML | no | 1.0.0 |
@@ -23,10 +23,10 @@ Runner-level input codes available to every engine (`<PREFIX>_` + suffix): `INSU
 | `FIORI_403_ROOT_CAUSE_DOCTOR` | Fiori 403 Root-Cause Doctor | `FIORI_403` | JSON, TXT, CSV | no | 2.0.0 |
 | `FORM_DOCTOR` | FormDoctor | `FORM` | XML, XDP, TXT | no | 2.0.0 |
 | `IAM_COST_OPTIMIZER` | IAM Cost Optimizer | `IAM` | JSON, CSV | no | 1.0.0 |
-| `MFS_BLACKBOX` | MFS BlackBox | `MFS` | CSV, TXT, JSON | no | 1.0.0 |
+| `MFS_BLACKBOX` | MFS BlackBox | `MFS` | CSV, TXT, JSON | no | 1.1.0 |
 | `OPD_GUARD` | OPD Guard | `OPD` | CSV, XLSX, JSON, XML | yes | 2.0.0 |
 | `SAFE_DECOMMISSION_PREFLIGHT` | Safe Decommission Preflight | `DECOM` | JSON, CSV, TXT | no | 2.0.0 |
-| `SAP_GAP_RADAR` | SAP Gap Radar | `GAP_RADAR` | JSON, TXT | no | 1.0.0 |
+| `SAP_GAP_RADAR` | SAP Gap Radar | `GAP_RADAR` | JSON, TXT | no | 1.1.0 |
 | `SOFTWARE_COLLECTION_DEPENDENCY_GUARD` | Software Collection Dependency Guard | `SC` | JSON, XML, ZIP | yes | 1.0.0 |
 | `SPRO2CLOUD` | SPRO2Cloud | `SPRO` | CSV, XLSX, JSON | no | 2.0.0 |
 | `SYSTEM_REFRESH_DELTA_GUARD` | System Refresh Delta Guard | `REFRESH` | JSON, CSV, TXT | no | 2.0.0 |
@@ -52,7 +52,7 @@ Each engine is executed through `EngineRunner.execute` with its first supported 
 | `MFS_BLACKBOX` | FAILED, 1 finding(s): `MFS_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `MFS_PARSE_ERROR` (UNKNOWN) |
 | `OPD_GUARD` | FAILED, 1 finding(s): `OPD_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `OPD_PARSE_ERROR` (UNKNOWN) |
 | `SAFE_DECOMMISSION_PREFLIGHT` | FAILED, 1 finding(s): `DECOM_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `DECOM_INVALID_INPUT` (UNKNOWN) |
-| `SAP_GAP_RADAR` | FAILED, 1 finding(s): `GAP_RADAR_INSUFFICIENT_INPUT` (UNKNOWN) | COMPLETED, 1 finding(s): `GAP_RADAR_UNKNOWN_REQUIREMENT` (UNKNOWN) |
+| `SAP_GAP_RADAR` | FAILED, 1 finding(s): `GAP_RADAR_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `GAP_RADAR_INVALID_INPUT` (UNKNOWN) |
 | `SOFTWARE_COLLECTION_DEPENDENCY_GUARD` | FAILED, 1 finding(s): `SC_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `SC_PARSE_ERROR` (UNKNOWN) |
 | `SPRO2CLOUD` | FAILED, 1 finding(s): `SPRO_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `SPRO_INVALID_INPUT` (UNKNOWN) |
 | `SYSTEM_REFRESH_DELTA_GUARD` | FAILED, 1 finding(s): `REFRESH_INSUFFICIENT_INPUT` (UNKNOWN) | FAILED, 1 finding(s): `REFRESH_INVALID_INPUT` (UNKNOWN) |
@@ -77,9 +77,9 @@ OData, SOAP, RFC compatibility and deprecation impact scanner
 
 - **Implementation:** `services/analysis-python/src/engines/api_change.py` (`ApiChangeEngine`)
 - **Artifact types:** JSON, EDMX, XML, TXT
-- **Finding codes in the engine module (19):** `API_BREAKING_ENDPOINT_REMOVED`, `API_BREAKING_ENTITYSET_REMOVED`, `API_BREAKING_ENTITY_REMOVED`, `API_BREAKING_ENUM_RESTRICTED`, `API_BREAKING_FIELD_REMOVED`, `API_BREAKING_MAX_LENGTH_DECREASED`, `API_BREAKING_OPERATION_REMOVED`, `API_BREAKING_REQUIRED_PARAM_ADDED`, `API_BREAKING_REQUIRED_PROPERTY_ADDED`, `API_BREAKING_TYPE_CHANGED`, `API_DEPRECATION_WARNING`, `API_INSUFFICIENT_INPUT`, `API_INVALID_INPUT`, `API_NON_BREAKING_ENDPOINT_ADDED`, `API_NON_BREAKING_ENUM_EXPANDED`, `API_NON_BREAKING_MAX_LENGTH_INCREASED`, `API_NON_BREAKING_OPERATION_ADDED`, `API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED`, `API_PARSE_ERROR`
-- **Tests referencing the engine (3):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_domain3_engines.py`, `tests/unit/test_property_parsers.py`
-- **Fixture files named in those test files (10):** `api_odata_edmx_baseline.xml`, `api_odata_edmx_candidate.xml`, `api_openapi_breaking.json`, `api_openapi_clean.json`, `cp_bd52_config.csv`, `cp_custom_field_omitted.json`, `cp_dd04l_flag_missing.json`, `cp_global_disabled.json`, `cp_matmas_active.json`, `cp_missing_field.json`
+- **Finding codes in the engine module (27):** `API_BREAKING_ENDPOINT_REMOVED`, `API_BREAKING_ENTITYSET_REMOVED`, `API_BREAKING_ENTITY_REMOVED`, `API_BREAKING_ENUM_RESTRICTED`, `API_BREAKING_FIELD_REMOVED`, `API_BREAKING_FORMAT_CHANGED`, `API_BREAKING_KEY_CHANGED`, `API_BREAKING_MAX_LENGTH_DECREASED`, `API_BREAKING_NAVIGATION_REMOVED`, `API_BREAKING_OPERATION_REMOVED`, `API_BREAKING_PARAM_REMOVED`, `API_BREAKING_PARAM_RENAMED`, `API_BREAKING_REQUIRED_PARAM_ADDED`, `API_BREAKING_REQUIRED_PROPERTY_ADDED`, `API_BREAKING_RESPONSE_PROPERTY_REMOVED`, `API_BREAKING_RESPONSE_STATUS_REMOVED`, `API_BREAKING_SECURITY_CHANGED`, `API_BREAKING_TYPE_CHANGED`, `API_DEPRECATION_WARNING`, `API_INSUFFICIENT_INPUT`, `API_INVALID_INPUT`, `API_NON_BREAKING_ENDPOINT_ADDED`, `API_NON_BREAKING_ENUM_EXPANDED`, `API_NON_BREAKING_MAX_LENGTH_INCREASED`, `API_NON_BREAKING_OPERATION_ADDED`, `API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED`, `API_PARSE_ERROR`
+- **Tests referencing the engine (4):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_api_change_oasdiff.py`, `tests/unit/test_domain3_engines.py`, `tests/unit/test_property_parsers.py`
+- **Fixture files named in those test files (14):** `api_edmx_structure_baseline.xml`, `api_edmx_structure_candidate.xml`, `api_oasdiff_baseline.json`, `api_oasdiff_candidate.json`, `api_odata_edmx_baseline.xml`, `api_odata_edmx_candidate.xml`, `api_openapi_breaking.json`, `api_openapi_clean.json`, `cp_bd52_config.csv`, `cp_custom_field_omitted.json`, `cp_dd04l_flag_missing.json`, `cp_global_disabled.json`, `cp_matmas_active.json`, `cp_missing_field.json`
 
 ### Change Pointer Coverage Auditor — `CHANGE_POINTER_COVERAGE_AUDITOR`
 
@@ -168,7 +168,7 @@ Material Flow System / EWM telegram sequence and telegram buffer auditor
 - **Implementation:** `services/analysis-python/src/engines/mfs_blackbox.py` (`MFSBlackBoxEngine`)
 - **Artifact types:** CSV, TXT, JSON
 - **Finding codes in the engine module (8):** `MFS_CORRUPTED_TELEGRAM`, `MFS_DUPLICATE_TELEGRAM_SEND`, `MFS_FIRST_CAUSAL_DIVERGENCE`, `MFS_IMPOSSIBLE_TOPOLOGY_JUMP`, `MFS_INSUFFICIENT_INPUT`, `MFS_INVALID_INPUT`, `MFS_MISSING_ACK_TIMEOUT`, `MFS_OUT_OF_ORDER_SEQUENCE`
-- **Tests referencing the engine (7):** `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain6_engines.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
+- **Tests referencing the engine (8):** `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain6_engines.py`, `tests/unit/test_mfs_streaming.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
 - **Fixture files named in those test files (11):** `clean_core_legacy.abap`, `cp_missing_field.json`, `decom_clean_user.json`, `mfs_ack_retry_storm.json`, `mfs_jump_stream.json`, `mfs_normal_flow.json`, `mfs_telegram_log.csv`, `opd_decision_table.csv`, `refresh_clean_isolated.json`, `sc_circular.json`, `tr_collision.json`
 
 ### OPD Guard — `OPD_GUARD`
@@ -178,8 +178,8 @@ S/4HANA Output Parameter Determination & BRFplus decision table evaluation
 - **Implementation:** `services/analysis-python/src/engines/opd_guard.py` (`OPDGuardEngine`)
 - **Artifact types:** CSV, XLSX, JSON, XML (binary payloads accepted as base64)
 - **Finding codes in the engine module (10):** `OPD_ARCHIVE_REJECTED`, `OPD_CHANNEL_INACTIVE`, `OPD_DETERMINATION_STEP_MISSING`, `OPD_INSUFFICIENT_INPUT`, `OPD_INVALID_INPUT`, `OPD_PARSE_ERROR`, `OPD_PRINTER_QUEUE_NOT_FOUND`, `OPD_RELEVANCE_SUPPRESSED`, `OPD_STEP_FAILED`, `OPD_UNREACHABLE_RULE`
-- **Tests referencing the engine (13):** `tests/adversarial/test_empirical_r7_opd_stress.py`, `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_rule_catalog.py`, `tests/unit/test_rule_versions.py`, `tests/unit/test_runner.py`, `tests/unit/test_schemas.py`
-- **Fixture files named in those test files (18):** `clean_core_legacy.abap`, `cp_missing_field.json`, `custom_field_registry.json`, `custom_field_type_mismatch.json`, `decom_clean_user.json`, `extension_cycle.json`, `extension_manifest.json`, `form_data_missing_field.xml`, `form_data_valid.xml`, `form_legacy_smartform.xml`, `form_template_xdp.xml`, `opd_decision_table.csv`, `opd_scenario_missing_channel.json`, `opd_scenario_shadowed.json`, `opd_scenario_valid.json`, `refresh_clean_isolated.json`, `sc_circular.json`, `tr_collision.json`
+- **Tests referencing the engine (14):** `tests/adversarial/test_empirical_r7_opd_stress.py`, `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_mfs_streaming.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_rule_catalog.py`, `tests/unit/test_rule_versions.py`, `tests/unit/test_runner.py`, `tests/unit/test_schemas.py`
+- **Fixture files named in those test files (19):** `clean_core_legacy.abap`, `cp_missing_field.json`, `custom_field_registry.json`, `custom_field_type_mismatch.json`, `decom_clean_user.json`, `extension_cycle.json`, `extension_manifest.json`, `form_data_missing_field.xml`, `form_data_valid.xml`, `form_legacy_smartform.xml`, `form_template_xdp.xml`, `mfs_telegram_log.csv`, `opd_decision_table.csv`, `opd_scenario_missing_channel.json`, `opd_scenario_shadowed.json`, `opd_scenario_valid.json`, `refresh_clean_isolated.json`, `sc_circular.json`, `tr_collision.json`
 
 ### Safe Decommission Preflight — `SAFE_DECOMMISSION_PREFLIGHT`
 
@@ -198,8 +198,8 @@ Fit-to-standard vs custom delta analyzer with Clean Core recommendations
 - **Implementation:** `services/analysis-python/src/engines/gap_radar.py` (`GapRadarEngine`)
 - **Artifact types:** JSON, TXT
 - **Finding codes in the engine module (1):** `GAP_RADAR_INSUFFICIENT_INPUT`
-- **Tests referencing the engine (2):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_domain2_engines.py`
-- **Fixture files named in those test files (12):** `clean_core_compliant.abap`, `clean_core_dynamic.abap`, `clean_core_legacy.abap`, `ecc_interface_inventory.json`, `ecc_obsolete_blockers.csv`, `ecc_st03n_clean.csv`, `gap_radar_direct_db_write.json`, `gap_radar_event_mesh.json`, `gap_radar_known_gap.json`, `spro_custom_z_activity.json`, `spro_negative_unsupported.csv`, `spro_standard_valid.csv`
+- **Tests referencing the engine (3):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_domain2_engines.py`, `tests/unit/test_gap_radar_input_contract.py`
+- **Fixture files named in those test files (15):** `clean_core_compliant.abap`, `clean_core_dynamic.abap`, `clean_core_legacy.abap`, `ecc_interface_inventory.json`, `ecc_obsolete_blockers.csv`, `ecc_st03n_clean.csv`, `gap_radar_direct_db_write.json`, `gap_radar_event_mesh.json`, `gap_radar_known_gap.json`, `gap_radar_mixed_batch.json`, `gap_radar_non_sap_prose.txt`, `gap_radar_requirement_list.txt`, `spro_custom_z_activity.json`, `spro_negative_unsupported.csv`, `spro_standard_valid.csv`
 
 ### Software Collection Dependency Guard — `SOFTWARE_COLLECTION_DEPENDENCY_GUARD`
 
@@ -257,6 +257,7 @@ These files are importable but no registered engine is defined in them; the regi
 
 - `services/analysis-python/src/engines/fiori_403.py`
 - `services/analysis-python/src/engines/iam_cost.py`
+- `services/analysis-python/src/engines/mfs_processor.py`
 - `services/analysis-python/src/engines/safe_decommission.py`
 - `services/analysis-python/src/engines/system_refresh.py`
 - `services/analysis-python/src/engines/workflow_stuck.py`

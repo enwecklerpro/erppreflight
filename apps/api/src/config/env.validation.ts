@@ -29,6 +29,9 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(32).optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),
+  // Delimited logs at or above this size that only streaming-capable engines (MFS BlackBox) read are streamed
+  // from object storage to the analysis service instead of being loaded into memory.
+  ANALYSIS_STREAM_THRESHOLD_MB: z.coerce.number().positive().max(1_000_000).default(8),
   CORS_ORIGIN: z.string().optional(),
   S3_ENDPOINT: z.string().default('http://localhost:9000'),
   S3_REGION: z.string().default('us-east-1'),

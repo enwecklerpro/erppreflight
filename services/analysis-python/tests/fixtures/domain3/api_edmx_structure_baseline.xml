@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="1.0" xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata" xmlns:sap="http://www.sap.com/Protocols/SAPData">
+  <edmx:DataServices m:DataServiceVersion="2.0">
+    <Schema Namespace="API_SALES_ORDER_SRV" xmlns="http://schemas.microsoft.com/ado/2008/09/edm">
+      <EntityType Name="A_SalesOrderType">
+        <Key>
+          <PropertyRef Name="SalesOrder"/>
+        </Key>
+        <Property Name="SalesOrder" Type="Edm.String" Nullable="false" MaxLength="10"/>
+        <Property Name="SalesOrganization" Type="Edm.String" Nullable="true" MaxLength="4"/>
+        <Property Name="PurchaseOrderByCustomer" Type="Edm.String" Nullable="true" MaxLength="35"/>
+        <Property Name="TotalNetAmount" Type="Edm.Decimal" Nullable="true" Precision="16" Scale="3"/>
+        <NavigationProperty Name="to_Item" Relationship="API_SALES_ORDER_SRV.assoc_Item" FromRole="FromRole_Item" ToRole="ToRole_Item"/>
+        <NavigationProperty Name="to_Partner" Relationship="API_SALES_ORDER_SRV.assoc_Partner" FromRole="FromRole_Partner" ToRole="ToRole_Partner"/>
+      </EntityType>
+      <EntityType Name="A_SalesOrderItemType">
+        <Key>
+          <PropertyRef Name="SalesOrder"/>
+          <PropertyRef Name="SalesOrderItem"/>
+        </Key>
+        <Property Name="SalesOrder" Type="Edm.String" Nullable="false" MaxLength="10"/>
+        <Property Name="SalesOrderItem" Type="Edm.String" Nullable="false" MaxLength="6"/>
+        <Property Name="Material" Type="Edm.String" Nullable="true" MaxLength="40"/>
+      </EntityType>
+      <EntityType Name="A_SalesOrderTextType">
+        <Key>
+          <PropertyRef Name="SalesOrder"/>
+          <PropertyRef Name="Language"/>
+        </Key>
+        <Property Name="SalesOrder" Type="Edm.String" Nullable="false" MaxLength="10"/>
+        <Property Name="Language" Type="Edm.String" Nullable="false" MaxLength="2"/>
+        <Property Name="LongText" Type="Edm.String" Nullable="true"/>
+      </EntityType>
+      <EntityContainer Name="API_SALES_ORDER_SRV_Entities" m:IsDefaultEntityContainer="true">
+        <EntitySet Name="A_SalesOrder" EntityType="API_SALES_ORDER_SRV.A_SalesOrderType"/>
+        <EntitySet Name="A_SalesOrderItem" EntityType="API_SALES_ORDER_SRV.A_SalesOrderItemType"/>
+        <EntitySet Name="A_SalesOrderText" EntityType="API_SALES_ORDER_SRV.A_SalesOrderTextType"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

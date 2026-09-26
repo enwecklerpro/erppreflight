@@ -1,0 +1,4 @@
+REQ-FI-010: Configure payment terms via SSCUI for the new company code 1710
+REQ-SD-020: Add custom field YY1_DELIVERY_PRIORITY to the sales order header for key-user extensibility
+REQ-MM-030: Notify the external supplier portal through a business event when a purchase order is released
+REQ-FI-040: Directly update BSEG line items with a custom SQL job after month-end closing
