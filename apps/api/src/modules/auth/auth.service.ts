@@ -417,6 +417,20 @@ export class AuthService implements OnApplicationBootstrap {
     };
   }
 
+  /**
+   * Session for a principal authenticated by enterprise SSO (modules/sso). Uses the same
+   * server-side session + token_version machinery as password login, so logout, "log out
+   * everywhere" and account security actions revoke SSO sessions too. The user must be an
+   * ACTIVE member of the ACTIVE organization the IdP is configured for.
+   */
+  async issueSessionForMembership(userId: string, organizationId: string, meta: RequestMeta = {}): Promise<SessionResult> {
+    const session = await this.createSession(userId, { preferredOrganizationId: organizationId, meta, authMethod: 'SSO' });
+    if (session.user.organizationId !== organizationId) {
+      throw new UnauthorizedException('User is not a member of this organization');
+    }
+    return session;
+  }
+
   /** Registers a server-side session and signs an access token bound to it (jti). */
   private async issueSessionToken(
     params: {

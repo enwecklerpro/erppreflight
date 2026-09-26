@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { getErrorReporter } from '../../observability/error-reporter';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -35,6 +36,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const correlationId =
       request.headers['x-correlation-id'] || 'no-correlation-id';
 
+    // Structured details attached to an HttpException (e.g. a permission diff) are
+    // passed through under `details`; statusCode/message/error keep their fixed slots.
+    let details: Record<string, unknown> | undefined;
+    if (status < 500 && typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      const { statusCode: _s, message: _m, error: _e, ...rest } = exceptionResponse as Record<string, unknown>;
+      if (Object.keys(rest).length > 0) details = rest;
+    }
 
     const errorPayload = {
       statusCode: status,
@@ -43,6 +51,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       method: request.method,
       correlationId,
       message,
+      ...(details ? { details } : {}),
       // Machine-readable error code and plan-limit context (e.g. PLAN_LIMIT_EXCEEDED, HTTP 402).
       ...pickStructuredErrorFields(exceptionResponse),
     };
@@ -52,6 +61,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${request.method}] ${request.url} - Error: ${message}`,
         exception instanceof Error ? exception.stack : undefined
       );
+      // Error reporting adapter (Sentry when SENTRY_DSN is set, no-op otherwise).
+      void getErrorReporter()
+        .captureException(exception, {
+          method: request.method,
+          path: request.route?.path ? `${request.baseUrl || ''}${request.route.path}` : request.path,
+          statusCode: status,
+          requestId: (request as any).requestId,
+          tenantId: (request as any).tenantId,
+        })
+        .catch(() => undefined);
     }
 
     response.status(status).json(errorPayload);
