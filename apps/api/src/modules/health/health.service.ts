@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import Redis from 'ioredis';
 import * as net from 'node:net';
+import { resolveRedisConnectionOptions } from '../jobs/redis-connection.factory';
 
 @Injectable()
 export class HealthService {
@@ -29,10 +30,13 @@ export class HealthService {
     // Redis
     let redisStatus: 'up' | 'down' = 'down';
     let redisLatency = 0;
-    const redisUrl = this.config.get<string>('REDIS_URL') || 'redis://localhost:6379';
     const redisStart = Date.now();
     try {
-      const redis = new Redis(redisUrl, { maxRetriesPerRequest: 0, connectTimeout: 1000 });
+      const redis = new Redis({
+        ...resolveRedisConnectionOptions(this.config),
+        maxRetriesPerRequest: 0,
+        connectTimeout: 1000,
+      });
       await redis.ping();
       redisStatus = 'up';
       redisLatency = Date.now() - redisStart;
