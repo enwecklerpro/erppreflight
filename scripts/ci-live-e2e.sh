@@ -197,6 +197,17 @@ echo "$READY" | grep -q '"status":"unhealthy"' && { log "API readiness is unheal
 MIG=$(psql "$PG_ADMIN_URL/$DB_NAME" -qAt -c "SELECT count(*) FROM _migrations")
 log "migrations applied by API bootstrap: $MIG"
 
+# Knowledge snapshot for the tools / SEO smoke. Synced BEFORE any suite runs: the public-tools
+# API caches snapshot metadata for 60 s, so a sync between suites could be masked by an earlier
+# "no snapshot yet" answer (seen when the i18n smoke visited /tools right before the sync).
+if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
+  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
+  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
+    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
+    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1 \
+    || { log "knowledge sync failed (see $ART/knowledge-sync.log)"; exit 1; }
+fi
+
 # ---------------------------------------------------------------- web (standalone)
 log "starting web on :$WEB_PORT (standalone server)"
 (cd "$WEB_APP_DIR" && NODE_ENV=production PORT="$WEB_PORT" HOSTNAME=127.0.0.1 NEXT_TELEMETRY_DISABLED=1 \
@@ -224,14 +235,10 @@ log "running EN/DE localization smoke (scripts/e2e-i18n-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
   node scripts/e2e-i18n-smoke.cjs "$ART/screenshots-i18n" 2>&1 | tee "$ART/smoke-i18n.log"
 I18N=${PIPESTATUS[0]}
-# Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
+# Free tools / programmatic SEO / docs smoke (uses the knowledge snapshot synced above: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
 if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
-  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
-  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
-    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
-    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1
   log "running tools smoke (scripts/e2e-tools-smoke.cjs)"
   WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
     node scripts/e2e-tools-smoke.cjs "$ART/screenshots-tools" 2>&1 | tee "$ART/smoke-tools.log"
