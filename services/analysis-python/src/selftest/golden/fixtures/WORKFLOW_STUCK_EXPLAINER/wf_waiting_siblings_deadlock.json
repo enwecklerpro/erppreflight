@@ -1,0 +1,32 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000045012",
+      "wi_type": "W",
+      "wi_stat": "READY",
+      "wi_rh_task": "TS00008267"
+    },
+    {
+      "wi_id": "0000045020",
+      "wi_type": "E",
+      "wi_stat": "WAITING",
+      "wi_chckwi": "0000045001"
+    },
+    {
+      "wi_id": "0000045021",
+      "wi_type": "E",
+      "wi_stat": "WAITING",
+      "wi_chckwi": "0000045001"
+    }
+  ],
+  "agent_traces": [
+    {
+      "wi_id": "0000045012",
+      "resolved_agents": [
+        "USER_MGR_01"
+      ],
+      "resolved_count": 1
+    }
+  ],
+  "logs": []
+}

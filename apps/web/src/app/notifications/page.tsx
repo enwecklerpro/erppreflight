@@ -5,6 +5,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Bell, BellOff, Loader2, Mail, Webhook } from 'lucide-react';
 import { QueryErrorState } from '@/components/knowledge-graph/kg-nav';
 import { NotificationItem } from '@/components/notifications/notification-item';
+import { NotificationLanguage } from '@/components/notifications/notification-language';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
   fetchNotificationChannels,
@@ -205,8 +206,9 @@ export default function NotificationsPage() {
           </>
         )}
       </section>
-      <aside>
+      <aside className="space-y-4">
         <Preferences />
+        <NotificationLanguage />
       </aside>
     </div>
   );

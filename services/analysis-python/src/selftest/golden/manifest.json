@@ -1,0 +1,1685 @@
+{
+  "manifestVersion": "2026-09-26.1",
+  "description": "Golden rule fixtures for the deterministic rule self-test (spec 10.10). Each case records the exact finding codes its engine must emit; a rule is covered when at least one case emits it (positive) and one case of the same engine does not (negative).",
+  "defaultTargetRelease": "S4H_2023",
+  "cases": {
+    "account_determination_preflight_acct_insufficient_input": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/account_determination_preflight_acct_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ACCT_INSUFFICIENT_INPUT"
+      ]
+    },
+    "account_determination_preflight_acct_invalid_input": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/account_determination_preflight_acct_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ACCT_INVALID_INPUT"
+      ]
+    },
+    "account_determination_preflight_acct_parse_error": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/account_determination_preflight_acct_parse_error.txt",
+      "sha256": "f9b7a7c7ac825b99c182e28f660d15eb841765393aaa7daba59f6acb4c782314",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ACCT_PARSE_ERROR"
+      ]
+    },
+    "acct_det_account_missing_in_company_code": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/acct_det_account_missing_in_company_code.json",
+      "sha256": "dea0b05fb262be258e3f6b45e77a6509d37f1850baa4559943333ba8db1ded27",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ACCT_DET_ACCOUNT_NOT_IN_COMPANY_CODE"
+      ]
+    },
+    "acct_det_blocked_posting": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/acct_det_blocked_posting.json",
+      "sha256": "162e6add647c927d2ef481625cac28b1c1b073525ee27103fc2eca5fff42f4d0",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ACCT_DET_ACCOUNT_BLOCKED_POSTING"
+      ]
+    },
+    "acct_det_conflicting_rules": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/acct_det_conflicting_rules.json",
+      "sha256": "d730f1e3c03549941526a0844d5805e499c04348ea85abb9ecffbaf0b0be58a7",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ACCT_DET_CONFLICTING_RULES"
+      ]
+    },
+    "acct_det_matrix": {
+      "engine": "ACCOUNT_DETERMINATION_PREFLIGHT",
+      "file": "ACCOUNT_DETERMINATION_PREFLIGHT/acct_det_matrix.csv",
+      "sha256": "e62ec3768e8ff99046b82b98c93480587981facac765dd3f709334ba361ef7f6",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ACCT_DET_MISSING_ACCOUNT"
+      ]
+    },
+    "api_change_guard_api_insufficient_input": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_change_guard_api_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "API_INSUFFICIENT_INPUT"
+      ]
+    },
+    "api_change_guard_api_invalid_input": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_change_guard_api_invalid_input.txt",
+      "sha256": "665abe9bc46730a2aead085f8bce156411bea79a6e930b6bfc441d5a7eb949db",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "API_INVALID_INPUT"
+      ]
+    },
+    "api_change_guard_api_parse_error": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_change_guard_api_parse_error.json",
+      "sha256": "fdd6c2d7f3df9afba8261d408a880433a0b4638fb51ed481ff172790fabf33d6",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "API_PARSE_ERROR"
+      ]
+    },
+    "api_odata_entity_removed": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_odata_entity_removed.json",
+      "sha256": "fb16ba1df47000d935e8c40035e0c6f0878f2e0405651d8be1de6de179831dfa",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_BREAKING_ENDPOINT_REMOVED",
+        "API_BREAKING_ENTITYSET_REMOVED",
+        "API_BREAKING_ENTITY_REMOVED"
+      ]
+    },
+    "api_odata_maxlength_increased": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_odata_maxlength_increased.json",
+      "sha256": "d464c12ada95737c462b5709c48b6f8605d06efa53f585cf68adae482e5946f4",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_NON_BREAKING_MAX_LENGTH_INCREASED"
+      ]
+    },
+    "api_openapi_breaking": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_breaking.json",
+      "sha256": "835974bf9b6465ea99f1e45037b169115d6e33734e01a4da868c1cca74d3e60c",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_BREAKING_ENUM_RESTRICTED",
+        "API_BREAKING_FIELD_REMOVED",
+        "API_BREAKING_MAX_LENGTH_DECREASED",
+        "API_BREAKING_OPERATION_REMOVED",
+        "API_BREAKING_REQUIRED_PARAM_ADDED",
+        "API_BREAKING_REQUIRED_PROPERTY_ADDED"
+      ]
+    },
+    "api_openapi_clean": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_clean.json",
+      "sha256": "b0bf1d197e0c60acacda71317da55294fd02e7bbc92d4d6bd7d3b1908ab02d47",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_NON_BREAKING_ENDPOINT_ADDED",
+        "API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED"
+      ]
+    },
+    "api_openapi_endpoint_removed": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_endpoint_removed.json",
+      "sha256": "4f9a6e82529b604bb69b78899f7b2b133082e3795b00e4d3911a694226cd14b4",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_BREAKING_ENDPOINT_REMOVED"
+      ]
+    },
+    "api_openapi_operation_added": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_operation_added.json",
+      "sha256": "f8c1e88ee27d03a3783d4452b4d48798823d863fd7b983beed5af949adac015f",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_NON_BREAKING_OPERATION_ADDED"
+      ]
+    },
+    "api_openapi_operation_deprecated": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_operation_deprecated.json",
+      "sha256": "85ca17b73a7252ce004e86ad39572da2e1bc2bbd4b180244ee08e1bc5ba51826",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_DEPRECATION_WARNING"
+      ]
+    },
+    "api_openapi_param_type_changed": {
+      "engine": "API_CHANGE_GUARD",
+      "file": "API_CHANGE_GUARD/api_openapi_param_type_changed.json",
+      "sha256": "c60a8bee219fc20c778a9a3711e83bdb7fc62a22028028a0a0ce2e1a0b032a63",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "API_BREAKING_TYPE_CHANGED"
+      ]
+    },
+    "change_pointer_coverage_auditor_cp_insufficient_input": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/change_pointer_coverage_auditor_cp_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CP_INSUFFICIENT_INPUT"
+      ]
+    },
+    "change_pointer_coverage_auditor_cp_invalid_input": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/change_pointer_coverage_auditor_cp_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CP_INVALID_INPUT"
+      ]
+    },
+    "change_pointer_coverage_auditor_cp_parse_error": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/change_pointer_coverage_auditor_cp_parse_error.json",
+      "sha256": "1cd889bd0d01a9fff3413913e3a094ac7c0df72815742105a05a0dc3455261ef",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CP_PARSE_ERROR"
+      ]
+    },
+    "change_pointer_coverage_auditor_cp_runtime_unprocessed_backlog": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/change_pointer_coverage_auditor_cp_runtime_unprocessed_backlog.json",
+      "sha256": "a140200f4b8ce4d697dc9a426901b0a27f92a12ac73b416ef606e1e70f12acc1",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CP_RUNTIME_UNPROCESSED_BACKLOG"
+      ]
+    },
+    "clean_core_dynamic": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_dynamic.abap",
+      "sha256": "60f28d582097e187a84d00b684c41979ac433ceabf1ac0b34958cbd924c0b493",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CLEAN_CORE_DYNAMIC_CALL_UNVERIFIABLE",
+        "CLEAN_CORE_OBSOLETE_SYNTAX",
+        "CLEAN_CORE_UNRELEASED_API"
+      ]
+    },
+    "clean_core_legacy": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_legacy.abap",
+      "sha256": "9a2e4e31813c42286c754200717c3e1e29771ab44843153f0346d3e870aa859d",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CLEAN_CORE_DIRECT_DB_ACCESS",
+        "CLEAN_CORE_OBSOLETE_SYNTAX"
+      ]
+    },
+    "clean_core_object_guard_clean_core_insufficient_input": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_object_guard_clean_core_insufficient_input.abap",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CLEAN_CORE_INSUFFICIENT_INPUT"
+      ]
+    },
+    "clean_core_object_guard_clean_core_invalid_input": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_object_guard_clean_core_invalid_input.abap",
+      "sha256": "fef634d0381087d9769de57c0fc701f6dbbb6d7eabb96c311ccae4e82a408b82",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CLEAN_CORE_INVALID_INPUT"
+      ]
+    },
+    "clean_core_object_guard_clean_core_object_released": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_object_guard_clean_core_object_released.json",
+      "sha256": "6e2372aec182833197528a370c632b90b82cd69f3590f8d434004e7d35ff578c",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CLEAN_CORE_OBJECT_RELEASED",
+        "CLEAN_CORE_UNRELEASED_OBJECT"
+      ],
+      "configuration": {
+        "released_objects": {
+          "schemaVersion": 1,
+          "snapshotId": "0b9c7c1e-8d0a-4c7e-9a41-4f0f7f0d2a11",
+          "snapshotSeq": 7,
+          "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source": "SAP_CLOUDIFICATION_REPOSITORY",
+          "release": {
+            "productCode": "SAP_S4HANA",
+            "editionCode": "CLOUD_PRIVATE",
+            "releaseCode": "2023 FPS03",
+            "label": "SAP S/4HANA 2023 FPS03",
+            "exactMatch": true
+          },
+          "objects": [
+            {
+              "objectType": "TABL",
+              "objectName": "MARA",
+              "state": "notToBeReleased",
+              "successors": [
+                {
+                  "objectType": "CDS_STOB",
+                  "objectName": "I_PRODUCT"
+                },
+                {
+                  "objectType": "CDS_STOB",
+                  "objectName": "I_PRODUCTSALES"
+                }
+              ]
+            },
+            {
+              "objectType": "CDS_STOB",
+              "objectName": "I_PRODUCT",
+              "state": "released",
+              "successors": []
+            }
+          ]
+        }
+      }
+    },
+    "clean_core_object_guard_clean_core_parse_error": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_object_guard_clean_core_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "CLEAN_CORE_PARSE_ERROR"
+      ]
+    },
+    "clean_core_tricky_positive": {
+      "engine": "CLEAN_CORE_OBJECT_GUARD",
+      "file": "CLEAN_CORE_OBJECT_GUARD/clean_core_tricky_positive.abap",
+      "sha256": "cd69062ab4fcc9d7afc93bab32e90bda840f06d0ff288c487182b653d14dab1e",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CLEAN_CORE_DIRECT_DB_ACCESS",
+        "CLEAN_CORE_DIRECT_DB_MUTATION",
+        "CLEAN_CORE_DYNAMIC_CALL_UNVERIFIABLE",
+        "CLEAN_CORE_OBSOLETE_SYNTAX",
+        "CLEAN_CORE_UNRELEASED_API",
+        "CLEAN_CORE_UNRELEASED_CLASS"
+      ]
+    },
+    "cp_custom_field_omitted": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/cp_custom_field_omitted.json",
+      "sha256": "dda875bd93bc89f87089b77831db6fddbefb6574353edcbc3ac2ead6549a2fee",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CP_CUSTOM_FIELD_OMITTED_BD52",
+        "CP_FIELD_NOT_CONFIGURED_BD52"
+      ]
+    },
+    "cp_dd04l_flag_missing": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/cp_dd04l_flag_missing.json",
+      "sha256": "14b5f13ddb2066aca6e6688d0906c447a0c0a87eabf497116def45f1bfc134c7",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CP_FIELD_DD04L_CHGFLAG_MISSING"
+      ]
+    },
+    "cp_field_filtered_bd53": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/cp_field_filtered_bd53.json",
+      "sha256": "7e6ae1d00aeff7110e3dfc9a8e3774c255f2fcea3b78e8066f56548733620b63",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CP_FIELD_FILTERED_BD53"
+      ]
+    },
+    "cp_global_disabled": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/cp_global_disabled.json",
+      "sha256": "d8596a1b06fc2d92d21c1d9c5a0561c40a40c52771805b41ced87c21135d832f",
+      "origin": "repository-fixture",
+      "expectedStatus": "PARTIAL",
+      "expectedCodes": [
+        "CP_GLOBAL_DEACTIVATED"
+      ]
+    },
+    "cp_message_type_not_in_bd50": {
+      "engine": "CHANGE_POINTER_COVERAGE_AUDITOR",
+      "file": "CHANGE_POINTER_COVERAGE_AUDITOR/cp_message_type_not_in_bd50.json",
+      "sha256": "dbc32d168835fdbf9972ad785bc89b3c4d19126ec2b608494d6b300be78c7440",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "CP_MSG_TYPE_DEACTIVATED"
+      ]
+    },
+    "custom_field_flow_doctor_field_insufficient_input": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_flow_doctor_field_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIELD_INSUFFICIENT_INPUT"
+      ]
+    },
+    "custom_field_flow_doctor_field_invalid_input": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_flow_doctor_field_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIELD_INVALID_INPUT"
+      ]
+    },
+    "custom_field_flow_doctor_field_parse_error": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_flow_doctor_field_parse_error.json",
+      "sha256": "1cd889bd0d01a9fff3413913e3a094ac7c0df72815742105a05a0dc3455261ef",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIELD_PARSE_ERROR"
+      ]
+    },
+    "custom_field_flow_doctor_field_propagation_blocked": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_flow_doctor_field_propagation_blocked.json",
+      "sha256": "6428cd7065debdd603974096d814125e8900deece4e2d5e0f61861e6ea42ee10",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_PROPAGATION_BLOCKED"
+      ]
+    },
+    "custom_field_registry": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_registry.json",
+      "sha256": "e394253fdb4acbd8f4830835e51691b37a1e32995106e35552573692c23504bd",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_BADI_REQUIRED_NOT_FOUND"
+      ]
+    },
+    "custom_field_type_mismatch": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/custom_field_type_mismatch.json",
+      "sha256": "d38f84e15436a7e3a88199e71180db9f78fbc3622c65df6beefbc83491f5150a",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_TYPE_MISMATCH"
+      ]
+    },
+    "decom_clean_user": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_clean_user.json",
+      "sha256": "4a8797680be62faeab567fe808cbb53ca4203ff9715a3eb382ebc66f96bbab51",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_SAFE_FOR_ARCHIVING"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "decom_job_dependency": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_job_dependency.json",
+      "sha256": "7d02355a104433ee69698ab82ed6900675bf47fdf189e843c801086013aa162d",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_SCHEDULED_JOB_DEPENDENCY"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "decom_locked_user_failed_logons": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_locked_user_failed_logons.json",
+      "sha256": "e20e01cd107a6a759f2ce9f15d34bc9a428dadcfff687476a62b55315d079277",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_LOCKED_USER_CALL_FLOOD",
+        "DECOM_RECENT_ACTIVITY_DETECTED"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "decom_rfc_dependency": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_rfc_dependency.json",
+      "sha256": "25bd8308a16d551aa7bb630faf5a5f37507065dca0b3a97023841c1bcd731efd",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_ACTIVE_RFC_DEPENDENCY"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "decom_user_not_in_usr02": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_user_not_in_usr02.json",
+      "sha256": "11e4bad680c175846940d14c0e75711afd2b42595b6a732a6363cf0bc7f27a64",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_USER_NOT_FOUND"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "decom_workflow_agent_pending": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/decom_workflow_agent_pending.json",
+      "sha256": "abf816cc94e255808d86a01587ddbfaf00287400fff9a339a92426d9b4abd94a",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "DECOM_WORKFLOW_AGENT_DEPENDENCY"
+      ],
+      "configuration": {
+        "evaluation_date": "2026-09-15"
+      }
+    },
+    "ecc2cloud_navigator_ecc_insufficient_input": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc2cloud_navigator_ecc_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ECC_INSUFFICIENT_INPUT"
+      ]
+    },
+    "ecc2cloud_navigator_ecc_invalid_input": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc2cloud_navigator_ecc_invalid_input.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ECC_INVALID_INPUT"
+      ]
+    },
+    "ecc2cloud_navigator_ecc_parse_error": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc2cloud_navigator_ecc_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "ECC_PARSE_ERROR"
+      ]
+    },
+    "ecc_interface_inventory": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc_interface_inventory.json",
+      "sha256": "cabf42d7818a765c44f1ee30ec6859f744456879b00fcf159dba2007d0c29556",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ECC_BAPI_RFC_MODERNIZATION_FOUND",
+        "ECC_BAPI_RFC_UNRELEASED_BLOCKER",
+        "ECC_IDOC_MODERNIZATION_EVENT_MESH"
+      ]
+    },
+    "ecc_obsolete_blockers": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc_obsolete_blockers.csv",
+      "sha256": "264f3266b2baefd90d231515ab009e1efb852d39cbc5364e2a94e4f0ae065076",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ECC_TCODE_CUSTOM_CODE_REVIEW",
+        "ECC_TCODE_NO_EQUIVALENT_BLOCKER",
+        "ECC_TCODE_OBSOLETE_REDESIGN"
+      ]
+    },
+    "ecc_st03n_clean": {
+      "engine": "ECC2CLOUD_NAVIGATOR",
+      "file": "ECC2CLOUD_NAVIGATOR/ecc_st03n_clean.csv",
+      "sha256": "8784b47b2b21455daf655fe624361b27908979f26c9df68aaf03e6ab8d27de65",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "ECC_TCODE_SUCCESSOR_FOUND"
+      ]
+    },
+    "ext_modify_field_with_consumers": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/ext_modify_field_with_consumers.json",
+      "sha256": "1fe203bbdea75c7bc4040cf530eeb44ecef213b3055bf640a44163a577b5e780",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "EXT_HIGH_BLAST_RADIUS_WARNING",
+        "EXT_MODIFICATION_BREAKING_CONSUMERS"
+      ]
+    },
+    "ext_target_not_in_graph": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/ext_target_not_in_graph.json",
+      "sha256": "2898ef2ed9349398cb3b3ca83ade62c6a50396a8efe80270e37740a1c056e8f6",
+      "origin": "authored-golden",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "EXT_TARGET_OBJECT_NOT_FOUND"
+      ]
+    },
+    "extension_cycle": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_cycle.json",
+      "sha256": "a9f8cf9465d741296c993f1ca921584899f69880cc541552cfba8894879e832b",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "EXT_CYCLIC_DEPENDENCY_DETECTED"
+      ]
+    },
+    "extension_impact_guard_ext_delete_blocked_active_consumers": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_impact_guard_ext_delete_blocked_active_consumers.json",
+      "sha256": "8ae8c6a4dcc15e64382fed225637b0cbcd63b64710487b95bd73407eaf4cebb8",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "EXT_DELETE_BLOCKED_ACTIVE_CONSUMERS",
+        "EXT_HIGH_BLAST_RADIUS_WARNING"
+      ],
+      "configuration": {
+        "target_object": "YY1_PROJECT_CODE"
+      }
+    },
+    "extension_impact_guard_ext_insufficient_input": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_impact_guard_ext_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "EXT_INSUFFICIENT_INPUT"
+      ]
+    },
+    "extension_impact_guard_ext_invalid_input": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_impact_guard_ext_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "EXT_INVALID_INPUT"
+      ]
+    },
+    "extension_impact_guard_ext_parse_error": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_impact_guard_ext_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "EXT_PARSE_ERROR"
+      ]
+    },
+    "extension_impact_guard_ext_safe_to_delete": {
+      "engine": "EXTENSION_IMPACT_GUARD",
+      "file": "EXTENSION_IMPACT_GUARD/extension_impact_guard_ext_safe_to_delete.json",
+      "sha256": "8ae8c6a4dcc15e64382fed225637b0cbcd63b64710487b95bd73407eaf4cebb8",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "EXT_SAFE_TO_DELETE"
+      ],
+      "configuration": {
+        "target_object": "YY1_UNUSED_OBSOLETE_FIELD"
+      }
+    },
+    "field_badi_active_for_journal_entry": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/field_badi_active_for_journal_entry.json",
+      "sha256": "5814136b389a9b0fef7f0934a83b2f6820718e2a0ce46bb8ad0f6014c3da05db",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_PROPAGATION_REQUIRES_BADI"
+      ]
+    },
+    "field_invalid_prefix": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/field_invalid_prefix.json",
+      "sha256": "40cc53e2141fde217de9489a763ab3090a9e56608619a557601fed79b52278d1",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_NAME_INVALID_PREFIX"
+      ]
+    },
+    "field_missing_target_context": {
+      "engine": "CUSTOM_FIELD_FLOW_DOCTOR",
+      "file": "CUSTOM_FIELD_FLOW_DOCTOR/field_missing_target_context.json",
+      "sha256": "082fbf2aeb48a83376b76ccad7b417a7ad67dedf682db9e24240dd1d776c3be6",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIELD_MISSING_TARGET_CONTEXT"
+      ]
+    },
+    "fiori_403_root_cause_doctor_fiori_403_insufficient_input": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_403_root_cause_doctor_fiori_403_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIORI_403_INSUFFICIENT_INPUT"
+      ]
+    },
+    "fiori_403_root_cause_doctor_fiori_403_invalid_input": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_403_root_cause_doctor_fiori_403_invalid_input.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIORI_403_INVALID_INPUT"
+      ]
+    },
+    "fiori_403_root_cause_doctor_fiori_403_parse_error": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_403_root_cause_doctor_fiori_403_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FIORI_403_PARSE_ERROR"
+      ]
+    },
+    "fiori_auth_missing": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_auth_missing.json",
+      "sha256": "bf3fe8a1960ee36ac194ef7afa0ced3838eefe067a3d6502ca76ed96fe3af1ac",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_AUTH_OBJECT_MISSING"
+      ]
+    },
+    "fiori_bare_403_no_telemetry": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_bare_403_no_telemetry.json",
+      "sha256": "970334fe98edab4336b6f8a7ba21e9cdae16fbf1195f16d93a65b993112579bb",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_403_INSUFFICIENT_TELEMETRY"
+      ]
+    },
+    "fiori_cloud_connector_denied": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_cloud_connector_denied.json",
+      "sha256": "5d354b6bfc778857aa8c3655a20f69d30f01f313757095ea8b44eb2964b5178c",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_CLOUD_CONNECTOR_DENIED"
+      ]
+    },
+    "fiori_csrf_token_required": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_csrf_token_required.json",
+      "sha256": "2c061d3e1a7131b64e32d6b5a031e6fc0ed29d13aa486e04c8c0217a5225ac9d",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_CSRF_TOKEN_INVALID"
+      ]
+    },
+    "fiori_gateway_service_not_found": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_gateway_service_not_found.json",
+      "sha256": "332dc10ccc4bbcb95a6d4c4260a52d204d83d721cad386cfc8339e2215fcb41d",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_GATEWAY_SERVICE_NOT_ACTIVATED"
+      ]
+    },
+    "fiori_icf_inactive": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_icf_inactive.json",
+      "sha256": "966220c838684aedd7dc7614a9c42634fe47745280316be447f2229b76877b3f",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_ICF_INACTIVE"
+      ]
+    },
+    "fiori_ucon_blocked": {
+      "engine": "FIORI_403_ROOT_CAUSE_DOCTOR",
+      "file": "FIORI_403_ROOT_CAUSE_DOCTOR/fiori_ucon_blocked.json",
+      "sha256": "861d724a55e9f5fd2a6fb6a957e9e59dada77b7b54504ac3d7ff10187f698c57",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FIORI_UCON_DENIED"
+      ]
+    },
+    "form_binding_path_moved": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_binding_path_moved.xml",
+      "sha256": "34679805311e02e7a9b1f437b70259732c4f102ec380257e09df5aecb1bb056a",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FORM_BINDING_PATH_MISMATCH"
+      ],
+      "configuration": {
+        "xdp_content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">\n  <template>\n    <subform name=\"InvoiceForm\" dataRef=\"$.Invoice\">\n      <field name=\"SupplierName\">\n        <bind match=\"dataRef\" ref=\"$.Header.Name\"/>\n      </field>\n    </subform>\n  </template>\n</xdp:xdp>\n"
+      }
+    },
+    "form_doctor_form_field_missing_in_xml": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_doctor_form_field_missing_in_xml.xml",
+      "sha256": "1856636dbe692c64293d1314f5063a5b1e4fbf0c44c8ecb943e9d16610eb039d",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FORM_FIELD_MISSING_IN_XML"
+      ],
+      "configuration": {
+        "xdp_content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">\n    <template>\n        <subform name=\"InvoiceForm\" dataRef=\"$.Invoice\">\n            <field name=\"InvoiceNum\">\n                <bind match=\"dataRef\" ref=\"$.Header.InvoiceID\"/>\n            </field>\n            <field name=\"SupplierTax\">\n                <bind match=\"dataRef\" ref=\"$.Header.Supplier.TaxNumber\"/>\n            </field>\n            <field name=\"TotalAmt\">\n                <bind match=\"dataRef\" ref=\"$.Header.TotalAmount\"/>\n            </field>\n            <field name=\"ItemDescription\">\n                <bind match=\"dataRef\" ref=\"$.Items.Item.ProductDescription\"/>\n            </field>\n        </subform>\n    </template>\n</xdp:xdp>"
+      }
+    },
+    "form_doctor_form_insufficient_input": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_doctor_form_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FORM_INSUFFICIENT_INPUT"
+      ]
+    },
+    "form_doctor_form_invalid_input": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_doctor_form_invalid_input.txt",
+      "sha256": "f6a773bcee81add9f78b50caa478925258e69a8f8119fd8f3806cade6878391a",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FORM_INVALID_INPUT"
+      ]
+    },
+    "form_doctor_form_parse_error": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_doctor_form_parse_error.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "FORM_PARSE_ERROR"
+      ]
+    },
+    "form_field_hidden_presence": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_field_hidden_presence.xml",
+      "sha256": "34679805311e02e7a9b1f437b70259732c4f102ec380257e09df5aecb1bb056a",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FORM_FIELD_HIDDEN_IN_LAYOUT"
+      ],
+      "configuration": {
+        "xdp_content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">\n  <template>\n    <subform name=\"InvoiceForm\" dataRef=\"$.Invoice\">\n      <field name=\"InvoiceNum\" presence=\"hidden\">\n        <bind match=\"dataRef\" ref=\"$.Header.InvoiceID\"/>\n      </field>\n    </subform>\n  </template>\n</xdp:xdp>\n"
+      }
+    },
+    "form_legacy_sapscript_commands": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_legacy_sapscript_commands.txt",
+      "sha256": "115baecd61f3ef55daf9faea7b9f95171629eb0ed3336e52e549df39e37f218c",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FORM_LEGACY_SAPSCRIPT_DETECTED"
+      ]
+    },
+    "form_legacy_smartform": {
+      "engine": "FORM_DOCTOR",
+      "file": "FORM_DOCTOR/form_legacy_smartform.xml",
+      "sha256": "92542983be5df91baa2b9e5d20e936872e62708ba51aaa17c3b2f432e0b82a70",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "FORM_LEGACY_SMARTFORM_DETECTED"
+      ]
+    },
+    "gap_configuration_payment_terms": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_configuration_payment_terms.json",
+      "sha256": "3d0d326975912b031ccc80fda15f417e1f479de177a36e2f0eab9164f23ff036",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_CONFIGURATION"
+      ]
+    },
+    "gap_developer_rap_object": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_developer_rap_object.json",
+      "sha256": "e4dde5ec4660a15a98d9f7d83a8abe22e31444461eac85c72905016826da1928",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_DEVELOPER_EXTENSIBILITY"
+      ]
+    },
+    "gap_key_user_custom_field": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_key_user_custom_field.json",
+      "sha256": "7cd25c9b619dbec7246213b296193a89f1eb8b1d0f0aab51de6ea26cc4dd3634",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_KEY_USER"
+      ]
+    },
+    "gap_radar_direct_db_write": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_radar_direct_db_write.json",
+      "sha256": "bc11bd29c31cf61b1d97db9beb08d4c5c59d56fe9a14a89a202eb8266f3118c2",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_BLOCKED_CLEAN_CORE_VIOLATION"
+      ]
+    },
+    "gap_radar_event_mesh": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_radar_event_mesh.json",
+      "sha256": "70232ed2c96e55c6a992158c5565e7ce64b08c633a428d85d62844ddf08e2766",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_BUSINESS_EVENT"
+      ]
+    },
+    "gap_radar_known_gap": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_radar_known_gap.json",
+      "sha256": "f033b4260b7379dda4e537c0ba90cb83d9be83dec7db8d6b013e8975ca215adf",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_KNOWN_PRODUCT_GAP"
+      ]
+    },
+    "gap_released_cds_view": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_released_cds_view.json",
+      "sha256": "42e50a552e4b9a5cc39150cefd099ee655c0692f15a14b3253a90bd3541765ee",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_RELEASED_CDS"
+      ]
+    },
+    "gap_released_odata_api": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_released_odata_api.json",
+      "sha256": "762101752365185a4a6aad46f2db42de644edbdc37f296d0f2864e1d763f92a0",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_RELEASED_API"
+      ]
+    },
+    "gap_side_by_side_btp": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_side_by_side_btp.json",
+      "sha256": "65d1d67c0f8220105fd5b54cadaa22273629487739f83b905851ce18849337d4",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_SIDE_BY_SIDE"
+      ]
+    },
+    "gap_standard_scope_item": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_standard_scope_item.json",
+      "sha256": "8598b783eb19fe397416fc18ce2865b19db3ec7a2229b458f3514e81851d15e8",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_STANDARD"
+      ]
+    },
+    "gap_workaround_staging_table": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/gap_workaround_staging_table.json",
+      "sha256": "7dadbe68984a0bce6c99694092697b7651d05844a2b7e22d398b3c9dd052a1cf",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_SUPPORTED_WORKAROUND"
+      ]
+    },
+    "iam_cost_optimizer_iam_insufficient_input": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_cost_optimizer_iam_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "IAM_INSUFFICIENT_INPUT"
+      ]
+    },
+    "iam_cost_optimizer_iam_invalid_input": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_cost_optimizer_iam_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "IAM_INVALID_INPUT"
+      ]
+    },
+    "iam_cost_optimizer_iam_parse_error": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_cost_optimizer_iam_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "IAM_PARSE_ERROR"
+      ]
+    },
+    "iam_redundant_catalog": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_redundant_catalog.json",
+      "sha256": "6650cfe704b914dffd231f88e0f5f9b40ce585768bd95135bc988db699f49093",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "IAM_REDUNDANT_CATALOG_DETECTED"
+      ]
+    },
+    "iam_role_matrix": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_role_matrix.csv",
+      "sha256": "e958fbb6ae6bfeafd0b458400d82298888f564efd83f81230b38e7d2ca62f431",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "IAM_PERMANENT_EMERGENCY_ROLE"
+      ]
+    },
+    "iam_unused_privilege": {
+      "engine": "IAM_COST_OPTIMIZER",
+      "file": "IAM_COST_OPTIMIZER/iam_unused_privilege.json",
+      "sha256": "ff08e14d8304e0dc0816b5759073aba1c4563b3c394c7237ba354f9aa5e4322f",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "IAM_LICENSE_TIER_INFLATION_DRIVER",
+        "IAM_UNUSED_CRITICAL_AUTHORIZATION"
+      ]
+    },
+    "mfs_ack_retry_storm": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_ack_retry_storm.json",
+      "sha256": "c51b344328c790ff52f6f0790c4507c04332089d8690e1ca169aac6256461702",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "MFS_DUPLICATE_TELEGRAM_SEND",
+        "MFS_FIRST_CAUSAL_DIVERGENCE",
+        "MFS_MISSING_ACK_TIMEOUT",
+        "MFS_OUT_OF_ORDER_SEQUENCE"
+      ]
+    },
+    "mfs_blackbox_mfs_corrupted_telegram": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_blackbox_mfs_corrupted_telegram.csv",
+      "sha256": "8c548f44534a9eaf19ddc2599e53de8ac13bee15328cc271a4057ea638b1bd4b",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "MFS_CORRUPTED_TELEGRAM",
+        "MFS_FIRST_CAUSAL_DIVERGENCE"
+      ]
+    },
+    "mfs_blackbox_mfs_insufficient_input": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_blackbox_mfs_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "MFS_INSUFFICIENT_INPUT"
+      ]
+    },
+    "mfs_blackbox_mfs_invalid_input": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_blackbox_mfs_invalid_input.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "MFS_INVALID_INPUT"
+      ]
+    },
+    "mfs_blackbox_mfs_parse_error": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_blackbox_mfs_parse_error.txt",
+      "sha256": "10aab1d1cb56e8463085fdf5aa386fee46bc3bbd766ce1a376d87d0ba95fa1d6",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "MFS_PARSE_ERROR"
+      ]
+    },
+    "mfs_normal_flow": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_normal_flow.json",
+      "sha256": "3c96b24902ce6b178cdf18d071623364fde2541258e21ae3857262b30ac3083c",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": []
+    },
+    "mfs_telegram_log": {
+      "engine": "MFS_BLACKBOX",
+      "file": "MFS_BLACKBOX/mfs_telegram_log.csv",
+      "sha256": "3bb4560bc63a2b7eed67299cf69be41fcef8107a98a6691afe3bc5e0a0358a43",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "MFS_FIRST_CAUSAL_DIVERGENCE",
+        "MFS_IMPOSSIBLE_TOPOLOGY_JUMP"
+      ]
+    },
+    "opd_channel_fax_inactive": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_channel_fax_inactive.json",
+      "sha256": "5e5a1737eb2dc4c4e2240ac2855b2b3ca3cad6559f484041bd0f3af3bdf14ae8",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "OPD_CHANNEL_INACTIVE"
+      ]
+    },
+    "opd_guard_opd_insufficient_input": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_guard_opd_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "OPD_INSUFFICIENT_INPUT"
+      ]
+    },
+    "opd_guard_opd_invalid_input": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_guard_opd_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "OPD_INVALID_INPUT"
+      ]
+    },
+    "opd_guard_opd_parse_error": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_guard_opd_parse_error.json",
+      "sha256": "1cd889bd0d01a9fff3413913e3a094ac7c0df72815742105a05a0dc3455261ef",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "OPD_PARSE_ERROR"
+      ]
+    },
+    "opd_print_channel_without_queue": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_print_channel_without_queue.json",
+      "sha256": "e76aa5003eb62d9e0d9a302966e004a75844c9f39adb032d565f4186602fb141",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "OPD_PRINTER_QUEUE_NOT_FOUND"
+      ]
+    },
+    "opd_relevance_false": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_relevance_false.json",
+      "sha256": "662d70f09a805529198539fc8cd71dee3a6203059d0f6ac766bccc2efce08f2d",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "OPD_RELEVANCE_SUPPRESSED"
+      ]
+    },
+    "opd_scenario_shadowed": {
+      "engine": "OPD_GUARD",
+      "file": "OPD_GUARD/opd_scenario_shadowed.json",
+      "sha256": "114005592109826e27aa670122504822ab75f6ed8b2592322d13f470486f3769",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "OPD_DETERMINATION_STEP_MISSING",
+        "OPD_UNREACHABLE_RULE"
+      ]
+    },
+    "refresh_clean_isolated": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_clean_isolated.json",
+      "sha256": "9315357d20fe4d5234b22c38fd99004506fdd3b7ba3aefb31bf33c443d6e58c9",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_ISOLATION_VERIFIED"
+      ]
+    },
+    "refresh_logical_system_unadjusted": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_logical_system_unadjusted.json",
+      "sha256": "58f98280a0da89fbbe979cadc50fb01b88b47e184a1551797c4d2284ff0267b7",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_LOGICAL_SYSTEM_UNADJUSTED"
+      ]
+    },
+    "refresh_payment_job_scheduled": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_payment_job_scheduled.json",
+      "sha256": "5f585c4de3bea9a4be491a1d775aa638695f6f85b6fd5843a18f01feae03569d",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_CRITICAL_JOB_SCHEDULED"
+      ]
+    },
+    "refresh_production_printer_active": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_production_printer_active.json",
+      "sha256": "8208ee259ce89c755e8ebc294b6e33306162d1ca39aba5b68359528659f15bb2",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_PRODUCTION_PRINTER_ACTIVE"
+      ]
+    },
+    "refresh_rfc_production": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_rfc_production.json",
+      "sha256": "0115927320b564a81585a22ec5ef3fc1fe661c11f4640cc7d0df1f24ca37706a",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_RFC_TARGETS_PRODUCTION"
+      ]
+    },
+    "refresh_scot_active": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_scot_active.json",
+      "sha256": "5c5f5e334505833f6220e52c1644fec9f3b89d47ded78f0637702401581ac8f0",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_SCOT_OUTBOUND_ACTIVE"
+      ]
+    },
+    "refresh_sid_mismatch": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/refresh_sid_mismatch.json",
+      "sha256": "56f057f47cea10e9362e66d98e83cc9baaa838ab6d1e6ea4ac0a21460a4accaa",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "REFRESH_INPUT_SID_MISMATCH"
+      ]
+    },
+    "safe_decommission_preflight_decom_insufficient_input": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/safe_decommission_preflight_decom_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "DECOM_INSUFFICIENT_INPUT"
+      ]
+    },
+    "safe_decommission_preflight_decom_invalid_input": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/safe_decommission_preflight_decom_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "DECOM_INVALID_INPUT"
+      ]
+    },
+    "safe_decommission_preflight_decom_parse_error": {
+      "engine": "SAFE_DECOMMISSION_PREFLIGHT",
+      "file": "SAFE_DECOMMISSION_PREFLIGHT/safe_decommission_preflight_decom_parse_error.json",
+      "sha256": "1cd889bd0d01a9fff3413913e3a094ac7c0df72815742105a05a0dc3455261ef",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "DECOM_PARSE_ERROR"
+      ]
+    },
+    "sap_gap_radar_gap_radar_insufficient_input": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/sap_gap_radar_gap_radar_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "GAP_RADAR_INSUFFICIENT_INPUT"
+      ]
+    },
+    "sap_gap_radar_gap_radar_invalid_input": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/sap_gap_radar_gap_radar_invalid_input.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "GAP_RADAR_INVALID_INPUT"
+      ]
+    },
+    "sap_gap_radar_gap_radar_parse_error": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/sap_gap_radar_gap_radar_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "GAP_RADAR_PARSE_ERROR"
+      ]
+    },
+    "sap_gap_radar_gap_radar_unknown_requirement": {
+      "engine": "SAP_GAP_RADAR",
+      "file": "SAP_GAP_RADAR/sap_gap_radar_gap_radar_unknown_requirement.json",
+      "sha256": "f3a30235bd07d616e0fc58442b51c50b95498d522842e3410f2a6c1c1448359c",
+      "origin": "unit-test-payload",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "GAP_RADAR_UNKNOWN_REQUIREMENT"
+      ]
+    },
+    "sc_circular": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/sc_circular.json",
+      "sha256": "5be420eff5f9195196bfe921867c9eeae14c762e0619eb6951bcef6d62d758b8",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SC_CIRCULAR_DEPENDENCY"
+      ]
+    },
+    "sc_draft_item": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/sc_draft_item.json",
+      "sha256": "557312f29c9feb0f497ec6d99959a741d4201598d07b149f04f719d508c8bf89",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SC_DRAFT_ITEM_INCLUDED"
+      ]
+    },
+    "sc_missing_prereq": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/sc_missing_prereq.json",
+      "sha256": "0ac3260e8631802244db335ce6a7a88eb794f1ba0c779f1388bbb79081ef0efe",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SC_DANGLING_FIELD_REFERENCE",
+        "SC_MISSING_PREREQUISITE"
+      ]
+    },
+    "software_collection_dependency_guard_sc_insufficient_input": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/software_collection_dependency_guard_sc_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SC_INSUFFICIENT_INPUT"
+      ]
+    },
+    "software_collection_dependency_guard_sc_invalid_input": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/software_collection_dependency_guard_sc_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SC_INVALID_INPUT"
+      ]
+    },
+    "software_collection_dependency_guard_sc_parse_error": {
+      "engine": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD",
+      "file": "SOFTWARE_COLLECTION_DEPENDENCY_GUARD/software_collection_dependency_guard_sc_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SC_PARSE_ERROR"
+      ]
+    },
+    "spro2cloud_spro_insufficient_input": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro2cloud_spro_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SPRO_INSUFFICIENT_INPUT"
+      ]
+    },
+    "spro2cloud_spro_invalid_input": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro2cloud_spro_invalid_input.txt",
+      "sha256": "f81733c9311d4184214b1cd8fec467d0f477a891445788ce4f932721e58d6e25",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SPRO_INVALID_INPUT"
+      ]
+    },
+    "spro2cloud_spro_parse_error": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro2cloud_spro_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "SPRO_PARSE_ERROR"
+      ]
+    },
+    "spro_custom_z_activity": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro_custom_z_activity.json",
+      "sha256": "18b5ac7cee70ab835ab0edf4a9cad475163f2247ca94f97b89d9e297ddeac5eb",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SPRO_MAPPING_NEEDS_REVIEW"
+      ]
+    },
+    "spro_negative_unsupported": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro_negative_unsupported.csv",
+      "sha256": "6ba643f455102a319acde330ddb5d6db4ed65f87bafe3df3b7ed5440c4a26e5e",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SPRO_MAPPING_NOT_AVAILABLE",
+        "SPRO_MAPPING_PARTIAL",
+        "SPRO_MAPPING_PROCESS_REDESIGN"
+      ]
+    },
+    "spro_standard_valid": {
+      "engine": "SPRO2CLOUD",
+      "file": "SPRO2CLOUD/spro_standard_valid.csv",
+      "sha256": "6285d098f13a157c55525b5eb14605f6fa2a443b892a008faba05123686e572c",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "SPRO_MAPPING_EXACT",
+        "SPRO_MAPPING_SCOPE_DEPENDENT"
+      ]
+    },
+    "system_refresh_delta_guard_refresh_insufficient_input": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/system_refresh_delta_guard_refresh_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "REFRESH_INSUFFICIENT_INPUT"
+      ]
+    },
+    "system_refresh_delta_guard_refresh_invalid_input": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/system_refresh_delta_guard_refresh_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "REFRESH_INVALID_INPUT"
+      ]
+    },
+    "system_refresh_delta_guard_refresh_parse_error": {
+      "engine": "SYSTEM_REFRESH_DELTA_GUARD",
+      "file": "SYSTEM_REFRESH_DELTA_GUARD/system_refresh_delta_guard_refresh_parse_error.json",
+      "sha256": "1cd889bd0d01a9fff3413913e3a094ac7c0df72815742105a05a0dc3455261ef",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "REFRESH_PARSE_ERROR"
+      ]
+    },
+    "tr_circular_transports": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/tr_circular_transports.json",
+      "sha256": "cc932cfba0975f2f5d6911d01ab554def0e4099a8809fa5af5b7494c6c873e72",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "TR_CALL_DEPENDENCY_SEQUENCE_RISK",
+        "TR_CIRCULAR_DEPENDENCY_DETECTED"
+      ]
+    },
+    "tr_collision": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/tr_collision.csv",
+      "sha256": "afee782fed446cfae38bb92bb31ee553d291340f58aae633379caa843a4c600f",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "TR_OBJECT_COLLISION"
+      ]
+    },
+    "tr_customizing_ahead_of_structure": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/tr_customizing_ahead_of_structure.json",
+      "sha256": "cbac05c7a5e91490b23b6f67f388d06c3ab7a66cc5cb5a85dba03c51dc2d3dad",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "TR_CUSTOMIZING_AHEAD_OF_STRUCTURE"
+      ]
+    },
+    "tr_overtaker_downgrade": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/tr_overtaker_downgrade.json",
+      "sha256": "7cd82aebc22df9ce6704f6e058f62ad682e9276264a4e4477268e62b7cbf40c6",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "TR_OBJECT_COLLISION",
+        "TR_OVERTAKER_DOWNGRADE_RISK"
+      ]
+    },
+    "transport_dependency_analyzer_tr_insufficient_input": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/transport_dependency_analyzer_tr_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "TR_INSUFFICIENT_INPUT"
+      ]
+    },
+    "transport_dependency_analyzer_tr_invalid_input": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/transport_dependency_analyzer_tr_invalid_input.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "TR_INVALID_INPUT"
+      ]
+    },
+    "transport_dependency_analyzer_tr_parse_error": {
+      "engine": "TRANSPORT_DEPENDENCY_ANALYZER",
+      "file": "TRANSPORT_DEPENDENCY_ANALYZER/transport_dependency_analyzer_tr_parse_error.txt",
+      "sha256": "2cd4d80eed4d0d278a339f390ea9ce97941fbf3528bddfe69797cc4c82f76304",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "TR_PARSE_ERROR"
+      ]
+    },
+    "wf_background_failed": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_background_failed.json",
+      "sha256": "c9555683e8ea19c4f3a1bc02a930848dd9b49a091b1d94cd2af5cbdddbca9cac",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_BACKGROUND_TASK_FAILED"
+      ]
+    },
+    "wf_container_binding_failed": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_container_binding_failed.json",
+      "sha256": "cdc240ed3ed6800fb9980e8a582430dacc49c838ee2c356fd8e6322410bb5d78",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_CONTAINER_BINDING_ERROR"
+      ]
+    },
+    "wf_deadline_breached": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_deadline_breached.json",
+      "sha256": "5b1084bb887c26e9847bc7d3e33d90d5e5d53a7ecff5ada92d6d78aaf68de656",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_DEADLINE_BREACHED"
+      ]
+    },
+    "wf_event_linkage_deactivated": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_event_linkage_deactivated.json",
+      "sha256": "064c2a2a4845ed67fdf136356ec7e50246f867558df2e62dc4634cb8d136bad5",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_EVENT_LINKAGE_DEACTIVATED"
+      ]
+    },
+    "wf_stuck_no_agent": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_stuck_no_agent.json",
+      "sha256": "4ac0274b8ec441f11501f65cd8d2935669e034b4641932afe0e5b401ee7adfab",
+      "origin": "repository-fixture",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_STUCK_NO_AGENT"
+      ]
+    },
+    "wf_waiting_siblings_deadlock": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/wf_waiting_siblings_deadlock.json",
+      "sha256": "83ded6ce500b055c50a7e57dea014b993f5055b98f752cf0921e790ff5ac04b8",
+      "origin": "authored-golden",
+      "expectedStatus": "COMPLETED",
+      "expectedCodes": [
+        "WF_DEADLOCK_DETECTED"
+      ]
+    },
+    "workflow_stuck_explainer_wf_insufficient_input": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/workflow_stuck_explainer_wf_insufficient_input.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "WF_INSUFFICIENT_INPUT"
+      ]
+    },
+    "workflow_stuck_explainer_wf_invalid_input": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/workflow_stuck_explainer_wf_invalid_input.xml",
+      "sha256": "d58bea01a7d80c5526898beb86e50cbd4f36cae26c32c7c3633db1cf2e97ffff",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "WF_INVALID_INPUT"
+      ]
+    },
+    "workflow_stuck_explainer_wf_parse_error": {
+      "engine": "WORKFLOW_STUCK_EXPLAINER",
+      "file": "WORKFLOW_STUCK_EXPLAINER/workflow_stuck_explainer_wf_parse_error.json",
+      "sha256": "d1cc0dde5e61035038f9352d361e91d377c1de7bf4a6c90178d0417b68bb8032",
+      "origin": "unit-test-payload",
+      "expectedStatus": "FAILED",
+      "expectedCodes": [
+        "WF_PARSE_ERROR"
+      ]
+    }
+  }
+}

@@ -128,6 +128,8 @@ export class AccountSecurityService {
         throw new BadRequestException('This reset link is no longer valid for this account.');
       }
       await this.tokens.revokeAll(consumed.user_id, 'PASSWORD_RESET', client);
+      // Credential reset: open e-mail sign-in links die with the old sessions.
+      await this.tokens.revokeAll(consumed.user_id, 'MAGIC_LINK', client);
       await this.sessions.revokeAll(consumed.user_id, 'PASSWORD_RESET', client);
       return updated.rows[0];
     });
@@ -173,6 +175,7 @@ export class AccountSecurityService {
       { bypassRls: true }
     );
     await this.tokens.revokeAll(userId, 'PASSWORD_RESET');
+    await this.tokens.revokeAll(userId, 'MAGIC_LINK');
     await this.sessions.revokeAll(userId, 'PASSWORD_CHANGED');
     this.mail.sendInBackground(
       user.email,
@@ -194,6 +197,8 @@ export class AccountSecurityService {
   async logoutAll(userId: string, meta: RequestMeta = {}): Promise<{ success: true }> {
     await this.bumpTokenVersion(userId);
     await this.sessions.revokeAll(userId, 'LOGOUT_ALL');
+    // "Sign out everywhere" also kills e-mail sign-in links that are still open.
+    await this.tokens.revokeAll(userId, 'MAGIC_LINK');
     await this.securityAudit.recordForUser(userId, 'USER_SESSIONS_REVOKED', { scope: 'ALL' }, meta);
     return { success: true };
   }

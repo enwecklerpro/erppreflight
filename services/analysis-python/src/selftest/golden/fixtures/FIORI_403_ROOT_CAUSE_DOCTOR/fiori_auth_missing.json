@@ -1,0 +1,22 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "GET",
+    "url": "/sap/opu/odata/sap/API_PURCHASEORDER_PROCESS_SRV/"
+  },
+  "icf_services": [
+    {
+      "service_path": "/sap/opu/odata/sap/API_PURCHASEORDER_PROCESS_SRV",
+      "is_active": true
+    }
+  ],
+  "su53_traces": [
+    {
+      "auth_object": "S_SERVICE",
+      "return_code": 4,
+      "field_values": {
+        "SRV_NAME": "API_PURCHASEORDER_PROCESS_SRV"
+      }
+    }
+  ]
+}

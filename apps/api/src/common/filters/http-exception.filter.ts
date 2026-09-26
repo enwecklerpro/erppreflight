@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { getErrorReporter } from '../../observability/error-reporter';
+import { deriveErrorCode } from './api-error-codes';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -44,6 +45,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (Object.keys(rest).length > 0) details = rest;
     }
 
+    const structured = pickStructuredErrorFields(exceptionResponse);
     const errorPayload = {
       statusCode: status,
       timestamp: new Date().toISOString(),
@@ -53,7 +55,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message,
       ...(details ? { details } : {}),
       // Machine-readable error code and plan-limit context (e.g. PLAN_LIMIT_EXCEEDED, HTTP 402).
-      ...pickStructuredErrorFields(exceptionResponse),
+      ...structured,
+      // Every error carries a stable code; clients localize by code (see api-error-codes.ts).
+      code: typeof structured.code === 'string' ? structured.code : deriveErrorCode(status, message),
     };
 
     if (status >= 500) {

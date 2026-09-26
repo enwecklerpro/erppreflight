@@ -249,6 +249,8 @@ describe('Spec §51 — password security migration', () => {
     expect(newHash).toMatch(/^\$argon2id\$/);
     expect(await service.verifyPassword('Brand-New-Pass-77', newHash)).toBe(true);
     expect(sessionSvc.revokeAll).toHaveBeenCalledWith(USER, 'PASSWORD_RESET', client);
+    // Open e-mail sign-in links die with the credential reset (same transaction).
+    expect(tokens.revokeAll).toHaveBeenCalledWith(USER, 'MAGIC_LINK', client);
     expect(client.calls.map((c) => c.sql)).toContain('COMMIT');
   });
 });

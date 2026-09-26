@@ -105,7 +105,8 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
       // 3. Inserts analyses record with QUEUED status and tenant context
       const insertQuery = dbQueries.find((q) => q.text.includes("VALUES ($1, $2, $3, 'QUEUED'"));
       expect(insertQuery).toBeDefined();
-      expect(insertQuery!.text).toContain("VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)");
+      // Migration 020: run inputs, knowledge snapshot and rerun link are written in the same INSERT.
+      expect(insertQuery!.text).toContain("VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6, $7::jsonb, $8, $9)");
       expect(insertQuery!.params[0]).toBe(result.analysisId);
       expect(insertQuery!.params[1]).toBe(orgId);
       expect(insertQuery!.params[2]).toBe(projId);
@@ -145,6 +146,8 @@ describe('Empirical Challenger 2: R2 (BullMQ Pipeline & Tenant RLS Stress)', () 
       expect(jobOptions.backoff).toEqual({ type: 'exponential', delay: 1000 });
       expect(jobOptions.removeOnComplete).toBe(100);
       expect(jobOptions.removeOnFail).toBe(500);
+      // Job id = analysis id so POST /analyses/:id/cancel can remove a queued job.
+      expect(jobOptions.jobId).toBe(result.analysisId);
     });
 
     it('rejects client-supplied artifactS3Key / rawContent and missing fileIds with 400 (strict Zod contract)', async () => {

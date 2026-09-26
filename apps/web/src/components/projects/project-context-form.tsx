@@ -17,7 +17,7 @@ import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useT } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/translate';
 import { updateProjectContext } from '@/lib/api/analysis-orchestration';
-import { errorMessage } from '@/components/commercial/states';
+import { useCommercialErrorText } from '@/components/commercial/states';
 import type { ProjectRecord } from '@/lib/api-client';
 
 type ContextValues = {
@@ -57,10 +57,19 @@ function DirtyGuard({ isDirty, isSubmitting, message, children }: { isDirty: boo
 }
 
 /** Project mode context (Part 01 §1.5) — TanStack Form + Zod, dirty tracking, server errors. */
+/**
+ * The workspace remounts this form when the refetched project arrives (key = updatedAt), which
+ * would drop the confirmation right after a save; remember recent saves per project instead.
+ */
+const recentSaves = new Map<string, number>();
+const SAVED_NOTICE_MS = 8000;
+
 export function ProjectContextForm({ project }: { project: ProjectRecord }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
-  const [saved, setSaved] = React.useState(false);
+  const [saved, setSaved] = React.useState(() => Date.now() - (recentSaves.get(project.id) ?? 0) < SAVED_NOTICE_MS);
   const [serverError, setServerError] = React.useState<string | null>(null);
   const ctx = ((project as { context?: Record<string, unknown> }).context ?? {}) as Record<string, any>;
 
@@ -97,6 +106,7 @@ export function ProjectContextForm({ project }: { project: ProjectRecord }) {
   const mutation = useMutation({
     mutationFn: (v: ContextValues) => updateProjectContext(project.id, toContextPayload(v)),
     onSuccess: (_res, v) => {
+      recentSaves.set(project.id, Date.now());
       setSaved(true);
       form.reset(v);
       void queryClient.invalidateQueries({ queryKey: ['project', project.id] });
@@ -109,6 +119,7 @@ export function ProjectContextForm({ project }: { project: ProjectRecord }) {
     defaultValues: defaults,
     validators: { onChange: schema, onSubmit: schema },
     onSubmit: async ({ value }) => {
+      recentSaves.delete(project.id);
       setSaved(false);
       setServerError(null);
       await mutation.mutateAsync(value).catch(() => undefined);

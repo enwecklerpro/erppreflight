@@ -435,13 +435,42 @@ export class FindingLifecycleService {
       [tenantId, lc.project_id, lc.id, dto.assigneeId, dueDate, dto.note ?? null, actor.id]
     );
     if (this.outbox && dto.assigneeId) {
+      // Notification context (P7): the recipient's inbox / e-mail shows what was assigned,
+      // by whom, and deep-links to the finding. Self-assignments notify nobody.
+      const findingId = lc.latest_finding_id ?? null;
+      const ctx = findingId
+        ? await client.query(
+            `SELECT f.id, f.rule_id, f.title, f.severity, f.engine, p.name AS project_name,
+                    (SELECT full_name FROM users WHERE id = $3) AS assigned_by_name,
+                    (SELECT email FROM users WHERE id = $3) AS assigned_by_email
+               FROM findings f JOIN projects p ON p.id = f.project_id AND p.organization_id = f.organization_id
+              WHERE f.id = $1 AND f.organization_id = $2`,
+            [findingId, tenantId, actor.id]
+          )
+        : { rows: [] as any[] };
+      const f = ctx.rows[0] ?? {};
       await this.outbox
         .recordEvent(
           tenantId,
           'finding.assigned',
           'FINDING',
-          lc.latest_finding_id ?? lc.id,
-          { lifecycleId: lc.id, projectId: lc.project_id, assigneeId: dto.assigneeId, dueDate, assignedBy: actor.id },
+          findingId ?? lc.id,
+          {
+            organizationId: tenantId,
+            lifecycleId: lc.id,
+            projectId: lc.project_id,
+            findingId,
+            assigneeId: dto.assigneeId,
+            dueDate,
+            assignedBy: actor.id,
+            assignedByName: f.assigned_by_name || f.assigned_by_email || null,
+            ruleId: f.rule_id ?? null,
+            title: f.title ? String(f.title).slice(0, 300) : null,
+            severity: f.severity ?? null,
+            engine: f.engine ?? null,
+            projectName: f.project_name ?? null,
+            note: dto.note ? String(dto.note).slice(0, 500) : null,
+          },
           client
         )
         .catch((err: any) => this.logger.warn(`finding.assigned outbox event failed: ${err?.message ?? err}`));

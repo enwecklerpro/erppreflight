@@ -1,5 +1,6 @@
 'use client';
 
+import { RuleRemediation, RuleTitle } from '@/components/findings/rule-text';
 import * as React from 'react';
 import { ObjectTierBadge } from './object-tier-badge';
 import { ObjectTypeBadge } from './object-type-badge';
@@ -178,12 +179,12 @@ export function ObjectDetailDrawer({ object, onClose }: ObjectDetailDrawerProps)
                       <SeverityBadge severity={f.severity} size="sm" />
                       <span className="font-mono text-xs font-bold text-primary break-all">{f.ruleId}</span>
                     </div>
-                    <h3 className="text-sm font-bold text-foreground">{f.title}</h3>
+                    <h3 className="text-sm font-bold text-foreground"><RuleTitle ruleId={f.ruleId} title={f.title} /></h3>
                     <div className="p-3 rounded-lg bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50">
                       <span className="text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300 block">
                         {t('app.objects.drawer.remediation')}
                       </span>
-                      <p className="mt-1 text-sm text-blue-950 dark:text-blue-100">{f.remediation}</p>
+                      <p className="mt-1 text-sm text-blue-950 dark:text-blue-100"><RuleRemediation ruleId={f.ruleId} title={f.title} remediation={f.remediation} /></p>
                     </div>
                   </div>
                 ))

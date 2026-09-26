@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { AnalysisRunLink } from '@/components/analysis-run/run-links';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from '@tanstack/react-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +21,7 @@ import {
   type ReportFormat,
   type ReportTypeId,
 } from '@/lib/api/commercial';
-import { ErrorState, errorMessage } from '@/components/commercial/states';
+import { ErrorState, useCommercialErrorText } from '@/components/commercial/states';
 
 const FILTER_KEYS = ['projectId', 'reportType', 'format', 'from', 'to', 'page'] as const;
 const FINISHED = new Set(['COMPLETED', 'PARTIAL']);
@@ -34,6 +35,8 @@ export default function ReportsRoute() {
 }
 
 function ReportsHubPage() {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const label = useLabel();
   const router = useRouter();
@@ -171,6 +174,7 @@ function ReportsHubPage() {
                         {r.analysisKind === 'FULL_PREFLIGHT' && (
                           <span className="ml-1 rounded border border-border px-1 text-[10px]">{t('reportsHub.fullPreflightTag')}</span>
                         )}
+                        <AnalysisRunLink projectId={r.projectId} analysisId={r.analysisId} className="ml-1" />
                       </td>
                       <td className="px-4 py-2">{label('app.commercial.exports.type', r.reportType)}</td>
                       <td className="px-4 py-2 font-mono">{r.format}</td>
@@ -235,6 +239,8 @@ function DirtyGuard({ isDirty, isSubmitting, children }: { isDirty: boolean; isS
 
 /** Generates a report from a finished analysis (reuses the export service). TanStack Form + Zod. */
 function GenerateReportForm({ projects, defaultProjectId }: { projects: Array<{ id: string; name: string }>; defaultProjectId?: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const label = useLabel();
   const queryClient = useQueryClient();

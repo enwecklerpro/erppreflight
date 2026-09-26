@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+  <Header>
+    <InvoiceID>90001234</InvoiceID>
+    <Supplier>
+      <ID>100045</ID>
+      <Name>Example Supplier GmbH</Name>
+    </Supplier>
+    <TotalAmount Currency="EUR">14250.00</TotalAmount>
+  </Header>
+</Invoice>

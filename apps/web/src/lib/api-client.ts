@@ -79,9 +79,11 @@ export interface TriggerAnalysisPayload {
   targetRelease?: string;
   /** IDs of CLEAN uploaded files to analyse (min 1). */
   fileIds: string[];
+  /** API_CHANGE_GUARD: stored baseline to compare against (default: the project's active baseline). */
+  apiBaselineId?: string;
 }
 
-export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL';
+export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL' | 'CANCELLED';
 
 export const ACTIVE_ANALYSIS_STATUSES: ReadonlySet<string> = new Set(['QUEUED', 'RUNNING']);
 
@@ -103,6 +105,10 @@ export interface AnalysisRecord {
   findingsCount: number;
   createdAt: string;
   completedAt: string | null;
+  /** STANDARD | FULL_PREFLIGHT | LAB_REGRESSION | LAB_SCENARIO (migration 018/020). */
+  kind?: string;
+  rerunOfAnalysisId?: string | null;
+  cancelRequestedAt?: string | null;
 }
 
 export interface FindingsPagination {
@@ -956,7 +962,7 @@ export async function fetchProjectDrift(
 
 // -----------------------------------------------------------------------------
 // Report & Bundle Downloads (Part 14.11)
-// Downloads go through the authenticated fetch (Bearer + tenant headers) and are
+// Downloads go through the authenticated fetch (session cookie + tenant header) and are
 // handed to the browser as a Blob, never as a bare <a href> to the API.
 // -----------------------------------------------------------------------------
 export function downloadReproducibilityBundle(analysisId: string): Promise<DownloadedFile> {

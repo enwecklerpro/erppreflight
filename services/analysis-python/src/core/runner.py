@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import tracemalloc
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.config import get_settings
 from src.core.base_engine import BaseEngine
@@ -12,12 +12,16 @@ from src.core.contracts import validate_request_input
 from src.core.exceptions import EngineInputError
 from src.core.registry import EngineRegistry
 from src.models.enums import AnalysisStatus, ConfidenceClass, Severity, TrustLevel
+from src.models.evidence import Evidence
 from src.models.finding import Finding, compute_finding_fingerprint, compute_finding_id
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier, lacks_verifiable_evidence
 from src.platform.evidence import EvidenceEngine
 from src.platform.redaction import SecretRedactionEngine
+
+if TYPE_CHECKING:  # pragma: no cover
+    from src.core.streaming import LineSource
 
 # Configuration keys that are execution options, not analysable artifact data.
 OPTION_CONFIG_KEYS = frozenset({
@@ -29,6 +33,7 @@ OPTION_CONFIG_KEYS = frozenset({
     "targetRelease", "target_release",
     "artifact_path", "file_name",
     "sourceFileId", "sourceFileName", "source_file_id", "source_file_name",
+    "xdp_file_name", "xml_file_name",
     "evaluation_date", "snapshot_date",
 })
 
@@ -73,6 +78,49 @@ class _MemoryTracer:
                 tracemalloc.stop()
                 cls._owned = False
             return int(peak)
+
+
+class _RssPeakSampler:
+    """Samples the process resident set size (Linux /proc/self/statm, getrusage fallback) on a daemon thread and
+    reports the peak growth over the sampled interval in bytes."""
+
+    INTERVAL_S = 0.05
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._base = 0
+        self._peak = 0
+
+    @staticmethod
+    def rss_bytes() -> int:
+        try:
+            with open("/proc/self/statm", "rb") as fh:
+                return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+        except (OSError, ValueError, IndexError):
+            try:
+                import resource
+
+                return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
+            except Exception:  # noqa: BLE001 - telemetry must never fail an analysis
+                return 0
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.INTERVAL_S):
+            self._peak = max(self._peak, self.rss_bytes())
+
+    def start(self) -> None:
+        self._base = self.rss_bytes()
+        self._peak = self._base
+        self._thread = threading.Thread(target=self._run, name="rss-peak-sampler", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> int:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        self._peak = max(self._peak, self.rss_bytes())
+        return max(0, self._peak - self._base)
 
 
 def _has_structured_config(configuration: Dict[str, Any]) -> bool:
@@ -191,6 +239,97 @@ class EngineRunner:
                 start_time,
             ), settings)
 
+        return cls._complete(request, engine, response, start_time, settings)
+
+    # ------------------------------------------------------------------
+    # Streaming transport (POST /api/v1/analyze/stream)
+    # ------------------------------------------------------------------
+    @classmethod
+    async def execute_stream(cls, request: AnalysisRequest, source: "LineSource") -> AnalysisResponse:
+        """Runs a streaming-capable engine over a spooled artifact with bounded memory.
+
+        Same guarantees as :meth:`execute`: the engine's declared input contract is enforced (on the head of the
+        artifact — contracts only inspect the header / first rows), input errors end as UNKNOWN
+        ``*_INVALID_INPUT`` / ``*_INSUFFICIENT_INPUT`` findings, and confidence invariants, rule-catalog checks,
+        secret redaction, max-findings and deterministic ids are applied by the shared post-processing."""
+        engine = EngineRegistry.get(request.engine_type)
+        start_time = time.perf_counter()
+        # tracemalloc would slow a multi-GB line loop down several-fold; the streaming path samples the process
+        # resident set instead (peak growth over the run, an upper bound when analyses run concurrently).
+        sampler = _RssPeakSampler()
+        sampler.start()
+        peak = 0
+        try:
+            response = await cls._execute_stream(request, engine, source, start_time)
+        finally:
+            peak = sampler.stop()
+        cls._record_telemetry(engine, response, start_time, peak)
+        if response.metrics is not None:
+            response.metrics.additional_metrics["telemetry"]["memoryMeasurement"] = "RSS_PEAK_DELTA"
+        return response
+
+    @classmethod
+    async def _execute_stream(
+        cls, request: AnalysisRequest, engine: BaseEngine, source: "LineSource", start_time: float
+    ) -> AnalysisResponse:
+        from src.core.contracts import sniff_format  # local import keeps the module graph acyclic
+
+        settings = get_settings()
+        prefix = engine.get_rule_prefix()
+        if not engine.supports_streaming:
+            return cls._finalize(request, cls._input_failure(
+                request, engine, f"{prefix}_INVALID_INPUT",
+                f"{engine.name} does not support the streaming transport; send the artifact inline.",
+                start_time, include_evidence=False,
+            ), settings)
+        if source.size_bytes == 0:
+            return cls._finalize(request, cls._input_failure(
+                request, engine, f"{prefix}_INSUFFICIENT_INPUT",
+                "The streamed artifact is empty.", start_time, include_evidence=False,
+            ), settings)
+        head = source.head_text()
+        fmt = sniff_format(head)
+
+        def unsupported_format() -> AnalysisResponse:
+            accepted = ", ".join(getattr(f, "value", str(f)) for f in engine.streaming_formats)
+            return cls._finalize(request, cls._input_failure(
+                request, engine, f"{prefix}_INVALID_INPUT",
+                f"Streamed artifact was detected as {fmt.value}; the streaming transport of {engine.name} accepts "
+                f"{accepted} only (send other formats inline).",
+                start_time, source=source,
+            ), settings)
+
+        # Structured documents cannot be judged on a head sample: reject them before the contract check.
+        if engine.streaming_formats and fmt.value in ("JSON", "XML") and fmt not in engine.streaming_formats:
+            return unsupported_format()
+        try:
+            # The declared contract is evaluated on the head sample (header row + first data rows) — the same
+            # checks, codes and messages as the inline path, whose contract also inspects only those rows.
+            validate_request_input(engine, request.model_copy(update={"raw_content": head}))
+            if engine.streaming_formats and fmt not in engine.streaming_formats:
+                return unsupported_format()
+            response = await engine.analyze_stream(request, source)
+        except EngineInputError as e:
+            return cls._finalize(request, cls._input_failure(
+                request, engine, e.rule_id, e.message, start_time,
+                line_number=e.line_number, column_number=e.column_number, details=e.details, source=source,
+            ), settings)
+        except Exception as e:  # noqa: BLE001 — never leak raw exception text to callers
+            logger.warning(
+                "engine %s rejected streamed input for job %s: %s", engine.engine_type.value, request.job_id,
+                type(e).__name__,
+            )
+            return cls._finalize(request, cls._input_failure(
+                request, engine, f"{prefix}_INVALID_INPUT",
+                "Input could not be processed: the payload does not have the structure this engine requires.",
+                start_time, source=source,
+            ), settings)
+        return cls._complete(request, engine, response, start_time, settings)
+
+    @classmethod
+    def _complete(
+        cls, request: AnalysisRequest, engine: BaseEngine, response: AnalysisResponse, start_time: float, settings
+    ) -> AnalysisResponse:
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         if response.metrics is None:
             response.metrics = AnalysisMetrics()
@@ -331,14 +470,35 @@ class EngineRunner:
         column_number: Optional[int] = None,
         details: Optional[Dict[str, Any]] = None,
         include_evidence: bool = True,
+        source: Optional["LineSource"] = None,
     ) -> AnalysisResponse:
         """Builds a FAILED response carrying a single UNKNOWN-confidence input finding (never a verdict)."""
         evidence: List = []
         raw = request.get_raw_bytes()
+        if include_evidence and not raw and source is not None and source.size_bytes:
+            # Streaming transport: same evidence as the inline path (artifact SHA-256 + the offending line).
+            snippet = None
+            if line_number:
+                for no, line in source.iter_lines():
+                    if no == line_number:
+                        snippet = line.strip()[:500]
+                        break
+            evidence.append(Evidence(
+                artifact_path=_artifact_path(request),
+                line_number=line_number,
+                column_number=column_number,
+                snippet=snippet,
+                sha256=source.sha256,
+                provenance=ConfidenceClass.VERIFIED,
+                source_type=TrustLevel.CUSTOMER_EVIDENCE,
+                trust_score=1.0,
+            ))
         if include_evidence and raw:
             snippet = None
             if line_number and request.raw_content:
-                lines = request.raw_content.splitlines()
+                # Line numbers of parsers (json, XML, line-based logs) count '\n' only — so does the snippet lookup
+                # (str.splitlines() would also split on \x0b, \x0c, \x1c-\x1e, \x85,  , …).
+                lines = request.raw_content.split("\n")
                 if 0 < line_number <= len(lines):
                     snippet = lines[line_number - 1].strip()[:500]
             evidence.append(EvidenceEngine.create_evidence(

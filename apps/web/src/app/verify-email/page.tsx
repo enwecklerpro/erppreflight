@@ -8,7 +8,7 @@ import { MailCheck } from 'lucide-react';
 import { AuthCard, Notice, SectionSkeleton, buttonClass } from '@/components/account/ui';
 import { accountKeys, verifyEmail } from '@/lib/account-api';
 import { useErrorText, useRichT, useT } from '@/i18n/client';
-import { getStoredAuthToken } from '@/lib/api/custom-instance';
+import { hasAuthHint } from '@/lib/api/custom-instance';
 import { ResendVerificationButton } from '@/components/account/resend-verification-button';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -31,7 +31,7 @@ function VerifyEmail() {
   });
 
   React.useEffect(() => {
-    setSignedIn(!!getStoredAuthToken());
+    setSignedIn(hasAuthHint());
     if (!started.current && TOKEN_RE.test(token)) {
       started.current = true;
       mutation.mutate();

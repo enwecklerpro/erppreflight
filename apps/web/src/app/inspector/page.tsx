@@ -5,8 +5,8 @@ import { SearchCode, RefreshCw } from 'lucide-react';
 import { useFindingsPage } from '../../hooks/useFindingsPage';
 import { DataTable } from '../../components/data-table';
 import {
-  findingColumns,
-  findingFacetedFilters,
+  buildFindingColumns,
+  buildFindingFacetedFilters,
 } from '../../components/findings/finding-columns';
 import { FindingDetailRow } from '../../components/findings/finding-detail-row';
 import { useTableUrlSync } from '../../hooks/useTableUrlSync';
@@ -14,6 +14,8 @@ import { useT } from '../../i18n/client';
 
 function UniversalInspectorContent() {
   const t = useT();
+  const columns = React.useMemo(() => buildFindingColumns(t), [t]);
+  const facetedFilters = React.useMemo(() => buildFindingFacetedFilters(t), [t]);
   const { state: urlState, tableProps } = useTableUrlSync(50);
 
   // Server-paginated findings across all projects of the tenant
@@ -49,12 +51,12 @@ function UniversalInspectorContent() {
       </div>
 
       <DataTable
-        columns={findingColumns}
+        columns={columns}
         data={findings}
         tableProps={tableProps}
         pageCount={pagination?.totalPages ?? 0}
         rowCount={pagination?.total ?? 0}
-        facetedFilters={findingFacetedFilters}
+        facetedFilters={facetedFilters}
         searchColumnId="title"
         searchPlaceholder={t('app.inspector.searchPlaceholder')}
         ariaLabel={t('app.inspector.gridLabel')}

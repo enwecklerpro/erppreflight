@@ -1,9 +1,10 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { DatabaseService } from '../database/database.service';
 import { IntegrationAuditService } from '../connectors/integration-audit.service';
 import { JIT_ROLES } from './sso.service';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
 
 /**
  * SCIM 2.0 (RFC 7643 / RFC 7644) provisioning for organization members.
@@ -43,7 +44,8 @@ export class ScimService {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly audit: IntegrationAuditService
+    private readonly audit: IntegrationAuditService,
+    @Optional() private readonly tenantAccess?: TenantAccessService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -89,6 +91,10 @@ export class ScimService {
     });
     const row = res.rows[0];
     if (!row) throw new ScimError(401, 'Invalid SCIM token');
+    // A suspended organization provisions nothing (spec 10.7). The IP allowlist does not
+    // apply: SCIM calls come from the identity provider's cloud (decideMachineAccess).
+    const denial = await this.tenantAccess?.machineDenial(row.organization_id, null, { ipAllowlist: false });
+    if (denial) throw new ScimError(403, denial.message);
     this.db
       .query(`UPDATE scim_tokens SET last_used_at = NOW() WHERE organization_id = $1 AND id = $2`, [row.organization_id, row.id], { tenantId: row.organization_id })
       .catch(() => undefined);

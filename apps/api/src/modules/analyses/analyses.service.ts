@@ -63,9 +63,17 @@ export class AnalysesService {
       completedAt: row.completed_at,
       kind: row.kind ?? 'STANDARD',
       currentStage: row.current_stage ?? null,
-      progressPercent: TERMINAL_STATUSES.has(row.status) ? 100 : progress.percent,
+      // A cancelled run keeps the percentage it reached (it did not finish).
+      progressPercent: TERMINAL_STATUSES.has(row.status) && row.status !== 'CANCELLED' ? 100 : progress.percent,
       problemStatement: row.problem_statement ?? null,
       routingId: row.routing_id ?? null,
+      // Run lifecycle (migration 020): timing, cancellation, rerun link, error, knowledge snapshot.
+      startedAt: row.started_at ?? null,
+      cancelRequestedAt: row.cancel_requested_at ?? null,
+      cancelledAt: row.cancelled_at ?? null,
+      rerunOfAnalysisId: row.rerun_of_analysis_id ?? null,
+      errorMessage: row.error_message ?? null,
+      knowledgeSnapshotId: row.knowledge_snapshot_id ?? null,
     };
   }
 
@@ -134,7 +142,7 @@ export class AnalysesService {
       status: row.status,
       kind: row.kind ?? 'STANDARD',
       currentStage: state.currentStage ?? row.current_stage ?? null,
-      percent: terminal ? 100 : state.percent,
+      percent: terminal && row.status !== 'CANCELLED' ? 100 : state.percent,
       stages: state.stages,
       updatedAt: state.updatedAt,
       terminal,
@@ -228,6 +236,8 @@ export class AnalysesService {
       plan: orchestration.plan ?? null,
       summary: orchestration.summary ?? null,
       calls: Array.isArray(orchestration.calls) ? orchestration.calls : [],
+      /** API_CHANGE_GUARD: stored baseline the run compared against (id, name, version, sha256, selection). */
+      apiBaseline: orchestration.apiBaseline ?? null,
     };
   }
 

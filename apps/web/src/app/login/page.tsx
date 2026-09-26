@@ -9,31 +9,18 @@ import { z } from 'zod';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSummaryErrors } from '@/components/form/form-inputs';
 import { AuthCard, Notice, Pending, buttonClass } from '@/components/account/ui';
-import {
-  completeSecondFactor,
-  login,
-  safeNextPath,
-  storeSession,
-  type MfaChallenge,
-  type SessionResponse,
-} from '@/lib/account-api';
+import { login, safeNextPath, storeSession, type MfaChallenge, type SessionResponse } from '@/lib/account-api';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
 import { ApiError, resolveApiUrl } from '@/lib/api/custom-instance';
-import { Lock, Mail, ArrowRight, KeyRound, Smartphone } from 'lucide-react';
+import { SecondFactorStep } from '@/components/account/second-factor-step';
+import { MagicLinkRequest } from '@/components/account/magic-link-request';
+import { Lock, Mail, ArrowRight, Send } from 'lucide-react';
 import { useErrorText, useT } from '@/i18n/client';
 import { vmsg } from '@/i18n/validation';
 
 const loginSchema = z.object({
   email: z.string().min(1, vmsg('app.validation.emailRequired')).email(vmsg('app.validation.emailInvalid')),
   password: z.string().min(1, vmsg('app.validation.passwordRequired')),
-});
-
-/** Accepts a 6-digit TOTP code or a recovery code (the API checks which one it is). */
-const secondFactorSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .regex(/^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/, vmsg('app.validation.totpOrRecovery')),
 });
 
 function LoginForm() {
@@ -46,10 +33,13 @@ function LoginForm() {
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [ssoEmail, setSsoEmail] = React.useState<string | null>(null);
   const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
-  const [useRecovery, setUseRecovery] = React.useState(false);
+  const [mode, setMode] = React.useState<'password' | 'magic'>(
+    searchParams.get('method') === 'link' ? 'magic' : 'password'
+  );
 
   const finish = async (session: SessionResponse) => {
-    // A new identity: never show cached data of a previous session/tenant.
+    // A new identity: never show cached data of a previous session/tenant. The
+    // session itself is the API's HttpOnly cookie; nothing secret is stored here.
     await evictTenantQueryCache(queryClient);
     storeSession(session);
     router.push(next);
@@ -76,13 +66,6 @@ function LoginForm() {
     },
   });
 
-  const secondFactorMutation = useMutation({
-    mutationFn: (code: string) =>
-      completeSecondFactor(challenge!.challengeToken, useRecovery ? { recoveryCode: code.trim() } : { code: code.trim() }),
-    onSuccess: finish,
-    onError: (err) => setServerError(errText(err, t('app.auth.login.invalidCode'))),
-  });
-
   const form = useForm({
     defaultValues: { email: '', password: '' },
     validators: { onChange: loginSchema, onSubmit: loginSchema },
@@ -92,88 +75,29 @@ function LoginForm() {
     },
   });
 
-  const codeForm = useForm({
-    defaultValues: { code: '' },
-    validators: { onSubmit: secondFactorSchema },
-    onSubmit: async ({ value }) => {
-      setServerError(null);
-      await secondFactorMutation.mutateAsync(value.code).catch(() => undefined);
-    },
-  });
-
   if (challenge) {
     return (
-      <AuthCard
-        title={t('app.auth.login.mfaTitle')}
-        subtitle={useRecovery ? t('app.auth.login.mfaRecoverySubtitle') : t('app.auth.login.mfaSubtitle')}
-        icon={Smartphone}
-      >
-        {serverError && <Notice tone="error" title={t('app.auth.login.mfaFailed')} className="mb-5">{serverError}</Notice>}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            codeForm.handleSubmit();
-          }}
-          noValidate
-          className="space-y-5"
-        >
-          <codeForm.Field
-            name="code"
-            children={(field) => (
-              <FormField
-                id="login-code"
-                name={field.name}
-                label={useRecovery ? t('app.auth.login.recoveryCode') : t('app.auth.login.authCode')}
-                required
-                error={field.state.meta.errors as any}
-              >
-                <FormInput
-                  autoFocus
-                  inputMode={useRecovery ? 'text' : 'numeric'}
-                  autoComplete="one-time-code"
-                  placeholder={useRecovery ? 'abcde-12345' : '123456'}
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  onBlur={field.handleBlur}
-                  leftIcon={<KeyRound className="size-4" />}
-                />
-              </FormField>
-            )}
-          />
-          <codeForm.Subscribe
-            selector={(s) => s.isSubmitting}
-            children={(isSubmitting) => (
-              <button type="submit" disabled={isSubmitting || secondFactorMutation.isPending} className={`${buttonClass.primary} w-full`}>
-                <Pending busy={isSubmitting || secondFactorMutation.isPending} busyLabel={t('app.auth.login.verifying')} idle={<>{t('app.auth.login.verify')}<ArrowRight className="size-3.5" aria-hidden="true" /></>} />
-              </button>
-            )}
-          />
-        </form>
-        <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-between text-xs">
-          <button
-            type="button"
-            className="text-primary font-semibold hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs text-left"
-            onClick={() => {
-              setUseRecovery((v) => !v);
-              setServerError(null);
-              codeForm.reset();
-            }}
-          >
-            {useRecovery ? t('app.auth.login.useApp') : t('app.auth.login.useRecovery')}
-          </button>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs text-left"
-            onClick={() => {
-              setChallenge(null);
-              setServerError(null);
-            }}
-          >
-            {t('app.auth.backToSignIn')}
-          </button>
-        </div>
-      </AuthCard>
+      <SecondFactorStep
+        challenge={challenge}
+        onSuccess={finish}
+        onCancel={() => {
+          setChallenge(null);
+          setServerError(null);
+        }}
+      />
+    );
+  }
+
+  if (mode === 'magic') {
+    return (
+      <MagicLinkRequest
+        initialEmail={form.state.values.email}
+        next={next}
+        onUsePassword={() => {
+          setMode('password');
+          setServerError(null);
+        }}
+      />
     );
   }
 
@@ -268,6 +192,27 @@ function LoginForm() {
           }}
         />
       </form>
+
+      <div className="mt-5 space-y-3">
+        <div className="flex items-center gap-3 text-[11px] uppercase tracking-wide text-muted-foreground" aria-hidden="true">
+          <span className="h-px flex-1 bg-border" />
+          {t('app.magicLink.or')}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+        <button
+          type="button"
+          data-testid="login-magic-link"
+          className={`${buttonClass.secondary} w-full`}
+          onClick={() => {
+            setMode('magic');
+            setServerError(null);
+            setSsoEmail(null);
+          }}
+        >
+          <Send className="size-3.5" aria-hidden="true" />
+          {t('app.magicLink.requestLink')}
+        </button>
+      </div>
 
       <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground">
         <span>{t('app.auth.login.noAccount')} </span>

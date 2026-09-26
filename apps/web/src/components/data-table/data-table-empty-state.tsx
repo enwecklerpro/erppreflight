@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useT } from '../../i18n/client';
+import { useErrorText, useT } from '../../i18n/client';
 import { AlertCircle, RotateCcw, SearchX, Inbox } from 'lucide-react';
 
 export function DataTableLoadingSkeleton({
@@ -82,13 +82,14 @@ export function DataTableErrorState({
   onRetry?: () => void;
 }) {
   const t = useT();
+  const errText = useErrorText();
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto">
       <div className="flex size-12 items-center justify-center rounded-2xl bg-red-50 text-destructive dark:bg-red-950/50 mb-3 shadow-xs">
         <AlertCircle className="size-6 stroke-[1.5]" />
       </div>
       <h3 className="text-sm font-semibold text-destructive">{t('app.dataTable.errorTitle')}</h3>
-      <p className="text-xs text-muted-foreground mt-1 mb-4">{error?.message || t('app.dataTable.errorDescription')}</p>
+      <p className="text-xs text-muted-foreground mt-1 mb-4">{error ? errText(error, t('app.dataTable.errorDescription')) : t('app.dataTable.errorDescription')}</p>
       {onRetry && (
         <button
           type="button"

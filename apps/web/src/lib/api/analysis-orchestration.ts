@@ -18,7 +18,7 @@ import {
   type ProjectContextUpdate,
   type ReportListResponse,
 } from '@erppreflight/schemas';
-import { customInstance, getStoredAuthToken, getStoredTenantId, resolveApiUrl, ApiError } from './custom-instance';
+import { customInstance, getStoredTenantId, resolveApiUrl, ApiError } from './custom-instance';
 import { parse } from './commercial';
 
 export const orchestrationKeys = {
@@ -135,8 +135,8 @@ export interface ProgressStreamHandlers {
 }
 
 /**
- * Streams GET /analyses/:id/events with fetch (bearer JWT + tenant header; the
- * token never goes into a URL, which EventSource would require). Resolves when
+ * Streams GET /analyses/:id/events with fetch (HttpOnly session cookie via
+ * credentials: 'include' + tenant header, which EventSource cannot send). Resolves when
  * the server ends the stream; rejects on HTTP / network errors so the caller can
  * fall back to polling.
  */
@@ -147,8 +147,6 @@ export async function streamAnalysisProgress(
   lastEventId?: string | null
 ): Promise<string | null> {
   const headers = new Headers({ Accept: 'text/event-stream' });
-  const token = getStoredAuthToken();
-  if (token) headers.set('Authorization', `Bearer ${token}`);
   const tenant = getStoredTenantId();
   if (tenant) headers.set('X-Tenant-Id', tenant);
   if (lastEventId) headers.set('Last-Event-ID', lastEventId);

@@ -1,0 +1,97 @@
+# ==============================================================================
+# ERP Preflight — opt-in observability stack (Prometheus + Grafana), compose profile `observability`
+#
+# NOT part of the Coolify deployment (docker-compose.coolify.yml) and never started by default:
+# every service carries `profiles: [observability]`. Run it next to the production stack on the VPS:
+#
+#   cd /opt/erppreflight   # checkout of this repository
+#   export METRICS_TOKEN=<same value as the api service>  GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
+#   docker compose -f infra/observability/docker-compose.observability.yml --profile observability up -d
+#
+# Both UIs bind to 127.0.0.1 only (reach them through an SSH tunnel:
+#   ssh -L 3300:127.0.0.1:3300 -L 9090:127.0.0.1:9090 root@<vps>).
+# Prometheus scrapes erppreflight-api:3001 on the stack's network `erppreflight-network`, evaluates
+# prometheus/alerts.yml; Grafana provisions the Prometheus datasource and the dashboard
+# grafana/dashboards/erppreflight-api.json. Runbook: docs/runbooks/observability.md §7.
+# ==============================================================================
+name: erppreflight-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    container_name: erppreflight-prometheus
+    profiles: [observability]
+    restart: unless-stopped
+    # The scrape token comes from the environment and is written to a file readable only inside
+    # the container; it never appears in prometheus.yml or in the process arguments.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        umask 077
+        printf '%s' "$$METRICS_TOKEN" > /prometheus/metrics_token
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=$${PROMETHEUS_RETENTION:-15d} \
+          --web.listen-address=:9090
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      PROMETHEUS_RETENTION: ${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/rules/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - erppreflight-net
+
+  grafana:
+    image: grafana/grafana:12.4.11@sha256:3ea272e5cab64a4a62240c682e2c62433b25614d956d44c299a10cb6994f6f2e
+    container_name: erppreflight-grafana
+    profiles: [observability]
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    # Refuse to start with Grafana's default admin/admin.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$GF_SECURITY_ADMIN_PASSWORD" ]; then echo "GRAFANA_ADMIN_PASSWORD is required" >&2; exit 1; fi
+        exec /run.sh
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_HTTP_PORT: "3300"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards/erppreflight:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3300:3300"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - erppreflight-net
+
+volumes:
+  prometheus_data:
+    name: erppreflight_prometheus_data
+  grafana_data:
+    name: erppreflight_grafana_data
+
+networks:
+  # The network created by docker-compose.coolify.yml (name: erppreflight-network).
+  erppreflight-net:
+    name: ${ERPPREFLIGHT_NETWORK:-erppreflight-network}
+    external: true

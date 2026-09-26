@@ -12,6 +12,7 @@ import {
   Delete,
   Param,
   ParseUUIDPipe,
+  Header,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
@@ -58,15 +59,23 @@ import { RequestMeta } from './security-audit.service';
 import { cookieExtractor } from './strategies/jwt.strategy';
 import { DatabaseService } from '../database/database.service';
 import { SessionService } from './session.service';
+import {
+  DEFAULT_SESSION_COOKIE_MAX_AGE_MS,
+  SESSION_COOKIE_NAME,
+  SessionCookieService,
+  resolveSessionCookieSettings,
+  sessionCookieOptions,
+} from './session-cookie';
 
-export const SESSION_COOKIE_NAME = 'erppreflight_session';
-export const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-};
+export { SESSION_COOKIE_NAME };
+/**
+ * @deprecated Issue cookies through SessionCookieService (sets the CSRF cookie too and
+ * keeps Domain/SameSite/Secure consistent with SESSION_COOKIE_* configuration).
+ */
+export const SESSION_COOKIE_OPTIONS = sessionCookieOptions(
+  resolveSessionCookieSettings(),
+  DEFAULT_SESSION_COOKIE_MAX_AGE_MS
+);
 
 export function requestMeta(req: Request | undefined): RequestMeta {
   if (!req) return {};
@@ -75,18 +84,6 @@ export function requestMeta(req: Request | undefined): RequestMeta {
     ip: String(req.ip || req.socket?.remoteAddress || '') || null,
     userAgent: typeof ua === 'string' ? ua : null,
   };
-}
-
-function setSessionCookie(res: Response | undefined, token: string): void {
-  if (res && typeof res.cookie === 'function') {
-    res.cookie(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS);
-  }
-}
-
-function clearSessionCookie(res: Response | undefined): void {
-  if (res && typeof res.clearCookie === 'function') {
-    res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
-  }
 }
 
 @Controller('auth')
@@ -98,12 +95,31 @@ export class AuthController {
     private readonly twoFactor: TwoFactorService,
     private readonly jwt: JwtService,
     private readonly db: DatabaseService,
-    private readonly sessions: SessionService
+    private readonly sessions: SessionService,
+    private readonly cookies: SessionCookieService
   ) {}
 
-  private withCookie(res: Response | undefined, session: SessionResult): SessionResult {
-    setSessionCookie(res, session.accessToken);
-    return session;
+  /**
+   * Sets the HttpOnly session cookie (+ CSRF cookie). Browser callers get the user and
+   * `csrfToken` but never the access token; non-browser callers also get `accessToken`.
+   */
+  private withCookie<T extends SessionResult>(req: Request | undefined, res: Response | undefined, session: T) {
+    return this.cookies.present(req, res, session);
+  }
+
+  /**
+   * CSRF token for the current cookie session (`{ csrfToken: null }` without one).
+   * Readable only by the CORS-allowed web origins.
+   */
+  @Get('csrf')
+  @Header('Cache-Control', 'no-store')
+  csrf(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const session = this.cookies.verifiedCookieSession(req);
+    if (!session) {
+      return { csrfToken: null };
+    }
+    this.cookies.setCsrfCookie(res, session.csrfToken, session.payload);
+    return { csrfToken: session.csrfToken };
   }
 
   @Post('register')
@@ -123,7 +139,7 @@ export class AuthController {
     @Req() req?: Request
   ) {
     const result = await this.authService.register(dto, requestMeta(req));
-    return this.withCookie(res, result);
+    return this.withCookie(req, res, result);
   }
 
   /** Password step. With 2FA enabled the response is `{ mfaRequired, challengeToken }` and no session. */
@@ -146,7 +162,7 @@ export class AuthController {
     if (isMfaChallenge(result)) {
       return result;
     }
-    return this.withCookie(res, result);
+    return this.withCookie(req, res, result);
   }
 
   /** Second login step: TOTP code or recovery code. */
@@ -172,7 +188,7 @@ export class AuthController {
       { code: dto.code, recoveryCode: dto.recoveryCode },
       requestMeta(req)
     );
-    return this.withCookie(res, session);
+    return this.withCookie(req, res, session);
   }
 
   /** Revokes the presented token's server-side session (if valid) and clears the session cookie. */
@@ -192,7 +208,7 @@ export class AuthController {
         // Invalid / expired token or session already revoked: nothing to revoke.
       }
     }
-    clearSessionCookie(res);
+    this.cookies.clearSessionCookies(res);
     return { success: true, message: 'Logged out successfully' };
   }
 
@@ -207,7 +223,7 @@ export class AuthController {
     @Req() req: Request
   ) {
     const result = await this.accountSecurity.logoutAll(userId, requestMeta(req));
-    clearSessionCookie(res);
+    this.cookies.clearSessionCookies(res);
     return result;
   }
 
@@ -325,7 +341,7 @@ export class AuthController {
       user.organizationId,
       requestMeta(req)
     );
-    return this.withCookie(res, session);
+    return this.withCookie(req, res, session);
   }
 
   // ---------------------------------------------------------------- two-factor authentication
@@ -361,8 +377,7 @@ export class AuthController {
       user.organizationId,
       requestMeta(req)
     );
-    setSessionCookie(res, session.accessToken);
-    return { ...session, recoveryCodes };
+    return this.withCookie(req, res, { ...session, recoveryCodes });
   }
 
   @Post('2fa/disable')
@@ -382,7 +397,7 @@ export class AuthController {
       user.organizationId,
       requestMeta(req)
     );
-    return this.withCookie(res, session);
+    return this.withCookie(req, res, session);
   }
 
   @Post('2fa/recovery-codes')
@@ -436,6 +451,6 @@ export class AuthController {
     if (user.jti) {
       await this.sessions.revoke(userId, user.jti, 'LOGOUT').catch(() => undefined);
     }
-    return this.withCookie(res, session);
+    return this.withCookie(req, res, session);
   }
 }

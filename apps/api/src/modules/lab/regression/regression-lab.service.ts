@@ -42,6 +42,19 @@ import {
   RunFindingSummary,
   summarizeFindings,
 } from './regression-evaluation';
+import { LabAnalysisHandle, LabAnalysisRecorder } from '../lab-analysis-recorder';
+import type { AnalysisInputs, LabRunSummary } from '@erppreflight/schemas';
+import type { RecordedInputFile } from '../../jobs/analysis-inputs';
+
+/** Options of a lab execution that are not part of the regression API contract. */
+export interface LabExecutionOptions {
+  /** Analysis this execution re-runs (POST /analyses/:id/rerun). */
+  rerunOfAnalysisId?: string | null;
+  /** Trigger recorded in the lab analysis inputs (the run rows keep MANUAL / BATCH / SCHEDULED). */
+  inputsTrigger?: NonNullable<AnalysisInputs['trigger']>;
+  /** Attribution for runs without an interactive actor (schedules). */
+  userId?: string | null;
+}
 
 export const REGRESSION_LAB_QUEUE = 'regression-lab-queue';
 const MAX_EXPORT_CONTENT_BYTES = 1024 * 1024;
@@ -109,6 +122,9 @@ function mapTestCase(row: any) {
       ? { id: row.last_run_id, status: row.last_run_status, at: iso(row.last_run_at) }
       : null,
     findingStatus: row.lifecycle_status ?? null,
+    /** Generated test (analysis GENERATING_TESTS stage) this case was promoted from, and its analysis. */
+    generatedTestId: row.generated_test_id ?? null,
+    originAnalysisId: row.origin_analysis_id ?? null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -135,13 +151,49 @@ function mapRun(row: any) {
     triggeredBy: row.triggered_by ?? null,
     startedAt: iso(row.started_at),
     completedAt: iso(row.completed_at),
+    analysisId: row.analysis_id ?? null,
   };
 }
 
-const TEST_CASE_SELECT = `SELECT t.*, uf.quarantine_status AS artifact_quarantine_status, l.status AS lifecycle_status
+const TEST_CASE_SELECT = `SELECT t.*, uf.quarantine_status AS artifact_quarantine_status, l.status AS lifecycle_status,
+       gt.analysis_id AS origin_analysis_id
   FROM regression_test_cases t
   LEFT JOIN uploaded_files uf ON uf.id = t.artifact_file_id
-  LEFT JOIN finding_lifecycles l ON l.id = t.lifecycle_id`;
+  LEFT JOIN finding_lifecycles l ON l.id = t.lifecycle_id
+  LEFT JOIN tests gt ON gt.id = t.generated_test_id AND gt.organization_id = t.organization_id`;
+
+function fixtureFiles(rows: any[], overrideFileId?: string | null): RecordedInputFile[] {
+  const seen = new Set<string>();
+  const out: RecordedInputFile[] = [];
+  for (const r of rows) {
+    const fileId = overrideFileId ?? r.artifact_file_id;
+    if (!fileId || seen.has(fileId)) continue;
+    seen.add(fileId);
+    out.push({
+      fileId,
+      fileName: overrideFileId && overrideFileId !== r.artifact_file_id ? '' : r.artifact_name ?? '',
+      artifactType: r.artifact_type,
+    });
+  }
+  return out;
+}
+
+function summarizeLab(
+  runs: Array<{ status: string }>,
+  planned: number,
+  trigger: string,
+  batchId: string | null
+): LabRunSummary {
+  return {
+    type: 'REGRESSION',
+    trigger,
+    batchId,
+    total: planned,
+    passed: runs.filter((r) => r.status === 'PASSED').length,
+    failed: runs.filter((r) => r.status === 'FAILED').length,
+    errored: runs.filter((r) => r.status === 'ERROR').length,
+  };
+}
 
 /**
  * Customer-facing regression Test Lab (Part 05 §5.5, Section C §18): turns any finding
@@ -153,6 +205,7 @@ const TEST_CASE_SELECT = `SELECT t.*, uf.quarantine_status AS artifact_quarantin
 export class RegressionLabService {
   private readonly logger = new Logger(RegressionLabService.name);
   private readonly analysisUrl: string;
+  private readonly recorder: LabAnalysisRecorder;
 
   constructor(
     private readonly db: DatabaseService,
@@ -165,6 +218,7 @@ export class RegressionLabService {
   ) {
     this.analysisUrl =
       this.config?.get<string>('ANALYSIS_SERVICE_URL') || process.env.ANALYSIS_SERVICE_URL || 'http://localhost:8000';
+    this.recorder = new LabAnalysisRecorder(db, this.logger);
   }
 
   private async cleanFile(client: any, tenantId: string, projectId: string, fileId: string) {
@@ -196,79 +250,94 @@ export class RegressionLabService {
 
   async generateFromFinding(tenantId: string, actor: LifecycleActor, dto: GenerateRegressionTestInput) {
     FindingLifecycleService.assertRole(actor, FINDING_WRITE_ROLES, 'Generating a regression test');
-    return this.db.withTenantTransaction(tenantId, async (client) => {
-      const { lifecycle } = await this.lifecycle.ensureLifecycle(client, tenantId, dto.findingId);
-      const fRes = await client.query(
-        `SELECT f.id, f.project_id, f.engine, f.rule_id, f.title, f.affected_objects, f.source_file_id,
-                f.target_release, f.engine_version, f.rule_version, a.target_release AS analysis_release,
-                a.created_at AS analysis_created_at, p.target_release AS project_release
-           FROM findings f
-           JOIN projects p ON p.id = f.project_id
-           LEFT JOIN analyses a ON a.id = f.analysis_id
-          WHERE f.id = $1 AND f.organization_id = $2`,
-        [dto.findingId, tenantId]
-      );
-      const f = fRes.rows[0];
-      const fileId = dto.fileId ?? f.source_file_id;
-      if (!fileId) {
-        throw new BadRequestException({
-          code: 'FIXTURE_ARTIFACT_REQUIRED',
-          message: 'This finding has no recorded source artifact. Pass fileId of a CLEAN project artifact.',
-        });
-      }
-      const file = await this.cleanFile(client, tenantId, f.project_id, fileId);
-      const engine = EngineTypeEnum.safeParse(f.engine);
-      if (!engine.success) throw new BadRequestException(`Engine '${f.engine}' cannot be re-run by the Test Lab.`);
-      const targetRelease = f.target_release ?? f.analysis_release ?? f.project_release ?? 'S4H_2023';
-      const matchObjects = affectedObjectNames(f.affected_objects);
-      const evaluationDate = f.analysis_created_at
-        ? new Date(f.analysis_created_at).toISOString().slice(0, 10)
-        : undefined;
-      const configuration = evaluationDate ? { evaluation_date: evaluationDate } : {};
-      const scope = matchObjects.length ? matchObjects.join(', ') : file.file_name;
-      const title =
-        dto.title ??
-        `${dto.expectedOutcome === 'FINDING_ABSENT' ? 'Fix verification' : 'Reproduction'}: ${f.rule_id} on ${scope}`;
-      const preconditions = dto.preconditions ?? [
-        `Artifact '${file.file_name}' (SHA-256 ${String(file.checksum_sha256).slice(0, 12)}…) passed ingestion scanning and is CLEAN.`,
-        `Engine ${f.engine}${f.engine_version ? ` v${f.engine_version}` : ''} is registered in the analysis service.`,
-        `Evaluation against target release ${targetRelease}${evaluationDate ? ` with evaluation date ${evaluationDate}` : ''}.`,
-      ];
-      const ins = await client.query(
-        `INSERT INTO regression_test_cases (
-           organization_id, project_id, source_finding_id, lifecycle_id, title, test_type, engine, rule_id,
-           match_objects, preconditions, artifact_file_id, artifact_name, artifact_sha256, artifact_type,
-           configuration, expected_outcome, target_release, fixture_version, engine_version, rule_version, created_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 1, $18, $19, $20)
-         RETURNING id`,
-        [
-          tenantId,
-          f.project_id,
-          f.id,
-          lifecycle.id,
-          title,
-          ENGINE_TEST_TYPES[f.engine] ?? 'RULE_SCENARIO',
-          f.engine,
-          f.rule_id,
-          JSON.stringify(matchObjects),
-          JSON.stringify(preconditions),
-          file.id,
-          file.file_name,
-          file.checksum_sha256,
-          file.artifactType,
-          JSON.stringify(configuration),
-          dto.expectedOutcome,
-          targetRelease,
-          f.engine_version,
-          f.rule_version,
-          actor.id,
-        ]
-      );
-      const testCaseId = ins.rows[0].id;
-      await this.lifecycle.markRegressionTestCreated(client, tenantId, lifecycle, f.id, testCaseId, actor.id);
-      const row = await client.query(`${TEST_CASE_SELECT} WHERE t.id = $1 AND t.organization_id = $2`, [testCaseId, tenantId]);
-      return mapTestCase(row.rows[0]);
-    });
+    return this.db.withTenantTransaction(tenantId, (client) => this.createFromFinding(client, tenantId, actor, dto));
+  }
+
+  /**
+   * Creates a regression test case from a finding inside the caller's tenant transaction
+   * (role already checked). `generatedTestId` links the case to the generated test it was
+   * promoted from (GeneratedTestsService).
+   */
+  async createFromFinding(
+    client: any,
+    tenantId: string,
+    actor: LifecycleActor,
+    dto: GenerateRegressionTestInput,
+    generatedTestId: string | null = null
+  ) {
+    const { lifecycle } = await this.lifecycle.ensureLifecycle(client, tenantId, dto.findingId);
+    const fRes = await client.query(
+      `SELECT f.id, f.project_id, f.engine, f.rule_id, f.title, f.affected_objects, f.source_file_id,
+              f.target_release, f.engine_version, f.rule_version, a.target_release AS analysis_release,
+              a.created_at AS analysis_created_at, p.target_release AS project_release
+         FROM findings f
+         JOIN projects p ON p.id = f.project_id
+         LEFT JOIN analyses a ON a.id = f.analysis_id
+        WHERE f.id = $1 AND f.organization_id = $2`,
+      [dto.findingId, tenantId]
+    );
+    const f = fRes.rows[0];
+    const fileId = dto.fileId ?? f.source_file_id;
+    if (!fileId) {
+      throw new BadRequestException({
+        code: 'FIXTURE_ARTIFACT_REQUIRED',
+        message: 'This finding has no recorded source artifact. Pass fileId of a CLEAN project artifact.',
+      });
+    }
+    const file = await this.cleanFile(client, tenantId, f.project_id, fileId);
+    const engine = EngineTypeEnum.safeParse(f.engine);
+    if (!engine.success) throw new BadRequestException(`Engine '${f.engine}' cannot be re-run by the Test Lab.`);
+    const targetRelease = f.target_release ?? f.analysis_release ?? f.project_release ?? 'S4H_2023';
+    const matchObjects = affectedObjectNames(f.affected_objects);
+    const evaluationDate = f.analysis_created_at
+      ? new Date(f.analysis_created_at).toISOString().slice(0, 10)
+      : undefined;
+    const configuration = evaluationDate ? { evaluation_date: evaluationDate } : {};
+    const scope = matchObjects.length ? matchObjects.join(', ') : file.file_name;
+    const title =
+      dto.title ??
+      `${dto.expectedOutcome === 'FINDING_ABSENT' ? 'Fix verification' : 'Reproduction'}: ${f.rule_id} on ${scope}`;
+    const preconditions = dto.preconditions ?? [
+      `Artifact '${file.file_name}' (SHA-256 ${String(file.checksum_sha256).slice(0, 12)}…) passed ingestion scanning and is CLEAN.`,
+      `Engine ${f.engine}${f.engine_version ? ` v${f.engine_version}` : ''} is registered in the analysis service.`,
+      `Evaluation against target release ${targetRelease}${evaluationDate ? ` with evaluation date ${evaluationDate}` : ''}.`,
+    ];
+    const ins = await client.query(
+      `INSERT INTO regression_test_cases (
+         organization_id, project_id, source_finding_id, lifecycle_id, title, test_type, engine, rule_id,
+         match_objects, preconditions, artifact_file_id, artifact_name, artifact_sha256, artifact_type,
+         configuration, expected_outcome, target_release, fixture_version, engine_version, rule_version, created_by,
+         generated_test_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 1, $18, $19, $20, $21)
+       RETURNING id`,
+      [
+        tenantId,
+        f.project_id,
+        f.id,
+        lifecycle.id,
+        title,
+        ENGINE_TEST_TYPES[f.engine] ?? 'RULE_SCENARIO',
+        f.engine,
+        f.rule_id,
+        JSON.stringify(matchObjects),
+        JSON.stringify(preconditions),
+        file.id,
+        file.file_name,
+        file.checksum_sha256,
+        file.artifactType,
+        JSON.stringify(configuration),
+        dto.expectedOutcome,
+        targetRelease,
+        f.engine_version,
+        f.rule_version,
+        actor.id,
+        generatedTestId,
+      ]
+    );
+    const testCaseId = ins.rows[0].id;
+    await this.lifecycle.markRegressionTestCreated(client, tenantId, lifecycle, f.id, testCaseId, actor.id);
+    const row = await client.query(`${TEST_CASE_SELECT} WHERE t.id = $1 AND t.organization_id = $2`, [testCaseId, tenantId]);
+    return mapTestCase(row.rows[0]);
   }
 
   // ------------------------------------------------------------------ reads
@@ -332,22 +401,76 @@ export class RegressionLabService {
 
   // ------------------------------------------------------------------ run
 
-  async run(
-    tenantId: string,
-    actor: LifecycleActor | null,
-    testCaseId: string,
-    dto: RunRegressionTestInput,
-    trigger: 'MANUAL' | 'BATCH' | 'SCHEDULED' = 'MANUAL',
-    batchId: string | null = null
-  ) {
-    if (actor) FindingLifecycleService.assertRole(actor, FINDING_WRITE_ROLES, 'Running a regression test');
+  private async loadRunnableCase(tenantId: string, testCaseId: string) {
     const tRes = await this.db.query(`${TEST_CASE_SELECT} WHERE t.id = $1 AND t.organization_id = $2`, [testCaseId, tenantId], {
       tenantId,
     });
     const t = tRes.rows[0];
     if (!t) throw new NotFoundException('Regression test not found');
     if (t.status !== 'ACTIVE') throw new ConflictException('Archived tests cannot be run');
+    return t;
+  }
 
+  /**
+   * Manual single-test run. Recorded as a Test Lab analysis (kind LAB_REGRESSION) so it
+   * appears in the project run history and on the analysis detail page; cancellable.
+   */
+  async run(
+    tenantId: string,
+    actor: LifecycleActor | null,
+    testCaseId: string,
+    dto: RunRegressionTestInput,
+    options: LabExecutionOptions = {}
+  ) {
+    if (actor) FindingLifecycleService.assertRole(actor, FINDING_WRITE_ROLES, 'Running a regression test');
+    const t = await this.loadRunnableCase(tenantId, testCaseId);
+    const lab = await this.recorder.begin({
+      organizationId: tenantId,
+      projectId: t.project_id,
+      userId: actor?.id ?? options.userId ?? null,
+      kind: 'LAB_REGRESSION',
+      engineTypes: [t.engine],
+      targetRelease: t.target_release,
+      files: fixtureFiles([t], dto.fileId ?? null),
+      total: 1,
+      trigger: options.inputsTrigger ?? 'MANUAL',
+      testCaseIds: [testCaseId],
+      rerunOfAnalysisId: options.rerunOfAnalysisId ?? null,
+    });
+    try {
+      const result = await this.executeRun(tenantId, actor, t, dto, 'MANUAL', null, lab).catch(async (err: any) => {
+        await this.recorder.fail(lab, String(err?.message ?? err));
+        throw err;
+      });
+      if (!result) {
+        await this.recorder.cancelled(lab, summarizeLab([], 1, 'MANUAL', null));
+        throw new ConflictException({ code: 'ANALYSIS_CANCELLED', message: 'The Test Lab run was cancelled before the test finished.' });
+      }
+      const analysisStatus = await this.recorder.finish(
+        lab,
+        summarizeLab([result], 1, 'MANUAL', null),
+        result.status === 'ERROR' ? result.errorMessage : null
+      );
+      return { ...result, analysisId: lab.analysisId, analysisStatus };
+    } finally {
+      lab.cancellation.stop();
+    }
+  }
+
+  /**
+   * Executes one regression test and records its run row. Returns null when the lab
+   * analysis was cancelled while the engine call was in flight (no run row is written).
+   */
+  private async executeRun(
+    tenantId: string,
+    actor: LifecycleActor | null,
+    t: any,
+    dto: RunRegressionTestInput,
+    trigger: 'MANUAL' | 'BATCH' | 'SCHEDULED',
+    batchId: string | null,
+    lab: LabAnalysisHandle | null
+  ) {
+    const testCaseId: string = t.id;
     const runId = uuidv4();
     const started = Date.now();
     const triggeredBy = actor?.id ?? null;
@@ -360,6 +483,7 @@ export class RegressionLabService {
     let errorMessage: string | null = null;
     let artifactFileId: string | null = dto.fileId ?? t.artifact_file_id ?? null;
     let artifactSha256: string | null = null;
+    let rulesEvaluated = 0;
 
     try {
       if (!artifactFileId) {
@@ -403,10 +527,11 @@ export class RegressionLabService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Tenant-Id': tenantId },
         body: JSON.stringify(wire),
-        signal: AbortSignal.timeout(120_000),
+        signal: lab ? AbortSignal.any([AbortSignal.timeout(120_000), lab.cancellation.signal]) : AbortSignal.timeout(120_000),
       });
       if (!res.ok) throw new Error(`Analysis service returned HTTP ${res.status}`);
       const validated = AnalysisJobResponseSchema.parse(await res.json());
+      rulesEvaluated = validated.metrics?.rulesEvaluated ?? 0;
       const extra = (validated.metrics?.additionalMetrics ?? {}) as Record<string, any>;
       engineVersion = typeof extra.engineVersion === 'string' ? extra.engineVersion : null;
       if (validated.status === 'FAILED') {
@@ -427,12 +552,16 @@ export class RegressionLabService {
         metadata: { engine: t.engine, trigger, runId },
       } as any);
     } catch (err: any) {
+      if (lab?.cancellation.cancelled) {
+        this.logger.log(`Regression run ${runId} for test ${testCaseId} aborted: lab analysis ${lab.analysisId} cancelled`);
+        return null;
+      }
       const resp = err?.getResponse?.();
       errorMessage = String((resp && typeof resp === 'object' && resp.message) || err?.message || err).slice(0, 1000);
       this.logger.warn(`Regression run ${runId} for test ${testCaseId} errored: ${errorMessage}`);
     }
 
-    return this.db.withTenantTransaction(tenantId, async (client) => {
+    const stored = await this.db.withTenantTransaction(tenantId, async (client) => {
       let baselineComparison: Record<string, unknown> | null = null;
       let becomesBaseline = false;
       const usesStoredFixture = !dto.fileId || dto.fileId === t.artifact_file_id;
@@ -461,8 +590,9 @@ export class RegressionLabService {
         `INSERT INTO regression_test_runs (
            id, organization_id, project_id, test_case_id, batch_id, trigger_kind, fixture_version, artifact_file_id,
            artifact_sha256, target_release, engine_version, status, finding_present, matched_findings,
-           findings_summary, baseline_comparison, execution_time_ms, error_message, triggered_by, started_at, completed_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())`,
+           findings_summary, baseline_comparison, execution_time_ms, error_message, triggered_by, started_at, completed_at,
+           analysis_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), $21)`,
         [
           runId,
           tenantId,
@@ -484,6 +614,7 @@ export class RegressionLabService {
           errorMessage,
           triggeredBy,
           new Date(started).toISOString(),
+          lab?.analysisId ?? null,
         ]
       );
       await client.query(
@@ -504,35 +635,94 @@ export class RegressionLabService {
       const row = await client.query(`SELECT * FROM regression_test_runs WHERE id = $1`, [runId]);
       return { ...mapRun(row.rows[0]), isBaseline: becomesBaseline, findingResolved };
     });
+    if (lab) {
+      await this.recorder.step(lab, {
+        engine: t.engine,
+        fileId: artifactFileId,
+        fileName: t.artifact_name ?? null,
+        outcome: status === 'ERROR' ? 'FAILED' : 'COMPLETED',
+        findings: findings.length,
+        rulesEvaluated,
+        durationMs: Date.now() - started,
+        error: errorMessage,
+        engineVersion,
+      });
+    }
+    return stored;
   }
 
   async batchRun(
     tenantId: string,
     actor: LifecycleActor | null,
     dto: BatchRunRegressionTestsInput,
-    trigger: 'BATCH' | 'SCHEDULED' = 'BATCH'
+    trigger: 'BATCH' | 'SCHEDULED' = 'BATCH',
+    options: LabExecutionOptions = {}
   ) {
     if (actor) FindingLifecycleService.assertRole(actor, FINDING_WRITE_ROLES, 'Running regression tests');
     const res = await this.db.query(
-      `SELECT id FROM regression_test_cases
-        WHERE organization_id = $1 AND project_id = $2 AND status = 'ACTIVE'
-          AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
-        ORDER BY created_at ASC`,
+      `${TEST_CASE_SELECT}
+        WHERE t.organization_id = $1 AND t.project_id = $2 AND t.status = 'ACTIVE'
+          AND ($3::uuid[] IS NULL OR t.id = ANY($3::uuid[]))
+        ORDER BY t.created_at ASC`,
       [tenantId, dto.projectId, dto.testCaseIds ?? null],
       { tenantId }
     );
     const batchId = uuidv4();
     const runs: any[] = [];
-    for (const r of res.rows) {
-      runs.push(await this.run(tenantId, null, r.id, {}, trigger, batchId).then(
-        (run) => run,
-        (err: any) => ({ testCaseId: r.id, status: 'ERROR', errorMessage: err?.message ?? String(err) })
-      ));
-      // Batch runs are attributed to the caller (actor already authorized above).
-      if (actor && runs[runs.length - 1]?.id) {
-        await this.db.query(`UPDATE regression_test_runs SET triggered_by = $2 WHERE id = $1`, [runs[runs.length - 1].id, actor.id], {
-          tenantId,
-        });
+    const rows: any[] = res.rows ?? [];
+    // One lab analysis per batch (manual batch, schedule firing or rerun) in the run history.
+    const lab = rows.length
+      ? await this.recorder.begin({
+          organizationId: tenantId,
+          projectId: dto.projectId,
+          userId: actor?.id ?? options.userId ?? null,
+          kind: 'LAB_REGRESSION',
+          engineTypes: rows.map((r) => r.engine),
+          targetRelease: rows[0].target_release,
+          files: fixtureFiles(rows),
+          total: rows.length,
+          trigger: options.inputsTrigger ?? trigger,
+          testCaseIds: rows.map((r) => r.id),
+          rerunOfAnalysisId: options.rerunOfAnalysisId ?? null,
+        })
+      : null;
+    let cancelled = false;
+    try {
+      for (const r of rows) {
+        if (lab && (lab.cancellation.cancelled || (await lab.cancellation.check()))) {
+          cancelled = true;
+          break;
+        }
+        const run = await this.executeRun(tenantId, null, r, {}, trigger, batchId, lab).then(
+          (value) => value,
+          (err: any) => ({ testCaseId: r.id, status: 'ERROR', errorMessage: err?.message ?? String(err) })
+        );
+        if (run === null) {
+          cancelled = true;
+          break;
+        }
+        runs.push(run);
+        // Batch runs are attributed to the caller (actor already authorized above).
+        if (actor && runs[runs.length - 1]?.id) {
+          await this.db.query(`UPDATE regression_test_runs SET triggered_by = $2 WHERE id = $1`, [runs[runs.length - 1].id, actor.id], {
+            tenantId,
+          });
+        }
+      }
+    } catch (err: any) {
+      if (lab) await this.recorder.fail(lab, String(err?.message ?? err));
+      throw err;
+    } finally {
+      lab?.cancellation.stop();
+    }
+    let analysisStatus: string | null = null;
+    if (lab) {
+      const summary = summarizeLab(runs, rows.length, trigger, batchId);
+      if (cancelled) {
+        await this.recorder.cancelled(lab, summary);
+        analysisStatus = 'CANCELLED';
+      } else {
+        analysisStatus = await this.recorder.finish(lab, summary);
       }
     }
     return {
@@ -543,6 +733,53 @@ export class RegressionLabService {
       failed: runs.filter((r) => r.status === 'FAILED').length,
       errored: runs.filter((r) => r.status === 'ERROR').length,
       runs,
+      analysisId: lab?.analysisId ?? null,
+      analysisStatus,
+      cancelled,
+    };
+  }
+
+  /**
+   * Re-runs a LAB_REGRESSION analysis (POST /analyses/:id/rerun): the same regression test
+   * cases, as a new lab analysis linked to the source. Archived cases are skipped; when none
+   * is runnable any more the rerun is refused (409 RERUN_INPUTS_UNAVAILABLE).
+   */
+  async rerunLabAnalysis(
+    tenantId: string,
+    actor: LifecycleActor,
+    source: { id: string; projectId: string; testCaseIds: string[]; trigger: string | null }
+  ): Promise<{ analysisId: string; status: string; engineTypes: string[]; targetRelease: string | null }> {
+    if (source.testCaseIds.length === 0) {
+      throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The Test Lab run has no recorded test cases.' });
+    }
+    const options: LabExecutionOptions = { rerunOfAnalysisId: source.id, inputsTrigger: 'RERUN' };
+    let analysisId: string | null = null;
+    if (source.testCaseIds.length === 1 && source.trigger !== 'BATCH' && source.trigger !== 'SCHEDULED') {
+      try {
+        analysisId = (await this.run(tenantId, actor, source.testCaseIds[0], {}, options)).analysisId;
+      } catch (err: any) {
+        const code = String((err?.getResponse?.() as { code?: unknown } | undefined)?.code ?? '');
+        if (err instanceof NotFoundException || (err instanceof ConflictException && !code.startsWith('ANALYSIS_'))) {
+          throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The regression test of this run was deleted or archived.' });
+        }
+        throw err;
+      }
+    } else {
+      const batch = await this.batchRun(tenantId, actor, { projectId: source.projectId, testCaseIds: source.testCaseIds }, 'BATCH', options);
+      analysisId = batch.analysisId;
+    }
+    if (!analysisId) {
+      throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'None of the regression tests of this run is active any more.' });
+    }
+    const row = await this.db.query(`SELECT status, engine_types, target_release FROM analyses WHERE id = $1 AND organization_id = $2`, [analysisId, tenantId], {
+      tenantId,
+    });
+    const a = row.rows[0] ?? {};
+    return {
+      analysisId,
+      status: a.status ?? 'COMPLETED',
+      engineTypes: json<string[]>(a.engine_types, []),
+      targetRelease: a.target_release ?? null,
     };
   }
 
@@ -680,7 +917,8 @@ export class RegressionLabService {
       data.organizationId,
       null,
       { projectId: schedule.project_id, testCaseIds: ids.length ? ids : undefined },
-      'SCHEDULED'
+      'SCHEDULED',
+      { userId: data.userId }
     );
     await this.db.query(
       `UPDATE regression_test_schedules SET last_run_at = NOW(), last_batch_id = $2, updated_at = NOW() WHERE id = $1`,

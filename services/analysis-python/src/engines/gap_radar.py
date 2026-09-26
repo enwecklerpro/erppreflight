@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_core import PydanticCustomError
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
@@ -196,27 +197,221 @@ RULES = rule_catalog(
 
 
 class GapRequirementsInput(ContractModel):
-    """Requirements JSON: {'requirements': [...]}, a single {'requirement': '…'} / {'text': '…'} or a list."""
+    """Requirements JSON: {'requirements': [...]}, a single {'requirement': '…'} / {'text': '…'} or a list.
+
+    Every requirement statement must be an SAP business or technical requirement (see
+    :func:`sap_requirement_problem`): unrelated prose is rejected as ``GAP_RADAR_INVALID_INPUT`` instead of
+    being answered with an UNKNOWN verdict."""
     requirements: Optional[List[Any]] = None
     requirement: Optional[str] = None
     text: Optional[str] = None
 
     @model_validator(mode="after")
     def _require_requirement(self) -> "GapRequirementsInput":
-        for r in self.requirements or []:
-            if isinstance(r, str) and r.strip():
-                return self
-            if isinstance(r, dict) and str(r.get("requirement") or "").strip():
-                return self
-        if (self.requirement or "").strip() or (self.text or "").strip():
-            return self
-        raise insufficient("No requirement statement supplied ('requirement', 'text' or 'requirements').")
+        statements = _json_statements(self.requirements, self.requirement, self.text, self.model_extra or {})
+        if not statements:
+            raise insufficient("No requirement statement supplied ('requirement', 'text' or 'requirements').")
+        problems = [
+            f"{where}: {problem}"
+            for where, text, context in statements
+            for problem in [sap_requirement_problem(text, context)]
+            if problem
+        ]
+        if problems:
+            raise PydanticCustomError(
+                "not_sap_requirement",
+                "{detail}",
+                {"detail": _problem_summary(problems, len(statements))},
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# SAP requirement recognition (input contract, not classification).
+#
+# A statement is accepted as an SAP requirement when it is a sentence (>= 3 words) AND it is anchored in the
+# SAP domain: one curated tier keyword (the same catalogue the classifier uses), one SAP-specific term /
+# object identifier, or at least two distinct ERP business-process terms. Generic English ("the quick brown
+# fox", "lorem ipsum", "this is not an SAP artifact") has no anchor and is rejected; a vendor name alone
+# ("SAP", "ERP") is not an anchor. Deterministic: pure regular expressions over the statement text.
+# ---------------------------------------------------------------------------
+
+# SAP-specific technology, product and object vocabulary — one match is sufficient.
+_SAP_STRONG_TERMS = re.compile(
+    r"\b(?:"
+    r"s/?4\s?hana|s/4|ecc\s?6?|r/3|sap\s+(?:gui|fiori|btp|build|analytics\s+cloud|ariba|concur|successfactors|"
+    r"integration\s+suite|cloud\s+alm|solution\s+manager|signavio|business\s+network|event\s+mesh|datasphere)|"
+    r"abap|badi|bapi|idoc|odata|cds\s+views?|cds|fiori|ui5|btp|sscui|spro|img\s+activit(?:y|ies)|"
+    r"customi[sz]ing|transport\s+request|extensibility|clean\s+core|key[-\s]user|scope\s+items?|"
+    r"best\s+practices?\s+(?:content|scope)|fit[-\s]to[-\s]standard|company\s+codes?|controlling\s+area|"
+    r"cost\s+cent(?:er|re)s?|profit\s+cent(?:er|re)s?|internal\s+orders?|wbs\s+elements?|g/l\s+accounts?|"
+    r"general\s+ledger|journal\s+entr(?:y|ies)|universal\s+journal|acdoca|purchase\s+(?:orders?|requisitions?)|"
+    r"sales\s+(?:orders?|organi[sz]ations?|documents?)|distribution\s+channel|goods\s+(?:receipts?|issues?|movements?)|"
+    r"business\s+partners?|material\s+master|product\s+master|bill\s+of\s+materials?|mrp|production\s+orders?|"
+    r"planned\s+orders?|work\s+cent(?:er|re)s?|storage\s+locations?|plants?\s+maintenance|maintenance\s+orders?|"
+    r"condition\s+types?|pricing\s+procedure|output\s+(?:types?|management|determination)|account\s+determination|"
+    r"asset\s+accounting|fixed\s+assets?|dunning|payment\s+(?:run|terms|program)|house\s+banks?|"
+    r"credit\s+management|available[-\s]to[-\s]promise|warehouse\s+(?:tasks?|management)|"
+    r"handling\s+units?|intercompany|profitability\s+analysis|co-pa|pi/po"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# SAP object identifiers (case-sensitive, upper-case as SAP writes them): custom Z/Y objects, key-user
+# extension prefixes, released CDS views / APIs, namespaced objects, transaction codes, well-known tables and
+# module / component abbreviations.
+_SAP_OBJECT_IDENTIFIERS = re.compile(
+    r"(?:\b(?:YY1|ZZ1)_\w+|\b[ZY][A-Z0-9]*[_0-9][A-Z0-9_]*\b|\bI_[A-Z][A-Za-z0-9]+\b|\bA_[A-Z][A-Za-z0-9]+\b|"
+    r"\bAPI_[A-Z0-9_]+\b|/[A-Z0-9]{2,10}/[A-Z0-9_]+|\b[A-Z]{2,4}\d{2}[A-Z]?\b|"
+    r"\b(?:MM|SD|FI|CO|PP|PM|QM|PS|HCM|EWM|WM|TM|GTS|SRM|CRM|SCM|MDG|FSCM|CO-PA|RAP|ALE|ATP|CBC|RFC|CPI|MRP)\b|"
+    r"\b(?:BSEG|BKPF|MARA|MARC|MARD|VBAK|VBAP|VBRK|VBRP|EKKO|EKPO|LFA1|KNA1|T001|MSEG|MKPF|ACDOCA|"
+    r"MATDOC|BUT000|PRPS|AUFK|CSKS|CEPC|SKA1|SKB1|ANLA|T001W)\b)"
+)
+
+# ERP business-process vocabulary — two distinct terms, or one next to an everyday ERP word, are required.
+_ERP_PROCESS_TERMS = re.compile(
+    r"\b(invoic(?:e|es|ing)|billing|suppliers?|vendors?|procurement|purchasing|requisitions?|quotations?|"
+    r"rebates?|pricing|tax(?:es|ation)?|withholding|ledgers?|accounting|accounts?\s+payable|"
+    r"accounts?\s+receivable|receivables|payables|depreciation|fixed\s+assets?|budget(?:s|ing)|"
+    r"cost\s+accounting|revenue\s+recognition|treasury|payroll|approval\s+workflows?|inventory|warehouse|"
+    r"stock\s+transfers?|batch\s+management|serial\s+numbers?|quality\s+inspections?|manufacturing|"
+    r"postings?|reconciliation|master\s+data|cost\s+allocation|goods|dunning|incoterms?|freight|logistics|"
+    r"credit\s+memos?|debit\s+memos?|currenc(?:y|ies)|exchange\s+rates?|fiscal\s+(?:year|period)|"
+    r"period[-\s]end|month[-\s]end|year[-\s]end\s+closing|intercompany|settlement|consolidation|"
+    r"country\s+version|localization|e-?invoicing)\b",
+    re.IGNORECASE,
+)
+
+# Everyday words that are ERP-relevant only next to a specific process term ("order a pizza for delivery" is not
+# an SAP requirement; "customers receive the invoice by e-mail" is).
+_ERP_GENERIC_TERMS = re.compile(
+    r"\b(customers?|deliver(?:y|ies)|payments?|orders?|materials?|products?|interfaces?|integrations?|apis?|"
+    r"workflows?|employees?|approvals?|reports?|fields?|tables?|forms?|e-?mails?|notifications?|plants?|"
+    r"stock|assets?|contracts?|shipments?|returns)\b",
+    re.IGNORECASE,
+)
+
+_STATEMENT_WORDS = re.compile(r"[A-Za-z]{2,}")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*•]\s+|\d{1,4}[.)]\s+|[A-Z][A-Z0-9]{1,15}[-_][A-Z0-9-]{1,20}\s*[:\-–]\s+)")
+
+
+def _tier_keyword(text: str) -> Optional[str]:
+    """First curated tier keyword (tiers 1–11) in the text; the classifier's own SAP vocabulary."""
+    for regex in (
+        GapRadarEngine.TIER_11_BLOCKED_REGEX, GapRadarEngine.TIER_11_GAP_REGEX, GapRadarEngine.TIER_8_EVENT_REGEX,
+        GapRadarEngine.TIER_7_BADI_REGEX, GapRadarEngine.TIER_3_KEY_USER_REGEX, GapRadarEngine.TIER_1_STANDARD_REGEX,
+        GapRadarEngine.TIER_2_CONFIG_REGEX, GapRadarEngine.TIER_4_DEV_EXT_REGEX, GapRadarEngine.TIER_5_CDS_REGEX,
+        GapRadarEngine.TIER_6_API_REGEX, GapRadarEngine.TIER_9_SIDE_BY_SIDE_REGEX,
+        GapRadarEngine.TIER_10_WORKAROUND_REGEX,
+    ):
+        m = regex.search(text)
+        if m:
+            return m.group(0)
+    return None
+
+
+def sap_requirement_anchors(text: str, context: str = "") -> List[str]:
+    """Deterministic list of SAP-domain anchors found in a requirement (statement + structured context such as
+    title, module or scope items). Empty list = not recognisable as an SAP requirement."""
+    haystack = f"{text}\n{context}" if context else text
+    anchors: List[str] = []
+    tier = _tier_keyword(haystack)
+    if tier:
+        anchors.append(f"tier keyword '{tier.strip()}'")
+    m = _SAP_STRONG_TERMS.search(haystack)
+    if m:
+        anchors.append(f"SAP term '{m.group(0).strip()}'")
+    m = _SAP_OBJECT_IDENTIFIERS.search(haystack)
+    if m:
+        anchors.append(f"SAP object '{m.group(0)}'")
+    process_terms = sorted({t.lower() for t in _ERP_PROCESS_TERMS.findall(haystack)})
+    generic_terms = sorted({t.lower() for t in _ERP_GENERIC_TERMS.findall(haystack)})
+    if len(process_terms) >= 2 or (process_terms and generic_terms):
+        terms = (process_terms + generic_terms)[:3]
+        anchors.append("ERP process terms " + ", ".join(f"'{t}'" for t in terms))
+    return anchors
+
+
+def sap_requirement_problem(text: str, context: str = "") -> Optional[str]:
+    """None when ``text`` is an acceptable SAP requirement statement, otherwise the reason it is rejected."""
+    statement = (text or "").strip()
+    if len(_STATEMENT_WORDS.findall(statement)) < 3:
+        return "a requirement must be a statement of at least three words."
+    if not sap_requirement_anchors(statement, context):
+        return (
+            "not an SAP business or technical requirement — no SAP process, object, configuration or "
+            "extensibility term was found (e.g. purchase order, company code, BAdI, CDS view, custom field, "
+            "OData API, scope item). Plain prose is not classified."
+        )
+    return None
+
+
+def _problem_summary(problems: List[str], total: int) -> str:
+    head = "; ".join(problems[:5])
+    more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
+    return f"{len(problems)} of {total} requirement statement(s) rejected — {head}{more}"
+
+
+def _item_context(item: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for key in ("title", "module", "description", "process", "business_process"):
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            parts.append(val.strip())
+    scope = item.get("scope_items")
+    if isinstance(scope, list):
+        parts.extend(f"scope item {s}" for s in scope if isinstance(s, (str, int)) and str(s).strip())
+    return "\n".join(parts)
+
+
+def _json_statements(
+    requirements: Optional[List[Any]], requirement: Optional[str], text: Optional[str], extra: Dict[str, Any]
+) -> List[Tuple[str, str, str]]:
+    """(location, statement, context) for every non-empty requirement statement of a JSON payload."""
+    out: List[Tuple[str, str, str]] = []
+    for idx, r in enumerate(requirements or []):
+        if isinstance(r, str) and r.strip():
+            out.append((f"requirements[{idx}]", r, ""))
+        elif isinstance(r, dict) and str(r.get("requirement") or "").strip():
+            out.append((f"requirements[{idx}]", str(r.get("requirement")), _item_context(r)))
+    if (requirement or "").strip():
+        out.append(("requirement", str(requirement), _item_context(extra)))
+    elif (text or "").strip():
+        out.append(("text", str(text), _item_context(extra)))
+    return out
+
+
+def split_plain_requirements(text: str) -> List[str]:
+    """Plain-text input: a bulleted / numbered / ID-prefixed list ("- …", "1. …", "REQ-001: …") yields one
+    requirement per item (continuation lines are joined); any other text is a single requirement."""
+    lines = [ln.rstrip() for ln in (text or "").splitlines()]
+    non_empty = [ln for ln in lines if ln.strip()]
+    if len(non_empty) < 2 or sum(1 for ln in non_empty if _LIST_ITEM.match(ln)) < 2:
+        stripped = (text or "").strip()
+        return [stripped] if stripped else []
+    items: List[str] = []
+    for ln in non_empty:
+        if _LIST_ITEM.match(ln):
+            items.append(_LIST_ITEM.sub("", ln, count=1).strip())
+        elif items:
+            items[-1] = f"{items[-1]} {ln.strip()}"
+        else:
+            items.append(ln.strip())
+    return [it for it in items if it]
 
 
 def _gap_text_check(text: str) -> Optional[str]:
-    words = re.findall(r"[A-Za-z]{2,}", text)
-    if len(words) < 3:
+    statements = split_plain_requirements(text)
+    if not statements:
         return "a plain-text requirement must be a statement of at least three words."
+    problems = [
+        f"line item {idx + 1}: {problem}" if len(statements) > 1 else problem
+        for idx, s in enumerate(statements)
+        for problem in [sap_requirement_problem(s)]
+        if problem
+    ]
+    if problems:
+        return _problem_summary(problems, len(statements)) if len(statements) > 1 else problems[0]
     return None
 
 
@@ -224,12 +419,21 @@ INPUT_CONTRACT = InputContract(
     formats=(InputFormat.JSON, InputFormat.TEXT),
     summary=(
         "Business / technical requirement statements: JSON {'requirements': [{'requirement': '…', 'scope_items': "
-        "[...]}]}, {'requirement': '…'}, a JSON list, or a plain-text requirement statement."
+        "[...]}]}, {'requirement': '…'}, a JSON list, or plain text (one statement, or a bulleted / numbered / "
+        "ID-prefixed list with one requirement per item)."
     ),
-    required=("At least one non-empty requirement statement",),
+    required=(
+        "At least one non-empty requirement statement",
+        "Every statement must be an SAP business or technical requirement (SAP process, object, configuration "
+        "or extensibility term); unrelated prose is rejected as GAP_RADAR_INVALID_INPUT",
+    ),
     json_model=GapRequirementsInput,
     json_array_field="requirements",
     text_check=_gap_text_check,
+    notes=(
+        "GAP_RADAR_UNKNOWN_REQUIREMENT is only emitted for statements that ARE recognisably SAP requirements but "
+        "match no curated tier keyword; non-SAP text never reaches the classifier.",
+    ),
 )
 
 
@@ -253,7 +457,7 @@ class GapRadarEngine(BaseEngine):
     )
     name = "SAP Gap Radar"
     description = "Fit-to-standard vs custom delta analyzer with Clean Core recommendations"
-    version = "1.0.0"
+    version = "1.1.0"
     supported_artifact_types = [ArtifactType.JSON, ArtifactType.TXT]
 
     # Pre-compiled regex patterns for deterministic tier resolution
@@ -611,8 +815,9 @@ class GapRadarEngine(BaseEngine):
                     elif isinstance(r, str):
                         items.append(RequirementItem(requirement=r))
         elif raw_text:
-            # Plain text requirement statement
-            items.append(RequirementItem(requirement=raw_text))
+            # Plain text: one requirement statement, or one per item of a bulleted / numbered / ID-prefixed list
+            for statement in split_plain_requirements(raw_text):
+                items.append(RequirementItem(requirement=statement))
 
         if not items and request.configuration:
             cfg = request.configuration

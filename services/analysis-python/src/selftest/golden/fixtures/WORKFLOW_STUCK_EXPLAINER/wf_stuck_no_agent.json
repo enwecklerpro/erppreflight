@@ -1,0 +1,20 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000045012",
+      "wi_type": "D",
+      "wi_stat": "READY",
+      "wi_rh_task": "TS00008267",
+      "wi_cd": "20260101"
+    }
+  ],
+  "agent_traces": [
+    {
+      "wi_id": "0000045012",
+      "rule_id": "00000168",
+      "resolved_agents": [],
+      "resolved_count": 0
+    }
+  ],
+  "logs": []
+}

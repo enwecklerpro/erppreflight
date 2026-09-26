@@ -11,16 +11,19 @@ export const NOTIFICATION_EVENT_TYPES = [
   'analysis.failed',
   'finding.critical',
   'release_watch.changed',
+  'finding.assigned',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 
 /** Recipient policy per event type (avoid flooding, Part 14.33). */
-export type RecipientPolicy = 'TRIGGERING_USER' | 'TRIGGERING_USER_AND_OWNERS' | 'ALL_MEMBERS';
+export type RecipientPolicy = 'TRIGGERING_USER' | 'TRIGGERING_USER_AND_OWNERS' | 'ALL_MEMBERS' | 'RECIPIENT_USER';
 export const RECIPIENT_POLICY: Record<NotificationEventType, RecipientPolicy> = {
   'analysis.completed': 'TRIGGERING_USER',
   'analysis.failed': 'TRIGGERING_USER_AND_OWNERS',
   'finding.critical': 'ALL_MEMBERS',
   'release_watch.changed': 'TRIGGERING_USER_AND_OWNERS',
+  // Only the assignee (never the organization), and nobody for a self-assignment.
+  'finding.assigned': 'RECIPIENT_USER',
 };
 
 /** E-mail is opt-out for important events and opt-in for routine ones. */
@@ -29,7 +32,57 @@ export const EMAIL_DEFAULT: Record<NotificationEventType, boolean> = {
   'analysis.failed': true,
   'finding.critical': true,
   'release_watch.changed': true,
+  'finding.assigned': true,
 };
+
+/** Languages of notification texts (in-app row + e-mail); users.preferred_locale, default English. */
+export const NOTIFICATION_LOCALES = ['en', 'de'] as const;
+export type NotificationLocale = (typeof NOTIFICATION_LOCALES)[number];
+
+export function toNotificationLocale(value: unknown): NotificationLocale {
+  return value === 'de' ? 'de' : 'en';
+}
+
+const SEVERITY_LABEL: Record<NotificationLocale, Record<NotificationSeverity, string>> = {
+  en: { BLOCKER: 'Blocker', CRITICAL: 'Critical', MAJOR: 'Major', MEDIUM: 'Medium', MINOR: 'Minor', LOW: 'Low', INFO: 'Info' },
+  de: {
+    BLOCKER: 'Blocker',
+    CRITICAL: 'Kritisch',
+    MAJOR: 'Schwerwiegend',
+    MEDIUM: 'Mittel',
+    MINOR: 'Geringfügig',
+    LOW: 'Niedrig',
+    INFO: 'Info',
+  },
+};
+
+export function severityLabel(severity: NotificationSeverity, locale: NotificationLocale): string {
+  return SEVERITY_LABEL[locale][severity] ?? severity;
+}
+
+function formatDueDate(value: unknown, locale: NotificationLocale): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const [y, m, d] = value.slice(0, 10).split('-');
+  return locale === 'de' ? `${d}.${m}.${y}` : `${y}-${m}-${d}`;
+}
+
+function asSeverity(value: unknown): NotificationSeverity {
+  return SEVERITY_ORDER.includes(value as NotificationSeverity) ? (value as NotificationSeverity) : 'INFO';
+}
+
+/**
+ * Deep link into the project findings ledger, focused on one finding. `org` lets the web
+ * app offer an explicit organization switch when the recipient is signed in to another
+ * organization (e-mail links are opened outside the in-app context).
+ */
+export function findingDeepLink(projectId: string | null, findingId: string | null, organizationId: string | null = null): string | null {
+  if (!projectId) return null;
+  const params = new URLSearchParams();
+  if (findingId) params.set('finding', findingId);
+  if (organizationId) params.set('org', organizationId);
+  const qs = params.toString();
+  return `/projects/${projectId}/findings${qs ? `?${qs}` : ''}`;
+}
 
 export interface RenderedNotification {
   severity: NotificationSeverity;
@@ -43,6 +96,10 @@ export interface RenderedNotification {
   groupKey: string;
   /** User who caused the event (recipient policy), if known. */
   actorUserId: string | null;
+  /** Explicit single recipient (policy RECIPIENT_USER), e.g. the assignee. */
+  recipientUserId?: string | null;
+  /** Structured facts for dedicated e-mail templates (never rendered verbatim). */
+  facts?: Record<string, string | null>;
 }
 
 const WATCH_EVENT_SEVERITY: Record<string, NotificationSeverity> = {
@@ -78,12 +135,62 @@ function uuidOrNull(v: unknown): string | null {
   return typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
 }
 
+/** Deep link to the analysis detail page (falls back to the project workspace). */
+function analysisLink(projectId: string | null, analysisId: string | null): string | null {
+  if (!projectId) return null;
+  return analysisId ? `/projects/${projectId}/analyses/${analysisId}` : `/projects/${projectId}`;
+}
+
 export function renderNotification(
   eventType: string,
   aggregateId: string,
-  payload: Record<string, any>
+  payload: Record<string, any>,
+  locale: NotificationLocale = 'en'
 ): RenderedNotification | null {
   switch (eventType) {
+    case 'finding.assigned': {
+      const assignee = uuidOrNull(payload.assigneeId);
+      if (!assignee) return null;
+      const projectId = uuidOrNull(payload.projectId);
+      const findingId = uuidOrNull(payload.findingId);
+      const severity = asSeverity(payload.severity);
+      const ruleId = str(payload.ruleId) ?? (locale === 'de' ? 'Befund' : 'finding');
+      const title = str(payload.title) ?? ruleId;
+      const project = str(payload.projectName);
+      const by = str(payload.assignedByName) ?? (locale === 'de' ? 'Ein Teammitglied' : 'A team member');
+      const due = formatDueDate(payload.dueDate, locale);
+      const note = str(payload.note);
+      const sev = severityLabel(severity, locale);
+      const body =
+        locale === 'de'
+          ? `${by} hat Ihnen ${ruleId} (Schweregrad: ${sev})${project ? ` im Projekt „${project}“` : ''} zugewiesen.` +
+            `${due ? ` Fällig am ${due}.` : ''}${note ? `\nNotiz: ${note}` : ''}`
+          : `${by} assigned ${ruleId} (severity: ${sev})${project ? ` in project "${project}"` : ''} to you.` +
+            `${due ? ` Due ${due}.` : ''}${note ? `\nNote: ${note}` : ''}`;
+      return {
+        severity,
+        title: (locale === 'de' ? `Befund zugewiesen: ${title}` : `Finding assigned to you: ${title}`).slice(0, 300),
+        body: body.slice(0, 2000),
+        link: findingDeepLink(projectId, findingId, uuidOrNull(payload.organizationId)),
+        projectId,
+        engine: str(payload.engine),
+        resourceType: 'FINDING',
+        resourceId: findingId ?? uuidOrNull(aggregateId),
+        groupKey: `finding-assignment:${payload.lifecycleId ?? aggregateId}`,
+        actorUserId: uuidOrNull(payload.assignedBy),
+        recipientUserId: assignee,
+        facts: {
+          title,
+          ruleId,
+          severity,
+          severityLabel: sev,
+          project,
+          assignedBy: by,
+          dueDate: due,
+          note,
+        },
+      };
+    }
     case 'analysis.completed': {
       const status = str(payload.status) ?? 'COMPLETED';
       const total = Number(payload.totalFindings ?? 0);
@@ -95,7 +202,7 @@ export function renderNotification(
             ? `Analysis partially completed: ${total} finding${total === 1 ? '' : 's'}`
             : `Analysis completed: ${total} finding${total === 1 ? '' : 's'}`,
         body: `Engines: ${(payload.engineTypes ?? []).join(', ') || 'n/a'}. Target release: ${payload.targetRelease ?? 'n/a'}.`,
-        link: projectId ? `/projects/${projectId}` : null,
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: Array.isArray(payload.engineTypes) && payload.engineTypes.length === 1 ? String(payload.engineTypes[0]) : null,
         resourceType: 'ANALYSIS',
@@ -109,8 +216,8 @@ export function renderNotification(
       return {
         severity: 'MAJOR',
         title: 'Analysis failed',
-        body: str(payload.reason) ?? 'The analysis could not be completed. Open the project to review the run and retry.',
-        link: projectId ? `/projects/${projectId}` : null,
+        body: str(payload.reason) ?? 'The analysis could not be completed. Open the run to review the error and re-run it.',
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: null,
         resourceType: 'ANALYSIS',
@@ -131,7 +238,7 @@ export function renderNotification(
         severity: blocker > 0 ? 'BLOCKER' : 'CRITICAL',
         title: `${parts.join(' and ')} finding${blocker + critical === 1 ? '' : 's'} detected`,
         body: `Engines: ${(payload.engines ?? []).join(', ') || 'n/a'}. Review them before the next release gate.`,
-        link: projectId ? `/projects/${projectId}` : null,
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: Array.isArray(payload.engines) && payload.engines.length === 1 ? String(payload.engines[0]) : null,
         resourceType: 'ANALYSIS',

@@ -1,0 +1,98 @@
+{
+  "conveyor_edges": [
+    ["CP01", "CP02"],
+    ["CP02", "CP03"],
+    ["CP03", "CP04"],
+    ["CP04", "CP05"]
+  ],
+  "telegrams": [
+    {
+      "timestamp": "2026-09-24T03:14:00.000Z",
+      "time_sec": 1.0,
+      "type": "MOVE",
+      "hu_id": "HU_1001",
+      "cp": "CP01",
+      "seq_no": 100,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:00.200Z",
+      "time_sec": 1.2,
+      "type": "ACK",
+      "hu_id": "HU_1001",
+      "cp": "CP01",
+      "seq_no": 100,
+      "sender_plc": "EWM",
+      "receiver_plc": "PLC01",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:02.000Z",
+      "time_sec": 3.0,
+      "type": "MOVE",
+      "hu_id": "HU_1001",
+      "cp": "CP02",
+      "seq_no": 101,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:02.150Z",
+      "time_sec": 3.15,
+      "type": "ACK",
+      "hu_id": "HU_1001",
+      "cp": "CP02",
+      "seq_no": 101,
+      "sender_plc": "EWM",
+      "receiver_plc": "PLC01",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:04.000Z",
+      "time_sec": 5.0,
+      "type": "MOVE",
+      "hu_id": "HU_1001",
+      "cp": "CP03",
+      "seq_no": 102,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:04.200Z",
+      "time_sec": 5.2,
+      "type": "ACK",
+      "hu_id": "HU_1001",
+      "cp": "CP03",
+      "seq_no": 102,
+      "sender_plc": "EWM",
+      "receiver_plc": "PLC01",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:06.000Z",
+      "time_sec": 7.0,
+      "type": "MOVE",
+      "hu_id": "HU_1001",
+      "cp": "CP04",
+      "seq_no": 103,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:06.180Z",
+      "time_sec": 7.18,
+      "type": "ACK",
+      "hu_id": "HU_1001",
+      "cp": "CP04",
+      "seq_no": 103,
+      "sender_plc": "EWM",
+      "receiver_plc": "PLC01",
+      "status": "OK"
+    }
+  ]
+}

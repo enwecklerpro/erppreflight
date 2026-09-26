@@ -116,6 +116,13 @@ Passt eine Eingabe nicht zum Vertrag, meldet die Engine einen ihrer Eingabeprüf
         body: `Jede Organisation ist ein Mandant. Projekte, Artefakte, Analysen, Befunde und Berichte tragen die Organisations-ID, und PostgreSQL-Row-Level-Security stellt sicher, dass eine Anfrage nur Zeilen der angemeldeten Organisation sieht. Dateien liegen im Objektspeicher unter einem Pfad je Organisation und Projekt; Download-Links sind vorsigniert und laufen nach höchstens 15 Minuten ab.`,
       },
       {
+        id: 'sessions',
+        title: 'Anmeldung und Sitzungen',
+        body: `Sie melden sich mit Ihrem Passwort, mit einem **einmalig gültigen E-Mail-Link** (*Anmeldelink per E-Mail senden* auf der [Anmeldeseite](/login); der Link ist 15 Minuten gültig) oder, sofern Ihre Organisation es eingerichtet hat, per Single Sign-on an. Organisationen, die Single Sign-on erzwingen, sperren für ihre Mitglieder die Anmeldung per Passwort und E-Mail-Link. Ist die Zwei-Faktor-Authentifizierung aktiv, fragt jede Methode zusätzlich nach dem Code Ihrer Authenticator-App oder einem Wiederherstellungscode.
+
+Im Browser existiert die Sitzung nur als HTTP-only-Cookie, das Skripte der Seite nicht lesen können; im Browserspeicher wird kein Sitzungstoken abgelegt. Ändernde Anfragen tragen zusätzlich ein Token gegen Cross-Site-Request-Forgery und werden nur vom Web-Ursprung von ERP Preflight angenommen. Die Abmeldung beendet die Sitzung auf dem Server. Aktive Sitzungen sehen Sie unter **Einstellungen → Sicherheit** und können sie dort einzeln oder alle auf einmal beenden.`,
+      },
+      {
         id: 'ingestion',
         title: 'Upload-Pipeline',
         body: `Uploads werden am Inhalt typgeprüft, archivgeprüft (Verhältnis, Größe, Verschachtelung, Pfad-Traversal), auf Malware gescannt und von Geheimnissen bereinigt, bevor eine Engine sie lesen kann. Dateien, die eine Prüfung nicht bestehen, bleiben in Quarantäne und werden nie analysiert.`,

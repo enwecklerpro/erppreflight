@@ -8,11 +8,24 @@ export type MailTransportKind = 'smtp' | 'http' | 'dev';
 export type MailTemplateId =
   | 'EMAIL_VERIFICATION'
   | 'PASSWORD_RESET'
+  | 'MAGIC_LINK'
   | 'PASSWORD_CHANGED'
   | 'ORGANIZATION_INVITATION'
   | 'TWO_FACTOR_ENABLED'
   | 'TWO_FACTOR_DISABLED'
-  | 'ACCOUNT_DELETED';
+  | 'ACCOUNT_DELETED'
+  // Tenant access administration and support (operations.templates.ts)
+  | 'TENANT_SUSPENDED'
+  | 'TENANT_REACTIVATED'
+  | 'TRIAL_EXTENDED'
+  | 'SUPPORT_TICKET_CREATED'
+  | 'SUPPORT_TICKET_REPLY'
+  | 'SUPPORT_TICKET_STATUS_CHANGED'
+  // Platform governance (source sync admin)
+  | 'KNOWLEDGE_SOURCE_STALE'
+  // Platform hardening (finding assignment, notification e-mails)
+  | 'FINDING_ASSIGNED'
+  | 'NOTIFICATION';
 
 export interface MailMessage {
   to: string;

@@ -136,6 +136,8 @@ export const regressionTestCases = pgTable('regression_test_cases', {
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  /** Generated test (table `tests`) this case was promoted from (migration 020). FK in SQL only. */
+  generatedTestId: uuid('generated_test_id'),
 });
 
 export const regressionTestRuns = pgTable('regression_test_runs', {
@@ -160,6 +162,8 @@ export const regressionTestRuns = pgTable('regression_test_runs', {
   triggeredBy: uuid('triggered_by').references(() => users.id, { onDelete: 'set null' }),
   startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  /** Lab analysis (analyses.kind = LAB_REGRESSION) that executed this run (migration 020). FK in SQL only. */
+  analysisId: uuid('analysis_id'),
 });
 
 export const regressionTestSchedules = pgTable('regression_test_schedules', {

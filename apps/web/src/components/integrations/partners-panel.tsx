@@ -8,32 +8,44 @@ import { ArrowRightLeft, Ban, Building2, CheckCircle2, Clock, Handshake } from '
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect, FormTextarea } from '@/components/form/form-inputs';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useLabel } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 import { useTenantSwitch } from '@/lib/query/query-provider';
 import { PartnerGrant, createGrant, fetchCurrentOrganization, fetchGrantsGiven, fetchPartnerClients, revokeGrant } from '@/lib/api/integrations';
-import { Button, Card, ConfirmButton, PanelEmpty, PanelError, PanelLoading, StatusBadge, errorMessage, formatDate, relative } from './ui';
+import { Button, Card, ConfirmButton, PanelEmpty, PanelError, PanelLoading, StatusBadge, useIntegrationText } from './ui';
 
 const keys = {
   given: ['integrations', 'partners', 'given'] as const,
   clients: ['integrations', 'partners', 'clients'] as const,
 };
 
+const ACCESS_ROLES = ['VIEWER', 'ANALYST', 'PROJECT_ADMIN'] as const;
+
 const GrantSchema = z.object({
-  partnerOrganizationSlug: z.string().trim().min(1, 'Enter the partner organization identifier (slug)'),
-  accessRole: z.enum(['VIEWER', 'ANALYST', 'PROJECT_ADMIN']),
-  expiresInDays: z.coerce.number().int().min(1, 'At least 1 day').max(365, 'At most 365 days'),
-  reason: z.string().trim().min(3, 'State the engagement / reason (audited)'),
+  partnerOrganizationSlug: z.string().trim().min(1, vmsg('app.integrations.partners.partnerRequired')),
+  accessRole: z.enum(ACCESS_ROLES),
+  expiresInDays: z.coerce
+    .number()
+    .int()
+    .min(1, vmsg('app.integrations.partners.minDays'))
+    .max(365, vmsg('app.integrations.partners.maxDays')),
+  reason: z.string().trim().min(3, vmsg('app.integrations.partners.reasonRequired')),
 });
 
 function GrantStatus({ g }: { g: PartnerGrant }) {
-  if (g.status === 'ACTIVE') return <StatusBadge tone="ok" icon={CheckCircle2} label={`Active until ${formatDate(g.expiresAt)}`} />;
-  if (g.status === 'EXPIRED') return <StatusBadge tone="neutral" icon={Clock} label="Expired" />;
-  return <StatusBadge tone="bad" icon={Ban} label="Revoked" />;
+  const { t, formatDate } = useIntegrationText();
+  if (g.status === 'ACTIVE') {
+    return <StatusBadge tone="ok" icon={CheckCircle2} label={t('app.integrations.partners.activeUntil', { when: formatDate(g.expiresAt) })} />;
+  }
+  if (g.status === 'EXPIRED') return <StatusBadge tone="neutral" icon={Clock} label={t('app.integrations.common.expired')} />;
+  return <StatusBadge tone="bad" icon={Ban} label={t('app.integrations.common.revoked')} />;
 }
 
 function GrantForm() {
+  const { t, errorText } = useIntegrationText();
   const qc = useQueryClient();
   const [serverError, setServerError] = React.useState<string | null>(null);
-  const create = useMutation({ mutationFn: createGrant, onSuccess: () => qc.invalidateQueries({ queryKey: keys.given }), onError: (e) => setServerError(errorMessage(e)) });
+  const create = useMutation({ mutationFn: createGrant, onSuccess: () => qc.invalidateQueries({ queryKey: keys.given }), onError: (e) => setServerError(errorText(e)) });
   const form = useForm({
     defaultValues: { partnerOrganizationSlug: '', accessRole: 'VIEWER' as 'VIEWER' | 'ANALYST' | 'PROJECT_ADMIN', expiresInDays: 30, reason: '' },
     validators: { onSubmit: GrantSchema as any },
@@ -49,7 +61,7 @@ function GrantForm() {
   return (
     <form
       noValidate
-      aria-label="Grant partner access"
+      aria-label={t('app.integrations.partners.formLabel')}
       onSubmit={(e) => {
         e.preventDefault();
         form.handleSubmit();
@@ -57,33 +69,33 @@ function GrantForm() {
       className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start"
     >
       <form.Field name="partnerOrganizationSlug" children={(f) => (
-        <FormField id="grant-partner" name="partnerOrganizationSlug" label="Partner organization" required error={f.state.meta.errors as any}>
+        <FormField id="grant-partner" name="partnerOrganizationSlug" label={t('app.integrations.partners.partnerOrg')} required error={f.state.meta.errors as any}>
           <FormInput isMono value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} placeholder="partner-consulting-1234" />
         </FormField>
       )} />
       <form.Field name="accessRole" children={(f) => (
-        <FormField id="grant-role" name="accessRole" label="Access">
-          <FormSelect value={f.state.value} onChange={(e) => f.handleChange(e.target.value as any)} options={[
-            { value: 'VIEWER', label: 'Viewer (read-only)' },
-            { value: 'ANALYST', label: 'Analyst (run analyses)' },
-            { value: 'PROJECT_ADMIN', label: 'Project admin' },
-          ]} />
+        <FormField id="grant-role" name="accessRole" label={t('app.integrations.partners.access')}>
+          <FormSelect
+            value={f.state.value}
+            onChange={(e) => f.handleChange(e.target.value as any)}
+            options={ACCESS_ROLES.map((r) => ({ value: r, label: t(`app.integrations.partners.role.${r}`) }))}
+          />
         </FormField>
       )} />
       <form.Field name="expiresInDays" children={(f) => (
-        <FormField id="grant-days" name="expiresInDays" label="Expires after (days)" error={f.state.meta.errors as any}>
+        <FormField id="grant-days" name="expiresInDays" label={t('app.integrations.partners.expiresDays')} error={f.state.meta.errors as any}>
           <FormInput type="number" min={1} max={365} value={String(f.state.value)} onChange={(e) => f.handleChange(Number(e.target.value))} />
         </FormField>
       )} />
       <form.Field name="reason" children={(f) => (
-        <FormField id="grant-reason" name="reason" label="Reason (audited)" required error={f.state.meta.errors as any}>
+        <FormField id="grant-reason" name="reason" label={t('app.integrations.partners.reason')} required error={f.state.meta.errors as any}>
           <FormTextarea rows={1} value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
         </FormField>
       )} />
       {serverError && <p role="alert" className="md:col-span-4 text-xs text-destructive">{serverError}</p>}
       <div className="md:col-span-4">
         <Button type="submit" busy={isSubmitting}>
-          <Handshake className="size-3.5" aria-hidden="true" /> Grant delegated access
+          <Handshake className="size-3.5" aria-hidden="true" /> {t('app.integrations.partners.grant')}
         </Button>
       </div>
     </form>
@@ -91,6 +103,8 @@ function GrantForm() {
 }
 
 export function PartnersPanel() {
+  const { t, errorText, formatDate, relative } = useIntegrationText();
+  const label = useLabel();
   const qc = useQueryClient();
   const switchTenant = useTenantSwitch();
   const given = useQuery({ queryKey: keys.given, queryFn: fetchGrantsGiven, retry: (n, e: any) => e?.statusCode !== 403 && n < 2 });
@@ -98,25 +112,23 @@ export function PartnersPanel() {
   const org = useQuery({ queryKey: ['integrations', 'current-organization'], queryFn: fetchCurrentOrganization, staleTime: 5 * 60_000 });
   const revoke = useMutation({ mutationFn: revokeGrant, onSuccess: () => qc.invalidateQueries({ queryKey: keys.given }) });
   const forbidden = (given.error as any)?.statusCode === 403;
+  const roleLabel = (role: string) => label('app.integrations.partners.role', role);
 
   return (
     <div className="space-y-4">
-      <Card
-        title="Consulting partners with access to this organization"
-        description="Grants are explicit, time-limited and audited. Partner users act through the same membership-verified tenancy checks and row-level security as members; they can never administer this organization."
-      >
+      <Card title={t('app.integrations.partners.givenTitle')} description={t('app.integrations.partners.givenDescription')}>
         {forbidden ? (
-          <p className="text-xs text-muted-foreground">Only organization owners, security admins and auditors can view partner grants.</p>
+          <p className="text-xs text-muted-foreground">{t('app.integrations.partners.forbidden')}</p>
         ) : (
           <>
             <GrantForm />
             <div className="mt-4">
               {given.isLoading ? (
-                <PanelLoading rows={2} label="Loading grants" />
+                <PanelLoading rows={2} label={t('app.integrations.partners.grantsLoading')} />
               ) : given.isError ? (
-                <PanelError error={given.error} onRetry={() => given.refetch()} what="partner grants" />
+                <PanelError error={given.error} onRetry={() => given.refetch()} what={t('app.integrations.partners.grantsWhat')} />
               ) : !given.data?.length ? (
-                <PanelEmpty icon={Handshake} title="No partner access granted" body="Grant a consulting partner organization temporary access for an engagement." />
+                <PanelEmpty icon={Handshake} title={t('app.integrations.partners.emptyTitle')} body={t('app.integrations.partners.emptyBody')} />
               ) : (
                 <ul className="space-y-2">
                   {given.data.map((g) => (
@@ -124,50 +136,63 @@ export function PartnersPanel() {
                       <div>
                         <p className="font-semibold">{g.partnerOrganizationName}</p>
                         <p className="text-muted-foreground">
-                          {g.accessRole} (acts as {g.effectiveTenantRole}) · last used {relative(g.lastUsedAt)} · {g.reason}
+                          {t('app.integrations.partners.grantLine', {
+                            role: roleLabel(g.accessRole),
+                            tenantRole: label('app.ui.orgRole', g.effectiveTenantRole),
+                            when: relative(g.lastUsedAt),
+                            reason: g.reason ?? '',
+                          })}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <GrantStatus g={g} />
-                        {g.status === 'ACTIVE' && <ConfirmButton label="Revoke" confirmLabel="Revoke access now" onConfirm={() => revoke.mutate(g.id)} busy={revoke.isPending} />}
+                        {g.status === 'ACTIVE' && (
+                          <ConfirmButton
+                            label={t('app.integrations.common.revoke')}
+                            confirmLabel={t('app.integrations.partners.revokeNow')}
+                            onConfirm={() => revoke.mutate(g.id)}
+                            busy={revoke.isPending}
+                          />
+                        )}
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
-              {revoke.isError && <p role="alert" className="mt-1 text-xs text-destructive">{errorMessage(revoke.error)}</p>}
+              {revoke.isError && <p role="alert" className="mt-1 text-xs text-destructive">{errorText(revoke.error)}</p>}
             </div>
           </>
         )}
       </Card>
       <Card
-        title="Client organizations (partner view)"
+        title={t('app.integrations.partners.clientsTitle')}
         description={
           <>
-            Customer organizations that granted your organization delegated access. Your organization identifier for customers:{' '}
-            <code className="font-mono">{org.data?.slug ?? '…'}</code>
+            {t('app.integrations.partners.clientsDescription')} <code className="font-mono">{org.data?.slug ?? '…'}</code>
           </>
         }
       >
         {clients.isLoading ? (
-          <PanelLoading rows={2} label="Loading client organizations" />
+          <PanelLoading rows={2} label={t('app.integrations.partners.clientsLoading')} />
         ) : clients.isError ? (
-          <PanelError error={clients.error} onRetry={() => clients.refetch()} what="client organizations" />
+          <PanelError error={clients.error} onRetry={() => clients.refetch()} what={t('app.integrations.partners.clientsWhat')} />
         ) : !clients.data?.length ? (
-          <PanelEmpty icon={Building2} title="No client organizations" body="When a customer grants your organization access, it appears here." />
+          <PanelEmpty icon={Building2} title={t('app.integrations.partners.clientsEmptyTitle')} body={t('app.integrations.partners.clientsEmptyBody')} />
         ) : (
           <ul className="space-y-2">
             {clients.data.map((g) => (
               <li key={g.id} className="rounded-md border border-border p-2 text-xs flex flex-col md:flex-row md:items-center justify-between gap-2">
                 <div>
                   <p className="font-semibold">{g.customerOrganizationName}</p>
-                  <p className="text-muted-foreground">{g.accessRole} · expires {formatDate(g.expiresAt)}</p>
+                  <p className="text-muted-foreground">
+                    {t('app.integrations.partners.clientLine', { role: roleLabel(g.accessRole), when: formatDate(g.expiresAt) })}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <GrantStatus g={g} />
                   {g.status === 'ACTIVE' && (
                     <Button variant="secondary" onClick={() => switchTenant(g.customerOrganizationId, '/projects')}>
-                      <ArrowRightLeft className="size-3.5" aria-hidden="true" /> Work in this client
+                      <ArrowRightLeft className="size-3.5" aria-hidden="true" /> {t('app.integrations.partners.workInClient')}
                     </Button>
                   )}
                 </div>

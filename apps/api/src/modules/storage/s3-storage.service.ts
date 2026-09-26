@@ -9,6 +9,7 @@ import {
   ListObjectsV2Command,
   CreateBucketCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
@@ -40,6 +41,16 @@ export function buildCleanKey(
   fileName: string
 ): string {
   return `tenants/${organizationId}/projects/${projectId}/${fileId}/${safeObjectName(fileName)}`;
+}
+
+/** Tenant-scoped API baseline key: tenants/{org}/projects/{project}/api-baselines/{baselineId}/{name} */
+export function buildApiBaselineKey(
+  organizationId: string,
+  projectId: string,
+  baselineId: string,
+  fileName: string
+): string {
+  return `tenants/${organizationId}/projects/${projectId}/api-baselines/${baselineId}/${safeObjectName(fileName)}`;
 }
 
 @Injectable()
@@ -233,6 +244,21 @@ export class S3StorageService implements OnModuleInit {
       })
     );
     return res.Body as NodeJS.ReadableStream;
+  }
+
+  /**
+   * Size of a clean bucket object in bytes (HEAD, no download).
+   */
+  public async headCleanObject(storagePath: string): Promise<{ sizeBytes: number }> {
+    const res = await this.s3.send(new HeadObjectCommand({ Bucket: this.cleanBucket, Key: storagePath }));
+    return { sizeBytes: Number(res.ContentLength ?? 0) };
+  }
+
+  /**
+   * Deletes an object from the clean bucket.
+   */
+  public async deleteCleanObject(key: string): Promise<void> {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.cleanBucket, Key: key }));
   }
 
   /**

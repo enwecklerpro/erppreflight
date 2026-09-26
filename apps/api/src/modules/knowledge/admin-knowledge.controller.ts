@@ -16,6 +16,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SuperAdminGuard } from '../admin/guards/super-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Audited } from '../audit/audited.decorator';
 import { KnowledgeArticlesService } from './knowledge-articles.service';
 import {
   CreateKnowledgeArticleSchema,
@@ -65,6 +66,12 @@ export class AdminKnowledgeController {
   }
 
   @Post()
+  @Audited({
+    action: 'knowledge_article.created',
+    targetType: 'KNOWLEDGE_ARTICLE',
+    targetId: ({ result }) => result?.id,
+    payload: ({ result }) => ({ slug: result?.slug ?? null, locale: result?.locale ?? null, status: result?.status ?? null }),
+  })
   async create(@Body() body: unknown, @CurrentUser('id') userId?: string) {
     const parsed = CreateKnowledgeArticleSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(zodMessage(parsed.error));
@@ -72,6 +79,12 @@ export class AdminKnowledgeController {
   }
 
   @Patch(':id')
+  @Audited({
+    action: 'knowledge_article.updated',
+    targetType: 'KNOWLEDGE_ARTICLE',
+    targetId: ({ params }) => params.id,
+    payload: ({ body }) => ({ fields: Object.keys(body ?? {}).sort() }),
+  })
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: unknown,
@@ -85,6 +98,12 @@ export class AdminKnowledgeController {
   @Post(':id/transition')
   @HttpCode(200)
   @ApiOperation({ summary: 'Move an article through draft → technical review → SEO review → published → update required → deprecated' })
+  @Audited({
+    action: ({ body }) => `knowledge_article.${String(body?.to ?? 'transition').toLowerCase()}`,
+    targetType: 'KNOWLEDGE_ARTICLE',
+    targetId: ({ params }) => params.id,
+    payload: ({ body, result }) => ({ to: body?.to ?? null, slug: result?.slug ?? null, locale: result?.locale ?? null }),
+  })
   async transition(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: unknown,
@@ -97,6 +116,7 @@ export class AdminKnowledgeController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Archive an article (soft delete; history is kept)' })
+  @Audited({ action: 'knowledge_article.archived', targetType: 'KNOWLEDGE_ARTICLE', targetId: ({ params }) => params.id })
   async archive(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser('id') userId?: string) {
     return this.articles.archive(id, userId ?? null);
   }

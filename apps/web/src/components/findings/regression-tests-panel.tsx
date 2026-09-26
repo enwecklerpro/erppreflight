@@ -23,7 +23,7 @@ import { ScheduleRegressionTestsSchema, type FindingStatus } from '@erppreflight
 import { useFormatter, useT } from '@/i18n/client';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect } from '@/components/form/form-inputs';
-import { ErrorState, SkeletonBlock, errorMessage } from '@/components/commercial/states';
+import { ErrorState, SkeletonBlock, useCommercialErrorText } from '@/components/commercial/states';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { queryKeys } from '@/lib/query/query-keys';
 import {
@@ -43,6 +43,7 @@ import {
   type RegressionTest,
 } from '@/lib/api/findings-lifecycle';
 import { FindingStatusBadge } from './finding-status-badge';
+import { GeneratedFromRun } from '@/components/analysis-run/run-links';
 
 type RunStatus = 'PASSED' | 'FAILED' | 'ERROR';
 
@@ -73,6 +74,8 @@ function useFmt() {
 }
 
 export function RegressionTestsPanel({ projectId }: { projectId: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const tests = useQuery({
@@ -140,6 +143,8 @@ export function RegressionTestsPanel({ projectId }: { projectId: string }) {
 }
 
 function RegressionTestItem({ test, projectId }: { test: RegressionTest; projectId: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const fmt = useFmt();
   const queryClient = useQueryClient();
@@ -221,6 +226,7 @@ function RegressionTestItem({ test, projectId }: { test: RegressionTest; project
               <FindingStatusBadge status={test.findingStatus as FindingStatus} size="sm" />
             </p>
           )}
+          {test.originAnalysisId && <GeneratedFromRun projectId={projectId} analysisId={test.originAnalysisId} />}
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-1.5">
@@ -399,6 +405,8 @@ function ScheduleGuard({ dirty, submitting }: { dirty: boolean; submitting: bool
 }
 
 function SchedulesSection({ projectId }: { projectId: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const fmt = useFmt();
   const queryClient = useQueryClient();

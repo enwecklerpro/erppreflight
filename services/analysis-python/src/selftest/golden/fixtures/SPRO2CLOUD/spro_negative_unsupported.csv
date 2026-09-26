@@ -1,0 +1,4 @@
+ActivityID,ActivityName,Module,TargetTable,CountryCode
+SIMG_CFMENUORFBFISL,Special Ledger (FI-SL),FI,GLT0,DE
+SIMG_CFMENUOLSDVOFM,Define Formulas and Requirements (VOFM),SD,TFRM,DE
+SIMG_CFMENUORFBOB08,Define Posting Keys,FI,TBSL,DE

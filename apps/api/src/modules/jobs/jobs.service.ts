@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -30,6 +31,28 @@ import { AnalysisProgressTracker } from './analysis-progress';
 import { ArtifactProfilerService } from './orchestration/artifact-profiler.service';
 import { planFullPreflight, type PreflightPlan } from './orchestration/preflight-planner';
 import type { EngineAssignmentInput } from './analysis-executor';
+import { buildAnalysisInputs, currentKnowledgeSnapshotId, recordAnalysisError } from './analysis-inputs';
+import type { AnalysisInputs } from '@erppreflight/schemas';
+import { ApiBaselinesService } from '../api-baselines/api-baselines.service';
+
+/** Source analysis of a rerun, as loaded (tenant-scoped) by AnalysisLifecycleService. */
+export interface RerunSource {
+  id: string;
+  projectId: string;
+  kind: 'STANDARD' | 'FULL_PREFLIGHT';
+  engineTypes: EngineType[];
+  targetRelease: TargetRelease;
+  fileIds: string[];
+  requestedConfiguration: Record<string, unknown>;
+  assignmentMode: AnalysisInputs['assignmentMode'];
+  assignments?: EngineAssignmentInput[];
+  stages?: EngineType[][];
+  orchestration?: Record<string, unknown>;
+  problemStatement?: string | null;
+  routingId?: string | null;
+  /** API_CHANGE_GUARD: stored baseline the source run compared against (analyses.orchestration.apiBaseline). */
+  apiBaselineId?: string | null;
+}
 
 /**
  * Public request contract for POST /analyses and POST /jobs/analyze.
@@ -60,6 +83,11 @@ export const TriggerAnalysisSchema = z
     problemStatement: z.string().trim().min(1).max(4000).optional(),
     /** Problem Router decision this run follows (advisory link, tenant-checked). */
     routingId: z.string().uuid().optional(),
+    /**
+     * API_CHANGE_GUARD: stored baseline to compare against (project-scoped). Default: the project's
+     * active baseline (when one exists).
+     */
+    apiBaselineId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -79,7 +107,9 @@ export class JobsService {
     @Optional()
     private readonly storage?: S3StorageService,
     @Optional()
-    private readonly profiler?: ArtifactProfilerService
+    private readonly profiler?: ArtifactProfilerService,
+    @Optional()
+    private readonly apiBaselines?: ApiBaselinesService
   ) {
     this.analysisUrl =
       this.config.get<string>('ANALYSIS_SERVICE_URL') ||
@@ -114,7 +144,35 @@ export class JobsService {
       throw new NotFoundException(`Project '${dto.projectId}' not found`);
     }
 
-    const uniqueFileIds = Array.from(new Set(dto.fileIds));
+    const files = await this.resolveFiles(organizationId, dto.projectId, dto.fileIds);
+
+    const projectRelease = TargetReleaseEnum.safeParse(projectRes.rows[0].target_release);
+    const targetRelease: TargetRelease =
+      dto.targetRelease ?? (projectRelease.success ? projectRelease.data : 'S4H_2023');
+
+    if (dto.apiBaselineId) {
+      if (!dto.engineTypes.includes('API_CHANGE_GUARD')) {
+        throw new BadRequestException({
+          code: 'API_BASELINE_REQUIRES_API_CHANGE_GUARD',
+          message: 'apiBaselineId can only be used when API_CHANGE_GUARD is one of the selected engines.',
+        });
+      }
+      if (!this.apiBaselines) {
+        throw new BadRequestException({ code: 'API_BASELINES_UNAVAILABLE', message: 'API baselines are not available.' });
+      }
+      await this.apiBaselines.assertSelectable(organizationId, dto.projectId, dto.apiBaselineId);
+    }
+
+    return { dto, files, targetRelease };
+  }
+
+  /**
+   * Resolves file ids to CLEAN, analysable uploads of the project + tenant (404 for unknown
+   * or foreign ids, 400 for non-CLEAN or non-analysable formats). Order follows `fileIds`.
+   */
+  async resolveFiles(organizationId: string, projectId: string, fileIds: string[]): Promise<AnalysisJobFile[]> {
+    const dto = { projectId };
+    const uniqueFileIds = Array.from(new Set(fileIds));
     const filesRes = await this.db.query(
       `SELECT id, file_name, storage_path, quarantine_status, metadata
          FROM uploaded_files
@@ -159,12 +217,7 @@ export class JobsService {
         artifactType,
       });
     }
-
-    const projectRelease = TargetReleaseEnum.safeParse(projectRes.rows[0].target_release);
-    const targetRelease: TargetRelease =
-      dto.targetRelease ?? (projectRelease.success ? projectRelease.data : 'S4H_2023');
-
-    return { dto, files, targetRelease };
+    return files;
   }
 
   async triggerAnalysis(organizationId: string, userId: string, body: unknown) {
@@ -199,6 +252,52 @@ export class JobsService {
       orchestration: orchestration.plan ? { plan: orchestration.plan } : undefined,
       problemStatement: dto.problemStatement,
       routingId: dto.routingId,
+      assignmentMode: dto.assignmentMode ?? 'CROSS',
+      apiBaselineId: dto.apiBaselineId,
+    });
+  }
+
+  /**
+   * Re-run (section C §15/§16): a NEW analysis with the identical inputs of `source` —
+   * same artifacts (re-resolved: still CLEAN and in the project), engine selection,
+   * target release, requested configuration (the current data policy is applied on top),
+   * planner assignments/stages — linked through rerun_of_analysis_id. The knowledge
+   * snapshot in force now is recorded on the new run. The source run and its findings
+   * are not touched (finding immutability).
+   */
+  async rerunAnalysis(organizationId: string, userId: string, source: RerunSource) {
+    let files: AnalysisJobFile[];
+    try {
+      files = await this.resolveFiles(organizationId, source.projectId, source.fileIds);
+    } catch (err: any) {
+      const reason = String(err?.getResponse?.()?.message ?? err?.message ?? err).slice(0, 300);
+      throw new ConflictException({
+        code: 'RERUN_INPUTS_UNAVAILABLE',
+        message: `The artifacts of this run are no longer available unchanged (${reason}). Upload them again and start a new analysis.`,
+      });
+    }
+    if (files.length === 0) {
+      throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The run has no recorded artifacts to re-run.' });
+    }
+    return this.enqueueAnalysis({
+      organizationId,
+      userId,
+      projectId: source.projectId,
+      engineTypes: source.engineTypes,
+      targetRelease: source.targetRelease,
+      files,
+      requestedConfiguration: source.requestedConfiguration,
+      kind: source.kind,
+      assignments: source.assignments,
+      stages: source.stages,
+      orchestration: source.orchestration,
+      problemStatement: source.problemStatement ?? undefined,
+      routingId: source.routingId ?? undefined,
+      assignmentMode: source.assignmentMode,
+      rerunOfAnalysisId: source.id,
+      trigger: 'RERUN',
+      // Identical inputs: API_CHANGE_GUARD compares against the stored baseline the source run used.
+      apiBaselineId: source.apiBaselineId ?? undefined,
     });
   }
 
@@ -310,6 +409,7 @@ export class JobsService {
       assignments: plan.assignments.map((a) => ({ engine: a.engine, fileId: a.fileId, companions: a.companions })),
       stages: plan.stages,
       orchestration: { plan },
+      assignmentMode: 'PLANNED',
     });
     return { ...queued, kind: 'FULL_PREFLIGHT' as const, plan };
   }
@@ -329,15 +429,41 @@ export class JobsService {
     orchestration?: Record<string, unknown>;
     problemStatement?: string;
     routingId?: string;
+    assignmentMode?: AnalysisInputs['assignmentMode'];
+    rerunOfAnalysisId?: string;
+    trigger?: AnalysisInputs['trigger'];
+    apiBaselineId?: string;
   }) {
     const { organizationId, userId, projectId, engineTypes, targetRelease, files } = args;
     const analysisId = uuidv4();
+    const effectiveConfig = await applyDataPolicy(this.db, organizationId, args.requestedConfiguration);
+    const inputs = await buildAnalysisInputs(this.db, organizationId, {
+      files,
+      requestedConfiguration: args.requestedConfiguration ?? {},
+      effectiveConfiguration: effectiveConfig,
+      assignmentMode: args.assignmentMode ?? 'CROSS',
+      assignments: args.assignments,
+      stages: args.stages,
+      trigger: args.trigger ?? 'API',
+    });
+    const knowledgeSnapshotId = await currentKnowledgeSnapshotId(this.db, organizationId);
 
-    // 1. Create analysis record with status QUEUED
+    // 1. Create analysis record with status QUEUED (inputs + knowledge snapshot recorded for reruns)
     await this.db.query(
-      `INSERT INTO analyses (id, organization_id, project_id, status, engine_types, target_release, triggered_by)
-       VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6)`,
-      [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
+      `INSERT INTO analyses (id, organization_id, project_id, status, engine_types, target_release, triggered_by,
+                             inputs, knowledge_snapshot_id, rerun_of_analysis_id)
+       VALUES ($1, $2, $3, 'QUEUED', $4, $5, $6, $7::jsonb, $8, $9)`,
+      [
+        analysisId,
+        organizationId,
+        projectId,
+        JSON.stringify(engineTypes),
+        targetRelease,
+        userId,
+        JSON.stringify(inputs),
+        knowledgeSnapshotId,
+        args.rerunOfAnalysisId ?? null,
+      ],
       { tenantId: organizationId }
     );
     if (args.kind !== 'STANDARD' || args.orchestration || args.problemStatement || args.routingId) {
@@ -366,8 +492,6 @@ export class JobsService {
       kind: args.kind,
     });
 
-    const effectiveConfig = await applyDataPolicy(this.db, organizationId, args.requestedConfiguration);
-
     // 2. Dispatch job to BullMQ analysis queue
     const jobPayload: Record<string, unknown> = {
       analysisId,
@@ -382,9 +506,12 @@ export class JobsService {
     if (args.assignments) jobPayload.assignments = args.assignments;
     if (args.stages) jobPayload.stages = args.stages;
     if (args.kind !== 'STANDARD') jobPayload.kind = args.kind;
+    if (args.apiBaselineId) jobPayload.apiBaselineId = args.apiBaselineId;
 
     if (this.analysisQueue) {
       await this.analysisQueue.add('analyze', jobPayload, {
+        // Job id = analysis id: POST /analyses/:id/cancel finds and removes a queued job by it.
+        jobId: analysisId,
         attempts: 3,
         backoff: { type: 'exponential', delay: 1000 },
         removeOnComplete: 100,
@@ -403,7 +530,7 @@ export class JobsService {
         targetRelease,
         files,
         effectiveConfig,
-        { assignments: args.assignments, stages: args.stages, kind: args.kind }
+        { assignments: args.assignments, stages: args.stages, kind: args.kind, apiBaselineId: args.apiBaselineId ?? null }
       ).catch((err) => {
         this.logger.error(`Error executing analysis job ${analysisId}: ${err.message}`);
       });
@@ -415,6 +542,8 @@ export class JobsService {
       status: 'QUEUED',
       engineTypes,
       targetRelease,
+      knowledgeSnapshotId,
+      rerunOfAnalysisId: args.rerunOfAnalysisId ?? null,
     };
   }
 
@@ -431,9 +560,17 @@ export class JobsService {
     targetRelease: TargetRelease,
     files: AnalysisJobFile[],
     configuration?: Record<string, unknown>,
-    orchestration: { assignments?: EngineAssignmentInput[]; stages?: EngineType[][]; kind?: 'STANDARD' | 'FULL_PREFLIGHT' } = {}
+    orchestration: {
+      assignments?: EngineAssignmentInput[];
+      stages?: EngineType[][];
+      kind?: 'STANDARD' | 'FULL_PREFLIGHT';
+      apiBaselineId?: string | null;
+    } = {}
   ) {
-    const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger);
+    const executor = new AnalysisExecutor(this.db, this.storage, this.analysisUrl, this.logger, undefined, undefined, {
+      baselines: this.apiBaselines,
+      streamThresholdBytes: Number(this.config.get('ANALYSIS_STREAM_THRESHOLD_MB') ?? 8) * 1024 * 1024,
+    });
     try {
       return await executor.run({
         analysisId,
@@ -448,11 +585,12 @@ export class JobsService {
     } catch (err: any) {
       await this.db
         .query(
-          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
+          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2 AND status <> 'CANCELLED'`,
           [analysisId, organizationId],
           { tenantId: organizationId }
         )
         .catch(() => {});
+      await recordAnalysisError(this.db, organizationId, analysisId, err);
       throw err;
     }
   }

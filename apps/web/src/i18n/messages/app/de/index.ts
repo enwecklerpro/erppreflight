@@ -32,6 +32,18 @@ import { status, demo, changelog, trust, procurement, feedback, onboarding } fro
 import { objects } from './objects';
 import { changesets } from './changesets';
 import { traceability } from './traceability';
+import { magicLink } from './magicLink';
+import { analysisRun } from './analysisRun';
+import { tenantAccess } from './tenantAccess';
+import { governance } from './governance';
+import { integrations } from './integrations';
+import { findings } from './findings';
+import { notificationText } from './notificationText';
+import { apiErrorCodes } from './apiErrorCodes';
+import { lab } from './lab';
+import { workspace } from './workspace';
+import { apiBaselines } from './apiBaselines';
+import { platformHardening } from './platformHardening';
 
 export const appDe: AppMessages = {
   ui,
@@ -73,4 +85,16 @@ export const appDe: AppMessages = {
   objects,
   changesets,
   traceability,
+  magicLink,
+  analysisRun,
+  tenantAccess,
+  governance,
+  integrations,
+  findings,
+  workspace,
+  lab,
+  apiErrorCodes,
+  notificationText,
+  apiBaselines,
+  platformHardening,
 };

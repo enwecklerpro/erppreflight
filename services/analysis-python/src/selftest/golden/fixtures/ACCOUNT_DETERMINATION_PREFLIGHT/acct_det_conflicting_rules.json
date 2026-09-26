@@ -1,0 +1,33 @@
+{
+  "chart_of_accounts": "CA01",
+  "company_code": "1000",
+  "obyc_rules": [
+    {
+      "chart_of_accounts": "CA01",
+      "transaction_key": "BSX",
+      "valuation_class": "3000",
+      "gl_account": "140000"
+    },
+    {
+      "chart_of_accounts": "CA01",
+      "transaction_key": "BSX",
+      "valuation_class": "3000",
+      "gl_account": "140999"
+    }
+  ],
+  "vkoa_rules": [],
+  "ska1_accounts": [
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "140000",
+      "xsperr": false
+    },
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "140999",
+      "xsperr": false
+    }
+  ],
+  "skb1_accounts": [],
+  "valuation_classes": []
+}

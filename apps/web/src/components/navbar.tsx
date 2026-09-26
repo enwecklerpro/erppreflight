@@ -38,10 +38,12 @@ import {
 import { NavMoreMenu, type NavLinkItem } from './nav-more-menu';
 import { NotificationsBell } from './notifications/notifications-bell';
 import { fetchCurrentUser } from '../lib/api-client';
-import { customInstance, getStoredAuthToken, setAuthHintCookie } from '../lib/api/custom-instance';
+import { ApiError, setAuthHintCookie } from '../lib/api/custom-instance';
 import { useLogout } from '../lib/query/query-provider';
 import { OrganizationSwitcher } from './account/organization-switcher';
 import { AccountStatusBanner } from './account/account-status-banner';
+import { ImpersonationBanner } from './tenant-access/impersonation-banner';
+import { TenantAccessNotice } from './tenant-access/tenant-access-notice';
 import { useLocale, useT } from '../i18n/client';
 import { localizePath } from '../lib/routing';
 import { LanguageSwitcher } from './public/language-switcher';
@@ -52,20 +54,22 @@ export function Navbar() {
   const t = useT();
   const locale = useLocale();
 
-  // Sessions created before the auth marker cookie existed: restore it so the
-  // middleware navigation guard recognises the signed-in user.
-  React.useEffect(() => {
-    if (getStoredAuthToken() && !document.cookie.includes('erp_auth=')) {
-      setAuthHintCookie(true);
-    }
-  }, []);
-
-  const { data: authData } = useQuery({
+  const { data: authData, error: authError } = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: fetchCurrentUser,
     retry: false,
     staleTime: 1000 * 60,
   });
+
+  // Keep the middleware navigation marker in sync with the cookie session: set it
+  // when the API confirms a session, drop it when the session is gone (401).
+  React.useEffect(() => {
+    if (authData?.user && !document.cookie.includes('erp_auth=')) {
+      setAuthHintCookie(true);
+    } else if (authError instanceof ApiError && authError.statusCode === 401) {
+      setAuthHintCookie(false);
+    }
+  }, [authData, authError]);
 
   const currentUser = authData?.user;
   const isSuperAdmin = currentUser?.systemRole === 'SUPER_ADMIN';
@@ -118,14 +122,9 @@ export function Navbar() {
   const hrefPath = (href: string) => href.split('?')[0];
 
   const handleLogout = async () => {
-    try {
-      // Best-effort server-side session invalidation; local eviction runs regardless.
-      await customInstance('/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore — the local token is cleared below either way
-    }
-    // Cancels in-flight queries, clears the cache, removes the stored token and
-    // tenant ID, broadcasts the logout event and redirects to /login.
+    // Revokes the server session (clears the HttpOnly cookie), cancels in-flight
+    // queries, clears the cache, tenant ID and CSRF token, broadcasts the logout
+    // event and redirects to /login.
     await logout('/login');
   };
 
@@ -247,6 +246,8 @@ export function Navbar() {
           )}
         </div>
       </div>
+      <ImpersonationBanner signedIn={!!currentUser} />
+      <TenantAccessNotice signedIn={!!currentUser} />
       <AccountStatusBanner signedIn={!!currentUser} />
     </header>
   );

@@ -18,8 +18,12 @@ import {
   resolveArtifactType,
 } from './analysis-executor';
 import { AuditService } from '../audit/audit.service';
+import { recordAnalysisError, recordAnalysisInputs } from './analysis-inputs';
 import { UsageService } from '../usage/usage.service';
 import { RetentionService } from '../retention/retention.service';
+import { TenantAccessService } from '../tenant-access/tenant-access.service';
+import { gateJobForSuspendedTenant } from '../tenant-access/suspended-jobs';
+import { ApiBaselinesService } from '../api-baselines/api-baselines.service';
 
 export interface AnalysisJobData {
   analysisId: string;
@@ -41,6 +45,8 @@ export interface AnalysisJobData {
   artifactType?: ArtifactType;
   /** @deprecated */
   rawContent?: string | null;
+  /** API_CHANGE_GUARD: explicitly selected stored baseline (tenant + project verified at trigger time). */
+  apiBaselineId?: string | null;
 }
 
 export interface ScheduledPreflightJobData {
@@ -68,7 +74,9 @@ export class AnalysisProcessor extends WorkerHost {
     @Optional() private readonly retention?: RetentionService,
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly releasedObjects?: ReleasedObjectsProvider,
-    @Optional() private readonly telemetry?: TelemetryService
+    @Optional() private readonly telemetry?: TelemetryService,
+    @Optional() private readonly tenantAccess?: TenantAccessService,
+    @Optional() private readonly apiBaselines?: ApiBaselinesService
   ) {
     super();
     this.analysisUrl =
@@ -80,7 +88,11 @@ export class AnalysisProcessor extends WorkerHost {
       this.analysisUrl,
       this.logger,
       this.releasedObjects,
-      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms)
+      (engine, outcome, ms) => this.telemetry?.recordEngineRun(engine, outcome, ms),
+      {
+        baselines: this.apiBaselines,
+        streamThresholdBytes: Number(this.config.get('ANALYSIS_STREAM_THRESHOLD_MB') ?? 8) * 1024 * 1024,
+      }
     );
   }
 
@@ -143,7 +155,7 @@ export class AnalysisProcessor extends WorkerHost {
   private async recordOutcomeMetrics(data: AnalysisJobData, result: AnalysisRunResult | null): Promise<void> {
     if (!this.telemetry) return;
     try {
-      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL');
+      this.telemetry.incrementAnalyses((result?.finalStatus ?? 'FAILED') as 'COMPLETED' | 'FAILED' | 'PARTIAL' | 'CANCELLED');
       if (!result || result.totalFindings === 0) return;
       const res = await this.db.query(
         `SELECT severity, COUNT(*)::int AS n FROM findings
@@ -159,7 +171,12 @@ export class AnalysisProcessor extends WorkerHost {
     }
   }
 
-  async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>): Promise<void> {
+  async process(job: Job<AnalysisJobData | ScheduledPreflightJobData>, token?: string): Promise<void> {
+    // Suspended tenants (spec 10.7): analyses are parked until reactivation, schedule firings skipped.
+    const gate = await gateJobForSuspendedTenant(job, token, job.data?.organizationId, this.tenantAccess, this.logger, {
+      repeatable: job.name === 'scheduled-preflight',
+    });
+    if (gate === 'skip') return;
     if (job.name === 'scheduled-preflight') {
       await this.processScheduled(job as Job<ScheduledPreflightJobData>);
       return;
@@ -190,17 +207,23 @@ export class AnalysisProcessor extends WorkerHost {
         assignments: data.assignments,
         stages: data.stages,
         kind: data.kind,
+        apiBaselineId: data.apiBaselineId ?? null,
       });
+      if (result.finalStatus === 'CANCELLED') {
+        await this.recordCancelled(data, result);
+        return;
+      }
       await this.emitOutcome(data, result);
     } catch (err: any) {
       this.logger.error(`Analysis job ${analysisId} failed: ${err?.message ?? err}`);
       await this.db
         .query(
-          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2`,
+          `UPDATE analyses SET status = 'FAILED', completed_at = NOW() WHERE id = $1 AND organization_id = $2 AND status <> 'CANCELLED'`,
           [analysisId, organizationId],
           { tenantId: organizationId }
         )
         .catch(() => {});
+      await recordAnalysisError(this.db, organizationId, analysisId, err);
       await this.audit?.recordSafe({
         organizationId,
         action: 'analysis.failed',
@@ -217,6 +240,46 @@ export class AnalysisProcessor extends WorkerHost {
       throw err;
     }
     await this.recordRunOutcome(data, result);
+  }
+
+  /**
+   * A cooperatively cancelled run (section C §15): system audit event with the discarded
+   * finding count, an `analysis.cancelled` domain event for webhooks, metrics. No
+   * completion notification, no retention purge (the inputs stay available for a rerun).
+   */
+  private async recordCancelled(data: AnalysisJobData, result: AnalysisRunResult): Promise<void> {
+    const { analysisId, organizationId, projectId } = data;
+    await this.audit?.recordSafe({
+      organizationId,
+      action: 'analysis.cancelled',
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: {
+        projectId,
+        finalizedBy: 'worker',
+        engineCalls: result.calls?.length ?? 0,
+        discardedFindings: result.discardedFindings ?? 0,
+      },
+    });
+    try {
+      this.telemetry?.incrementAnalyses('CANCELLED');
+    } catch {
+      /* metrics never fail a job */
+    }
+    if (this.outbox) {
+      try {
+        await this.outbox.recordEvent(organizationId, 'analysis.cancelled', 'ANALYSIS', analysisId, {
+          analysisId,
+          projectId,
+          triggeredBy: data.userId ?? null,
+          engineTypes: data.engineTypes,
+          status: 'CANCELLED',
+          discardedFindings: result.discardedFindings ?? 0,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Could not record analysis.cancelled event for ${analysisId}: ${err?.message ?? err}`);
+      }
+    }
   }
 
   /**
@@ -309,6 +372,14 @@ export class AnalysisProcessor extends WorkerHost {
       [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
       { tenantId: organizationId }
     );
+    const configuration = await applyDataPolicy(this.db, organizationId, {});
+    await recordAnalysisInputs(this.db, organizationId, analysisId, {
+      files,
+      requestedConfiguration: {},
+      effectiveConfiguration: configuration,
+      assignmentMode: 'CROSS',
+      trigger: 'SCHEDULED',
+    });
     await this.usage?.recordSafe(organizationId, 'ANALYSIS_RUN', 1, {
       resourceType: 'ANALYSIS',
       resourceId: analysisId,
@@ -331,7 +402,7 @@ export class AnalysisProcessor extends WorkerHost {
       engineTypes,
       targetRelease,
       files,
-      configuration: await applyDataPolicy(this.db, organizationId, {}),
+      configuration,
     });
   }
 }

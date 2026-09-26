@@ -8,9 +8,11 @@ import type { FindingWithLifecycle } from '@/lib/api/findings-lifecycle';
 import { FindingEvidenceSummary, FindingLifecyclePanel } from './finding-lifecycle-panel';
 import { FindingStatusBadge } from './finding-status-badge';
 import { WorkItemIntegration } from './work-item-integration';
+import { useLocalizedRule } from '@/i18n/rule-catalog/client';
 
 export function FindingDetailRow({ finding }: { finding: Finding }) {
   const t = useT();
+  const rule = useLocalizedRule(finding.ruleId, finding.title, finding.remediation);
   const lifecycleFinding = finding as FindingWithLifecycle;
   // Part 01 §1.8: "show only evidence" mode hides status, collaboration and remediation.
   const [evidenceOnly, setEvidenceOnly] = React.useState(false);
@@ -26,10 +28,17 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
     <div className="rounded-xl border border-border/70 bg-card/60 p-5 shadow-inner space-y-5 text-xs">
       {/* Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-primary text-sm">{finding.ruleId}</span>
-          <span className="text-muted-foreground">•</span>
-          <span className="font-medium text-foreground">{finding.title}</span>
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono font-bold text-primary text-sm">{finding.ruleId}</span>
+            <span className="text-muted-foreground" aria-hidden="true">•</span>
+            <span className="font-medium text-foreground" data-testid="finding-rule-title">{rule.title}</span>
+          </div>
+          {rule.engineTitle && (
+            <p className="text-[11px] text-muted-foreground break-words" data-testid="finding-engine-title" translate="no">
+              {t('app.findings.rule.engineTitle', { title: rule.engineTitle })}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <FindingStatusBadge status={lifecycleFinding.lifecycle?.status ?? 'OPEN'} size="sm" />
@@ -67,9 +76,17 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               <Wrench className="size-3.5" />
               {t('findingLifecycle.evidenceCard.suggestedNextAction')}
             </h4>
-            <p className="mt-2 text-xs leading-relaxed text-blue-950 dark:text-blue-100">
-              {finding.remediation}
+            <p className="mt-2 text-xs leading-relaxed text-blue-950 dark:text-blue-100" data-testid="finding-remediation">
+              {rule.remediation}
             </p>
+            {rule.engineRemediation && (
+              <div className="mt-2 border-t border-blue-200/70 pt-2 dark:border-blue-900/50">
+                <p className="text-[11px] font-semibold text-blue-800 dark:text-blue-200">{t('app.findings.rule.engineRemediation')}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-blue-950 dark:text-blue-100" lang="en" translate="no">
+                  {rule.engineRemediation}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Spec 10.14: report an incorrect result straight from the finding */}
@@ -82,14 +99,14 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
           >
             <ShieldAlert className="size-3" aria-hidden="true" />
-            Report incorrect finding
+            {t('app.findings.detail.reportIncorrect')}
           </a>
 
           {/* Finding-to-Task Work Item Creation (Part 15.8) — configured connectors only */}
           <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2.5">
             <h5 className="font-semibold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Send className="size-3 text-primary" aria-hidden="true" />
-              Work Management Integration
+              {t('app.findings.detail.workManagement')}
             </h5>
             <WorkItemIntegration findingId={finding.id} />
           </div>
@@ -98,9 +115,9 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           {finding.technicalDetails && Object.keys(finding.technicalDetails).length > 0 && (
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
               <h5 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
-                Technical Execution Parameters
+                {t('app.findings.detail.technicalParameters')}
               </h5>
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono" translate="no">
                 {Object.entries(finding.technicalDetails).map(([key, val]) => (
                   <div key={key} className="flex flex-col">
                     <span className="text-muted-foreground text-[10px]">{key}:</span>
@@ -117,7 +134,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           {finding.affectedObjects && finding.affectedObjects.length > 0 && (
             <div className="space-y-2">
               <h5 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
-                Impacted SAP Repository Objects ({finding.affectedObjects.length})
+                {t('app.findings.detail.impactedObjects', { count: finding.affectedObjects.length })}
               </h5>
               <div className="divide-y divide-border/60 rounded-lg border border-border bg-muted/10">
                 {finding.affectedObjects.map((obj, i) => (
@@ -142,7 +159,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
         <div className={evidenceOnly ? 'space-y-3 lg:col-span-2' : 'space-y-3'}>
           <h4 className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] text-foreground">
             <Shield className="size-3.5 text-primary" />
-            Cryptographic Evidence Chain
+            {t('app.findings.detail.evidenceChain')}
           </h4>
 
           {finding.evidence && finding.evidence.length > 0 ? (
@@ -161,8 +178,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                     </span>
                     {ev.lineNumber !== undefined && ev.lineNumber !== null && (
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] shrink-0 border border-border/50">
-                        Line {ev.lineNumber}
-                        {ev.columnNumber ? `:${ev.columnNumber}` : ''}
+                        {t('app.findings.detail.line', { line: `${ev.lineNumber}${ev.columnNumber ? `:${ev.columnNumber}` : ''}` })}
                       </span>
                     )}
                   </div>
@@ -178,16 +194,16 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                   <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[10px]">
                     <div className="flex items-center gap-1.5 text-muted-foreground truncate mr-2">
                       <Hash className="size-3 shrink-0" />
-                      <span className="truncate">SHA-256: {ev.sha256}</span>
+                      <span className="truncate">{t('app.findings.detail.sha256', { hash: ev.sha256 ?? '' })}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isSha256Valid ? (
-                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-sans font-semibold">
-                          <CheckCircle2 className="size-3" /> Verified Hash
+                        <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-sans font-semibold">
+                          <CheckCircle2 className="size-3" aria-hidden="true" /> {t('app.findings.detail.verifiedHash')}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-amber-600 font-sans font-semibold">
-                          <AlertCircle className="size-3" /> Unverified Hash
+                        <span className="flex items-center gap-1 text-amber-700 font-sans font-semibold">
+                          <AlertCircle className="size-3" aria-hidden="true" /> {t('app.findings.detail.unverifiedHash')}
                         </span>
                       )}
                       {ev.sha256 && (
@@ -195,7 +211,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                           type="button"
                           onClick={() => copyToClipboard(ev.sha256, `${idx}-hash`)}
                           className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                          aria-label="Copy SHA-256 Hash"
+                          aria-label={t('app.findings.detail.copyHash')}
                         >
                           {copiedHash === `${idx}-hash` ? (
                             <Check className="size-3 text-emerald-500" />
@@ -211,7 +227,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             })
           ) : (
             <div className="rounded-lg border border-dashed border-border p-4 text-center text-muted-foreground italic">
-              No raw snippet evidence attached to this rule assertion.
+              {t('app.findings.detail.noEvidence')}
             </div>
           )}
         </div>
@@ -222,7 +238,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
         <div className="flex items-center justify-between">
           <h5 className="font-bold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">
             <GitBranch className="size-3.5 text-primary" />
-            Audit Provenance & Cryptographic Lineage
+            {t('app.findings.detail.lineage')}
           </h5>
           <span className="text-[10px] font-mono text-muted-foreground">
             {finding.evidence &&
@@ -235,8 +251,8 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
                 typeof ev.sha256 === 'string' &&
                 /^[a-fA-F0-9]{64}$/.test(ev.sha256)
             )
-              ? 'Evidence chain: complete (path, line, SHA-256)'
-              : 'Evidence chain: incomplete'}
+              ? t('app.findings.detail.chainComplete')
+              : t('app.findings.detail.chainIncomplete')}
           </span>
         </div>
 
@@ -245,10 +261,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <FileCode className="size-3 text-cyan-500" />
-              1. Source Artifact
+              {t('app.findings.detail.stepArtifact')}
             </span>
-            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.artifactPath || 'Not recorded'}>
-              {finding.evidence?.[0]?.artifactPath ? finding.evidence[0].artifactPath.split('/').pop() : 'Not recorded'}
+            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.artifactPath || t('app.findings.detail.notRecorded')}>
+              {finding.evidence?.[0]?.artifactPath ? finding.evidence[0].artifactPath.split('/').pop() : t('app.findings.detail.notRecorded')}
             </span>
           </div>
 
@@ -256,10 +272,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <Binary className="size-3 text-emerald-500" />
-              2. SHA-256 Digest
+              {t('app.findings.detail.stepDigest')}
             </span>
-            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.sha256 || 'Not recorded'}>
-              {finding.evidence?.[0]?.sha256 ? `${finding.evidence[0].sha256.substring(0, 10)}...` : 'Not recorded'}
+            <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.evidence?.[0]?.sha256 || t('app.findings.detail.notRecorded')}>
+              {finding.evidence?.[0]?.sha256 ? `${finding.evidence[0].sha256.substring(0, 10)}...` : t('app.findings.detail.notRecorded')}
             </span>
           </div>
 
@@ -267,7 +283,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <Cpu className="size-3 text-purple-500" />
-              3. Evidence Items
+              {t('app.findings.detail.stepEvidence')}
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1">
               {finding.evidence?.length ?? 0}
@@ -278,10 +294,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <Shield className="size-3 text-blue-500" />
-              4. Analysis Engine
+              {t('app.findings.detail.stepEngine')}
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1">
-              {finding.engineType || 'Not recorded'}
+              {finding.engineType || t('app.findings.detail.notRecorded')}
             </span>
           </div>
 
@@ -289,10 +305,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <BookOpen className="size-3 text-amber-500" />
-              5. Rule
+              {t('app.findings.detail.stepRule')}
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1" title={finding.ruleId}>
-              {finding.ruleId || 'Not recorded'}
+              {finding.ruleId || t('app.findings.detail.notRecorded')}
             </span>
           </div>
 
@@ -300,10 +316,10 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
           <div className="p-2.5 rounded-md bg-background border border-border/80 flex flex-col justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
               <CheckCircle2 className="size-3 text-emerald-500" />
-              6. Epistemic Verdict
+              {t('app.findings.detail.stepVerdict')}
             </span>
             <span className="font-mono text-foreground font-semibold truncate mt-1">
-              {finding.confidence} ({finding.confidenceScore.toFixed(2)})
+              {t(`app.findings.badges.confidence.${finding.confidence}`)} ({finding.confidenceScore.toFixed(2)})
             </span>
           </div>
         </div>

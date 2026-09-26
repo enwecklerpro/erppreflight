@@ -12,7 +12,15 @@
 #   -> scripts/e2e-ui-smoke.cjs (Chromium: signup -> project -> upload -> run -> finding)
 #   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
 #   -> scripts/e2e-i18n-smoke.cjs (EN/DE app localization, no raw keys, 375 px layout)
+#   -> scripts/e2e-analysis-lifecycle-smoke.cjs (run detail, cancel, rerun, Test Lab runs in history)
+#   -> scripts/e2e-engines-smoke.cjs (Gap Radar contract, API Change Guard baselines, MFS log streaming)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
+#   -> scripts/e2e-session-security-smoke.cjs (HttpOnly cookie session, CSRF, logout, magic link)
+#   -> scripts/e2e-tenant-admin-smoke.cjs (suspension, trial extension, impersonation, IP allowlist,
+#      support ticket e-mails; API + Chromium; dev mailbox and a bootstrapped super admin)
+#   -> scripts/e2e-admin-governance-smoke.cjs (Rule/AI/Knowledge/Source Sync Admin, publish gate, kill switch)
+#   -> scripts/e2e-platform-hardening-smoke.cjs (second API process: shared Redis rate limits, upload
+#      metering exactly once, assignment notification e-mail + deep link, FormDoctor file names)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -24,7 +32,7 @@
 #   E2E_START_INFRA   1 = start postgres/redis/minio/clamav from docker-compose.coolify.yml
 #                     + tests/ci/compose.ci.yml and wait for health [0]
 #   E2E_SKIP_BUILD    1 = reuse existing builds (dist/, .next/standalone) [0]
-#   E2E_API_PORT [3001]  E2E_WEB_PORT [3000]  E2E_PY_PORT [8000]
+#   E2E_API_PORT [3001]  E2E_WEB_PORT [3000]  E2E_PY_PORT [8000]  E2E_API2_PORT [API port + 2]
 #   PG_ADMIN_URL      postgres://user:pass@host:port (role that can create databases) [required]
 #   E2E_DB_NAME       database to (re)create for this run [erppreflight_e2e]
 #   E2E_REDIS_URL     [redis://localhost:6379/0]   (use a dedicated logical DB when sharing Redis)
@@ -38,6 +46,8 @@
 #   E2E_CLAMAV_TIMEOUT seconds to wait for clamd PONG when starting infra [900]
 #   E2E_BACKUP_DRILL  1 = run the backup/restore drill after the smoke tests [1]
 #   E2E_PG_CONTAINER [erppreflight-postgres]  E2E_PG_USER [erppreflight]   (drill: pg_dump runs in it)
+#   E2E_PLAYWRIGHT_CONFIG [playwright.live.config.ts]  PW_BROWSERS [chromium] (CI: chromium,firefox,webkit)
+#   MAIL_DEV_OUTBOX_TOKEN dev-mailbox token for the API (MAIL_TRANSPORT=dev) and the suites [random]
 #   E2E_MC_NETWORK [erppreflight-network]  E2E_MC_ENDPOINT [http://erppreflight-minio:9000]
 #                     docker network + MinIO URL for the `mc` container (local: host / http://localhost:9000)
 # ==============================================================================
@@ -58,6 +68,10 @@ REDIS_URL_E2E="${E2E_REDIS_URL:-redis://localhost:6379/0}"
 S3_ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}"
 BUCKET_PREFIX="${E2E_BUCKET_PREFIX:-erppreflight}"
 CLAMAV_HOST="${CLAMAV_HOST:-localhost}"
+# Tenant-admin / governance smokes: a throwaway platform operator (the dev mailbox token is
+# MAIL_DEV_OUTBOX_TOKEN below, shared by every suite).
+E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-platform-ops@e2e.local}"
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-Ops!$(openssl rand -hex 10)Zz}"
 CLAMAV_PORT="${CLAMAV_PORT:-3310}"
 PYTHON="${PYTHON:-python3}"
 ART="$(mkdir -p "${E2E_ARTIFACTS:-$ROOT/e2e-artifacts}" && cd "${E2E_ARTIFACTS:-$ROOT/e2e-artifacts}" && pwd)"
@@ -65,6 +79,10 @@ mkdir -p "$ART/screenshots"
 # Test-only secrets: random per run unless the workflow provides them. Never production values.
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+# E-mail: dev transport with a random outbox token. The smoke suites and the Playwright live suite
+# read verification / reset links from GET /api/v1/dev/mail/messages (X-Dev-Mailbox-Token).
+# NODE_ENV=production refuses to start without MAIL_TRANSPORT / MAIL_FROM.
+export MAIL_DEV_OUTBOX_TOKEN="${MAIL_DEV_OUTBOX_TOKEN:-$(openssl rand -hex 24)}"
 
 PIDS=()
 log() { echo "[live-e2e] $(date -u +%H:%M:%S) $*"; }
@@ -153,12 +171,9 @@ wait_http "http://127.0.0.1:$PY_PORT/health" 60 analysis-python
 
 # ---------------------------------------------------------------- API (production mode)
 API_PID=""
-start_api() { # $1 = log file suffix
-  log "starting API on :$API_PORT (NODE_ENV=production, DB_RUNTIME_ROLE=erppreflight_app)"
-  (
-    cd apps/api
-    export NODE_ENV=production PORT="$API_PORT" API_PORT="$API_PORT" \
-      AUTO_MIGRATE=true STRICT_MIGRATIONS=true MIGRATIONS_DIR="$ROOT/packages/database/migrations" \
+api_env() { # $1 = port, $2 = AUTO_MIGRATE (the environment every API process of this run shares)
+    export NODE_ENV=production PORT="$1" API_PORT="$1" \
+      AUTO_MIGRATE="$2" STRICT_MIGRATIONS=true MIGRATIONS_DIR="$ROOT/packages/database/migrations" \
       DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" DB_RUNTIME_ROLE=erppreflight_app \
       REDIS_URL="$REDIS_URL_E2E" \
       ANALYSIS_SERVICE_URL="http://127.0.0.1:$PY_PORT" \
@@ -166,9 +181,17 @@ start_api() { # $1 = log file suffix
       S3_BUCKET_QUARANTINE="$BUCKET_PREFIX-quarantine" S3_BUCKET_CLEAN="$BUCKET_PREFIX-clean" \
       S3_BUCKET_REPORTS="$BUCKET_PREFIX-reports" \
       JWT_SECRET="$JWT_SECRET" JWT_EXPIRES_IN=1h MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
-      CORS_ORIGIN="http://localhost:$WEB_PORT" \
+      CORS_ORIGIN="http://localhost:$WEB_PORT" APP_PUBLIC_URL="http://localhost:$WEB_PORT" \
+      MAIL_TRANSPORT=dev MAIL_FROM="ERP Preflight <no-reply@e2e.local>" MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" \
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
-      AUTH_RATE_LIMIT_SCALE=20
+      AUTH_RATE_LIMIT_SCALE=20 SUPPORT_INBOX_EMAIL=support-inbox@e2e.local \
+      ADMIN_BOOTSTRAP_EMAIL="$E2E_ADMIN_EMAIL" ADMIN_BOOTSTRAP_PASSWORD="$E2E_ADMIN_PASSWORD"
+}
+start_api() { # $1 = log file suffix
+  log "starting API on :$API_PORT (NODE_ENV=production, DB_RUNTIME_ROLE=erppreflight_app)"
+  (
+    cd apps/api
+    api_env "$API_PORT" true
     exec node dist/src/main.js
   ) > "$ART/api$1.log" 2>&1 &
   API_PID=$!
@@ -188,6 +211,17 @@ log "readiness: $(echo "$READY" | head -c 400)"
 echo "$READY" | grep -q '"status":"unhealthy"' && { log "API readiness is unhealthy"; exit 1; }
 MIG=$(psql "$PG_ADMIN_URL/$DB_NAME" -qAt -c "SELECT count(*) FROM _migrations")
 log "migrations applied by API bootstrap: $MIG"
+
+# Knowledge snapshot for the tools / SEO smoke. Synced BEFORE any suite runs: the public-tools
+# API caches snapshot metadata for 60 s, so a sync between suites could be masked by an earlier
+# "no snapshot yet" answer (seen when the i18n smoke visited /tools right before the sync).
+if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
+  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
+  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
+    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
+    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1 \
+    || { log "knowledge sync failed (see $ART/knowledge-sync.log)"; exit 1; }
+fi
 
 # ---------------------------------------------------------------- web (standalone)
 log "starting web on :$WEB_PORT (standalone server)"
@@ -216,18 +250,56 @@ log "running EN/DE localization smoke (scripts/e2e-i18n-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
   node scripts/e2e-i18n-smoke.cjs "$ART/screenshots-i18n" 2>&1 | tee "$ART/smoke-i18n.log"
 I18N=${PIPESTATUS[0]}
-# Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
+log "running session security smoke (scripts/e2e-session-security-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" \
+  node scripts/e2e-session-security-smoke.cjs "$ART/screenshots-session" 2>&1 | tee "$ART/smoke-session.log"
+SESSION=${PIPESTATUS[0]}
+log "running analysis lifecycle smoke (scripts/e2e-analysis-lifecycle-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-analysis-lifecycle-smoke.cjs "$ART/screenshots-lifecycle" 2>&1 | tee "$ART/smoke-lifecycle.log"
+LIFECYCLE=${PIPESTATUS[0]}
+log "running engines smoke: gap radar contract, API baselines, MFS streaming (scripts/e2e-engines-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-engines-smoke.cjs "$ART/screenshots-engines" 2>&1 | tee "$ART/smoke-engines.log"
+ENGINES=${PIPESTATUS[0]}
+# Free tools / programmatic SEO / docs smoke (uses the knowledge snapshot synced above: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
 if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
-  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
-  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
-    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
-    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1
   log "running tools smoke (scripts/e2e-tools-smoke.cjs)"
   WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
     node scripts/e2e-tools-smoke.cjs "$ART/screenshots-tools" 2>&1 | tee "$ART/smoke-tools.log"
   TOOLS=${PIPESTATUS[0]}
+fi
+log "running tenant access administration smoke (scripts/e2e-tenant-admin-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" REDIS_URL="$REDIS_URL_E2E" \
+  MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" SUPER_ADMIN_EMAIL="$E2E_ADMIN_EMAIL" SUPER_ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
+  node scripts/e2e-tenant-admin-smoke.cjs "$ART/screenshots-tenant-admin" 2>&1 | tee "$ART/smoke-tenant-admin.log"
+TENANT_ADMIN=${PIPESTATUS[0]}
+log "running platform governance smoke (scripts/e2e-admin-governance-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  SUPER_ADMIN_EMAIL="$E2E_ADMIN_EMAIL" SUPER_ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
+  node scripts/e2e-admin-governance-smoke.cjs "$ART/screenshots-governance" 2>&1 | tee "$ART/smoke-governance.log"
+GOVERNANCE=${PIPESTATUS[0]}
+# Platform hardening (distributed rate limits, exactly-once upload metering, assignment
+# notifications, FormDoctor file names): a SECOND API process with the same environment proves
+# that both processes enforce ONE rate-limit budget through Redis.
+API2_PORT="${E2E_API2_PORT:-$((API_PORT + 2))}"
+HARDENING=1
+if port_free "$API2_PORT"; then
+  log "starting second API process on :$API2_PORT (same environment, shared Redis limits)"
+  (cd apps/api && api_env "$API2_PORT" false && exec node dist/src/main.js) > "$ART/api2.log" 2>&1 &
+  API2_PID=$!
+  PIDS+=("$API2_PID")
+  if wait_http "http://127.0.0.1:$API2_PORT/health/liveness" 90 api2; then
+    log "running platform hardening smoke (scripts/e2e-platform-hardening-smoke.cjs)"
+    WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" API_URL_2="http://localhost:$API2_PORT" \
+      node scripts/e2e-platform-hardening-smoke.cjs "$ART/screenshots-hardening" 2>&1 | tee "$ART/smoke-hardening.log"
+    HARDENING=${PIPESTATUS[0]}
+  fi
+  kill "$API2_PID" 2>/dev/null || true
+else
+  log "port $API2_PORT is in use — cannot start the second API process for the hardening smoke"
 fi
 # Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
 # of this stack and must not start its own web server.
@@ -244,8 +316,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tenant-admin-smoke exit=$TENANT_ADMIN governance-smoke exit=$GOVERNANCE engines-smoke exit=$ENGINES hardening-smoke exit=$HARDENING tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TENANT_ADMIN" -eq 0 ] && [ "$GOVERNANCE" -eq 0 ] && [ "$ENGINES" -eq 0 ] && [ "$HARDENING" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up
@@ -286,7 +358,7 @@ e, a, s = sys.argv[1:4]; scheme, rest = e.split("://", 1)
 print(f"{scheme}://{u.quote(a, safe=str())}:{u.quote(s, safe=str())}@{rest}")' "$MC_EP" "$S3_ACCESS_KEY" "$S3_SECRET_KEY")
   for b in $BUCKETS; do
     docker run --rm --network "$MC_NET" -e HOME=/tmp -e "MC_HOST_x=$MC_URL" --entrypoint mc \
-      "${MC_IMAGE:-elestio/minio:latest}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
+      "${MC_IMAGE:-elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
   done
 
   set +e

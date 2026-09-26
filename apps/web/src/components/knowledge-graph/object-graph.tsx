@@ -117,7 +117,7 @@ export function ObjectGraph({ graph }: { graph: Neighborhood }) {
     setError(null);
     layout(graph, t, (s) => label('app.kg.support', s))
       .then((r) => !cancelled && setLaid(r))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Layout failed'));
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : t('app.ui.errorGeneric')));
     return () => {
       cancelled = true;
     };

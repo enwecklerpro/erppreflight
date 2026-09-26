@@ -1,0 +1,14 @@
+{
+  "//": "Type-checks the Playwright suites and configs: pnpm exec tsc -p tests/e2e/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../../playwright.config.ts", "../../playwright.live.config.ts"]
+}

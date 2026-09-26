@@ -106,7 +106,7 @@ export class DashboardService {
         `WITH latest AS (
            SELECT DISTINCT ON (a.project_id) a.project_id, a.id
              FROM analyses a
-            WHERE a.organization_id = $1 AND a.status IN ('COMPLETED', 'PARTIAL')
+            WHERE a.organization_id = $1 AND a.status IN ('COMPLETED', 'PARTIAL') AND a.kind IN ('STANDARD', 'FULL_PREFLIGHT')
             ORDER BY a.project_id, a.created_at DESC)
          SELECT p.id, p.name, l.id AS latest_analysis_id,
                 count(*) FILTER (WHERE f.severity = 'BLOCKER')::int AS blockers,

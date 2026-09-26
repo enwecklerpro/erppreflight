@@ -103,9 +103,16 @@ async function waitClean(token, projectId, count) {
   });
   if (!A || !B) { await browser.close(); process.exit(1); }
 
+  // Browser session exactly as after a real login: the JWT only in the API's HttpOnly cookie
+  // (never in web storage), the active organization, the route-guard marker and the
+  // cookie-consent choice. The web app fetches its CSRF token from GET /auth/csrf.
+  await context.addCookies([
+    { name: 'erppreflight_session', value: A.token, url: API_ORIGIN, httpOnly: true, sameSite: 'Lax' },
+    { name: 'erp_auth', value: '1', url: WEB },
+    { name: 'erp_consent', value: 'necessary', url: WEB },
+  ]);
   await page.goto(WEB + '/login');
-  await page.evaluate(([t, o]) => { localStorage.setItem('erppreflight_token', t); localStorage.setItem('erppreflight_tenant_id', o); }, [A.token, A.orgId]);
-  await context.addCookies([{ name: 'erp_auth', value: '1', url: WEB }, { name: 'erp_consent', value: 'necessary', url: WEB }]);
+  await page.evaluate((o) => { localStorage.setItem('erppreflight_tenant_id', o); }, A.orgId);
 
   await step('01 navbar: Analyze -> /analyze, Reports in the primary nav', async () => {
     await page.goto(WEB + '/dashboard');

@@ -54,6 +54,11 @@ import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.
 import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PublicToolsModule } from './modules/public-tools/public-tools.module';
+import { TenantAccessModule } from './modules/tenant-access/tenant-access.module';
+import { ImpersonationMiddleware } from './modules/tenant-access/impersonation.middleware';
+import { GovernanceModule } from './modules/governance/governance.module';
+import { ApiBaselinesModule } from './modules/api-baselines/api-baselines.module';
+import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
 
 @Module({
   imports: [
@@ -68,6 +73,7 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
       inject: [ConfigService],
     }),
     DatabaseModule,
+    RateLimitModule,
     TenancyModule,
     AuthModule,
     WorkspacesModule,
@@ -117,10 +123,16 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
     ReleaseIntelligenceModule,
     NotificationsModule,
     PublicToolsModule,
+    TenantAccessModule,
+    GovernanceModule,
+    ApiBaselinesModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    // Impersonation credentials are verified, policy-checked and audited on EVERY route
+    // before tenant resolution (modules/tenant-access/impersonation.middleware.ts).
+    consumer.apply(ImpersonationMiddleware).forRoutes('*');
     consumer
       .apply(TenancyMiddleware)
       .exclude(
@@ -129,6 +141,8 @@ export class AppModule implements NestModule {
         'auth/login',
         'auth/register',
         'auth/logout',
+        'auth/magic-link',
+        'auth/magic-link/(.*)',
         'admin/(.*)',
         'admin',
         'knowledge/(.*)',

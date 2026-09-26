@@ -7,13 +7,14 @@ import { ArrowRight, Plus, Search, CheckCircle2, AlertCircle } from 'lucide-reac
 import { fetchAnalysisTemplates, createAnalysisTemplate, AnalysisTemplateItem, fetchProjects } from '../../lib/api-client';
 import { Dialog } from '@/components/dialog';
 import { useEngineDomainLabel } from '@/components/engine-matrix';
-import { useErrorText, useT } from '@/i18n/client';
+import { useErrorText, useLocale, useT } from '@/i18n/client';
 
 const DOMAINS = ['Output & Extensibility', 'Migration & Clean Core', 'Integration', 'Release & Transport', 'Operations', 'Warehouse Automation'];
 const input = 'w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30';
 
 export default function TemplatesPage() {
   const t = useT();
+  const locale = useLocale();
   const errText = useErrorText();
   const domainLabel = useEngineDomainLabel();
   const queryClient = useQueryClient();
@@ -29,7 +30,7 @@ export default function TemplatesPage() {
   const [customEngines, setCustomEngines] = useState('CLEAN_CORE_OBJECT_GUARD, EXTENSION_IMPACT_GUARD');
   const [customInputs, setCustomInputs] = useState('');
 
-  const { data: templates = [], isLoading, error, refetch } = useQuery({ queryKey: ['templates'], queryFn: fetchAnalysisTemplates });
+  const { data: templates = [], isLoading, error, refetch } = useQuery({ queryKey: ['templates', locale], queryFn: fetchAnalysisTemplates });
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: fetchProjects });
 
   const createMutation = useMutation({
@@ -154,8 +155,8 @@ export default function TemplatesPage() {
                     {template.isSystemTemplate ? t('app.templates.system') : t('app.templates.custom')}
                   </span>
                 </div>
-                {/* Template content is authored data (system catalog or your organization), shown as written. */}
-                <div translate="no">
+                {/* System templates arrive in the UI language (API Accept-Language); custom templates are shown as written. */}
+                <div translate={template.isSystemTemplate ? undefined : 'no'}>
                   <h2 className="text-base font-bold text-foreground break-words">{template.name}</h2>
                   <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3 leading-relaxed">{template.description}</p>
                 </div>
@@ -171,7 +172,7 @@ export default function TemplatesPage() {
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs uppercase font-bold text-muted-foreground">{t('app.templates.checks')}</span>
-                  <ul className="text-sm text-muted-foreground space-y-1" translate="no">
+                  <ul className="text-sm text-muted-foreground space-y-1" translate={template.isSystemTemplate ? undefined : 'no'}>
                     {template.standardChecks.slice(0, 2).map((check, idx) => (
                       <li key={idx} className="flex items-center gap-1.5 min-w-0">
                         <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden="true" />

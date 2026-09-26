@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "YY1_PROJECT_CODE": [
+      "CDS_PURCHASE_ORDERS"
+    ],
+    "CDS_PURCHASE_ORDERS": []
+  },
+  "target_object": "YY1_DOES_NOT_EXIST",
+  "action": "DELETE"
+}

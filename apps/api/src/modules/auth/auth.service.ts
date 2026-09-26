@@ -350,9 +350,10 @@ export class AuthService implements OnApplicationBootstrap {
   /**
    * Organizations that enforce SSO (ACTIVE IdP with enforce_sso on a VERIFIED e-mail
    * domain) must not be reachable through password login for their members. Platform
-   * SUPER_ADMINs stay exempt as the documented break-glass path.
+   * SUPER_ADMINs stay exempt as the documented break-glass path. Also applied to
+   * magic-link sign-in (MagicLinkService): SSO enforcement covers every local method.
    */
-  private async assertPasswordLoginAllowed(userId: string, email: string): Promise<void> {
+  async assertPasswordLoginAllowed(userId: string, email: string): Promise<void> {
     const domain = String(email || '').trim().toLowerCase().split('@')[1];
     if (!domain) return;
     const res = await this.db.query(
@@ -402,8 +403,11 @@ export class AuthService implements OnApplicationBootstrap {
          SELECT om.organization_id, om.role, o.require_2fa
          FROM organization_members om
          JOIN organizations o ON o.id = om.organization_id
-         WHERE om.user_id = u.id AND o.status = 'ACTIVE'
-         ORDER BY (om.organization_id = $2::uuid) DESC NULLS LAST, om.created_at ASC, om.organization_id ASC
+         WHERE om.user_id = u.id AND o.status IN ('ACTIVE', 'SUSPENDED')
+         -- A suspended organization still yields a session (the web app shows the suspended
+         -- screen; tenant routes answer 403 TENANT_SUSPENDED), but an active one is preferred.
+         ORDER BY (om.organization_id = $2::uuid) DESC NULLS LAST, (o.status = 'ACTIVE') DESC,
+                  om.created_at ASC, om.organization_id ASC
          LIMIT 1
        ) m ON TRUE
        WHERE u.id = $1`,
@@ -498,15 +502,30 @@ export class AuthService implements OnApplicationBootstrap {
     return token;
   }
 
-  signMfaChallenge(userId: string, tokenVersion: number): string {
+  /**
+   * Short-lived token between the first factor and the TOTP step. `firstFactor`
+   * records how the first step was passed (password or magic link) so the final
+   * session carries the right auth method.
+   */
+  signMfaChallenge(userId: string, tokenVersion: number, firstFactor: 'PASSWORD' | 'MAGIC_LINK' = 'PASSWORD'): string {
     return this.jwt.sign(
-      { sub: userId, typ: MFA_CHALLENGE_TYPE, tv: tokenVersion, jti: uuidv4() },
+      {
+        sub: userId,
+        typ: MFA_CHALLENGE_TYPE,
+        tv: tokenVersion,
+        jti: uuidv4(),
+        ...(firstFactor === 'MAGIC_LINK' ? { amr: 'MAGIC_LINK' } : {}),
+      },
       { expiresIn: MFA_CHALLENGE_TTL_SECONDS }
     );
   }
 
   /** Verifies a 2FA challenge token (signature, expiry and type). */
-  verifyMfaChallenge(token: string): { userId: string; tokenVersion: number } {
+  verifyMfaChallenge(token: string): {
+    userId: string;
+    tokenVersion: number;
+    firstFactor: 'PASSWORD' | 'MAGIC_LINK';
+  } {
     let payload: any;
     try {
       payload = this.jwt.verify(token);
@@ -516,6 +535,10 @@ export class AuthService implements OnApplicationBootstrap {
     if (payload?.typ !== MFA_CHALLENGE_TYPE || typeof payload.sub !== 'string' || !isUuid(payload.sub)) {
       throw new UnauthorizedException('Invalid sign-in challenge');
     }
-    return { userId: payload.sub, tokenVersion: Number(payload.tv ?? 0) };
+    return {
+      userId: payload.sub,
+      tokenVersion: Number(payload.tv ?? 0),
+      firstFactor: payload.amr === 'MAGIC_LINK' ? 'MAGIC_LINK' : 'PASSWORD',
+    };
   }
 }

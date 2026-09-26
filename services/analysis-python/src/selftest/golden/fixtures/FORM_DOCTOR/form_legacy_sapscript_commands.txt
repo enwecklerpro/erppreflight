@@ -1,0 +1,4 @@
+/: DEFINE &ZINVOICE_TOTAL& = '0.00'
+/: INCLUDE &ZHEADER_TEXT& OBJECT TEXT ID ST
+/* Legacy SAPscript invoice layout MEDRUCK
+/: NEW-PAGE

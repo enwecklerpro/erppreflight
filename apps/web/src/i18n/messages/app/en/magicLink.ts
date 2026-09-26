@@ -1,0 +1,32 @@
+/** Magic-link sign-in (spec 10.2): request form on /login and the e-mail landing page /login/magic. */
+export const magicLink = {
+  requestLink: 'Send me a sign-in link',
+  or: 'or',
+  requestTitle: 'Sign in with an e-mail link',
+  requestSubtitle: 'We e-mail you a single-use link that signs you in without a password. It expires in 15 minutes.',
+  send: 'Send sign-in link',
+  sending: 'Sending…',
+  sentTitle: 'Check your inbox',
+  sentBody:
+    'If an account exists for {email}, we have sent a sign-in link. It expires in {minutes} minutes and can be used once.',
+  sendAnother: 'Send another link',
+  usePassword: 'Sign in with password instead',
+  requestFailed: 'The sign-in link could not be requested. Please try again.',
+  landingTitle: 'Sign in with your e-mail link',
+  checking: 'Checking your sign-in link…',
+  signingInAsRich: 'You are about to sign in as <b>{email}</b>.',
+  expiresAt: 'The link is valid until {time} and works once.',
+  notYou: 'Not your account? Close this page and ignore the e-mail.',
+  continue: 'Continue to sign in',
+  signingIn: 'Signing in…',
+  invalidTitle: 'This sign-in link cannot be used',
+  invalidBody:
+    'The link is invalid, has expired or was already used. Sign-in links are valid for 15 minutes and work once.',
+  requestNew: 'Request a new link',
+  failedTitle: 'Sign-in failed',
+  failed: 'Signing in with this link failed. Request a new link and try again.',
+  ssoRequired: 'Your organization requires single sign-on. E-mail sign-in links are disabled for your account.',
+  continueWithSso: 'Continue with single sign-on',
+  previewFailed: 'The sign-in link could not be checked.',
+  retry: 'Try again',
+};

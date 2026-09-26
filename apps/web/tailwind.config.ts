@@ -25,7 +25,8 @@ const config: Config = {
         },
         muted: {
           DEFAULT: '#f1f5f9',
-          foreground: '#64748b',
+          // #586779: >= 4.5:1 on white, muted (#f1f5f9) and slate-50 (WCAG 2.2 AA 1.4.3; #64748b failed on muted)
+          foreground: '#586779',
           dark: '#1e293b',
         },
         accent: {

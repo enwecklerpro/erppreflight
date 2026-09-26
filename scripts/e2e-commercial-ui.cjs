@@ -88,14 +88,17 @@ async function setupTenant() {
     await page.screenshot({ path: `${OUT}/${name.replace(/\W+/g, '_')}.png`, fullPage: true }).catch(() => {});
   };
   const loginAs = async (token, orgId) => {
-    await page.goto(WEB + '/login');
-    await page.evaluate(([t, o]) => { localStorage.setItem('erppreflight_token', t); localStorage.setItem('erppreflight_tenant_id', o); }, [token, orgId]);
-    // Same state the app sets after a real login: the non-secret route-guard marker and a stored
-    // cookie-consent choice (otherwise the middleware redirects private routes to /login).
+    // Same state a real browser login leaves behind: the session JWT only in the API's
+    // HttpOnly cookie (never in web storage), the active organization, the non-secret
+    // route-guard marker and a stored cookie-consent choice. The web app obtains its
+    // CSRF token from GET /auth/csrf.
     await page.context().addCookies([
+      { name: 'erppreflight_session', value: token, url: API.replace(/\/api\/v1$/, ''), httpOnly: true, sameSite: 'Lax' },
       { name: 'erp_auth', value: '1', url: WEB },
       { name: 'erp_consent', value: 'necessary', url: WEB },
     ]);
+    await page.goto(WEB + '/login');
+    await page.evaluate((o) => { localStorage.setItem('erppreflight_tenant_id', o); }, orgId);
   };
 
   let t;

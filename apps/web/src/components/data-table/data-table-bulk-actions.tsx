@@ -85,7 +85,7 @@ export function DataTableBulkActions<TData>({
       </div>
 
       {feedback ? (
-        <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 px-2">
+        <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 px-2">
           <CheckCircle2 className="size-3.5" />
           <span>{feedback}</span>
         </div>

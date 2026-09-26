@@ -93,8 +93,10 @@ describe('notification rendering', () => {
     expect(renderNotification('analysis.completed', O, { status: 'COMPLETED', totalFindings: 1, projectId: R })).toMatchObject({
       title: 'Analysis completed: 1 finding',
       severity: 'INFO',
-      link: `/projects/${R}`,
+      link: `/projects/${R}/analyses/${O}`,
     });
+    expect(renderNotification('analysis.failed', O, { projectId: R, analysisId: O })?.link).toBe(`/projects/${R}/analyses/${O}`);
+    expect(renderNotification('analysis.completed', 'not-a-uuid', { projectId: R })?.link).toBe(`/projects/${R}`);
     expect(renderNotification('finding.critical', O, { blockerCount: 1, criticalCount: 2, engines: ['X'] })).toMatchObject({
       severity: 'BLOCKER',
       title: '1 blocker and 2 critical findings detected',
@@ -143,6 +145,7 @@ describe('NotificationsService delivery', () => {
       'analysis.failed',
       'finding.critical',
       'release_watch.changed',
+      'finding.assigned',
     ]);
   });
 

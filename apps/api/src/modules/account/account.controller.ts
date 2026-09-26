@@ -4,7 +4,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
 import { DeleteAccountDto } from '../auth/dto/auth.dto';
-import { SESSION_COOKIE_NAME, requestMeta } from '../auth/auth.controller';
+import { requestMeta } from '../auth/auth.controller';
+import { SessionCookieService } from '../auth/session-cookie';
 import { AccountDataService } from './account-data.service';
 
 /** Self-service GDPR endpoints for the signed-in user (interactive sessions only). */
@@ -12,7 +13,10 @@ import { AccountDataService } from './account-data.service';
 @UseGuards(JwtAuthGuard)
 @DenyApiKeyAuth()
 export class AccountController {
-  constructor(private readonly accountData: AccountDataService) {}
+  constructor(
+    private readonly accountData: AccountDataService,
+    private readonly cookies: SessionCookieService
+  ) {}
 
   @Get('export')
   async export(@CurrentUser('id') userId: string, @Req() req: Request): Promise<StreamableFile> {
@@ -47,9 +51,7 @@ export class AccountController {
       },
       requestMeta(req)
     );
-    if (res && typeof res.clearCookie === 'function') {
-      res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
-    }
+    this.cookies.clearSessionCookies(res);
     return result;
   }
 }

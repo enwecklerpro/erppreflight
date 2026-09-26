@@ -66,7 +66,7 @@ export class TraceabilityService {
       `SELECT f.id FROM findings f
         WHERE f.organization_id = $1 AND f.project_id = $2 AND f.severity IN ('BLOCKER','CRITICAL')
           AND f.analysis_id = (SELECT a.id FROM analyses a WHERE a.organization_id = $1 AND a.project_id = $2
-                                AND a.status IN ('COMPLETED','PARTIAL') ORDER BY a.completed_at DESC NULLS LAST LIMIT 1)`,
+                                AND a.status IN ('COMPLETED','PARTIAL') AND a.kind IN ('STANDARD', 'FULL_PREFLIGHT') ORDER BY a.completed_at DESC NULLS LAST LIMIT 1)`,
       [organizationId, projectId],
       { tenantId: organizationId }
     );

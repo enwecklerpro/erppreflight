@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req } from
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AgentDevicesService, EnrollSchema, HeartbeatSchema, JobResultSchema } from './agent-devices.service';
 import { ZodBody } from '../../common/openapi/zod-openapi';
+import { SkipCsrf } from '../auth/csrf.guard';
+import { clientIpOf } from '../tenant-access/client-ip';
 
 function rawBodyOf(req: any): string {
   if (req.rawBody && Buffer.isBuffer(req.rawBody)) return req.rawBody.toString('utf8');
@@ -15,6 +17,7 @@ function rawBodyOf(req: any): string {
  * AgentDevicesService.authenticate); user JWTs / API keys are not accepted here.
  */
 @ApiTags('Local Agent Device API')
+@SkipCsrf() // device credential + request signature, never the browser session cookie
 @Controller('agent-api')
 export class AgentApiController {
   constructor(private readonly devices: AgentDevicesService) {}
@@ -23,7 +26,7 @@ export class AgentApiController {
   @ZodBody(EnrollSchema)
   @ApiOperation({ summary: 'Enroll a device with a single-use enrollment token and its Ed25519 public key' })
   enroll(@Req() req: any, @Body() body: unknown) {
-    return this.devices.enroll(body, req.ip);
+    return this.devices.enroll(body, clientIpOf(req) ?? undefined);
   }
 
   @Post('heartbeat')
@@ -31,7 +34,7 @@ export class AgentApiController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Signed heartbeat; returns queued signed job envelopes' })
   async heartbeat(@Req() req: any, @Body() body: unknown) {
-    const device = await this.devices.authenticate(req.headers, req.method, req.originalUrl || req.url, rawBodyOf(req));
+    const device = await this.devices.authenticate(req.headers, req.method, req.originalUrl || req.url, rawBodyOf(req), clientIpOf(req));
     return this.devices.heartbeat(device, body);
   }
 
@@ -40,7 +43,7 @@ export class AgentApiController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Submit a signed job result (redacted manifest; contents only if egress policy allows)' })
   async result(@Req() req: any, @Param('jobId', new ParseUUIDPipe()) jobId: string, @Body() body: unknown) {
-    const device = await this.devices.authenticate(req.headers, req.method, req.originalUrl || req.url, rawBodyOf(req));
+    const device = await this.devices.authenticate(req.headers, req.method, req.originalUrl || req.url, rawBodyOf(req), clientIpOf(req));
     return this.devices.submitResult(device, jobId, body);
   }
 

@@ -45,11 +45,16 @@ describe('account-api helpers', () => {
   it('distinguishes MFA challenges from sessions in login responses', () => {
     const challenge = LoginResponseSchema.parse({ mfaRequired: true, challengeToken: 'c', expiresIn: 300 });
     expect('mfaRequired' in challenge).toBe(true);
+    // Browser sessions are cookie-only: the body carries the user + CSRF token, and a
+    // stray access token would be stripped rather than kept in client state.
     const session = LoginResponseSchema.parse({
       accessToken: 't',
+      csrfToken: 'c',
       user: { id: 'u', email: 'a@b.co', organizationId: 'o', role: 'VIEWER' },
     });
-    expect('accessToken' in session).toBe(true);
+    expect('mfaRequired' in session).toBe(false);
+    expect('accessToken' in session).toBe(false);
+    expect(SessionResponseSchema.parse({ user: { id: 'u', email: 'a@b.co', organizationId: 'o', role: 'VIEWER' } }).user.id).toBe('u');
     expect(() => SessionResponseSchema.parse({ user: {} })).toThrow();
   });
 

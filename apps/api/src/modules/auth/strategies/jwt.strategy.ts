@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { AuthTokenPayload } from '@erppreflight/auth';
 import { DatabaseService } from '../../database/database.service';
 import { SessionService } from '../session.service';
+import { IMPERSONATION_TOKEN_TYPE, verifiedImpersonationTokenExtractor } from '../../tenant-access/impersonation-token';
+import type { ImpersonationContext } from '../../tenant-access/impersonation.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,6 +40,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
+        // Impersonation credential verified by ImpersonationMiddleware (takes precedence).
+        verifiedImpersonationTokenExtractor,
         ExtractJwt.fromAuthHeaderAsBearerToken(),
         cookieExtractor,
       ]),
@@ -61,6 +65,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * System role and organization role come from the database, never from stale claims.
    */
   async validate(req: any, payload: AuthTokenPayload) {
+    if (payload?.typ === IMPERSONATION_TOKEN_TYPE) {
+      return this.impersonatedPrincipal(req, payload);
+    }
     if (!payload.sub || !payload.organizationId || payload.typ) {
       throw new UnauthorizedException('Invalid token payload');
     }
@@ -120,6 +127,39 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       mfaEnabled: !!row.totp_enabled_at,
       jti: payload.jti,
       exp: payload.exp,
+    };
+  }
+
+  /**
+   * Principal of an impersonation request: the impersonated member, as verified moments
+   * earlier by ImpersonationMiddleware against impersonation_sessions (active, unexpired,
+   * operator still SUPER_ADMIN, member still active). Without that verification the
+   * token is rejected (fail closed). Never carries a session id (jti) and never a
+   * platform role.
+   */
+  private impersonatedPrincipal(req: any, payload: any) {
+    const ctx: ImpersonationContext | undefined = req?.impersonation;
+    if (!ctx || ctx.id !== payload?.imp || ctx.targetUserId !== payload?.sub || ctx.organizationId !== payload?.organizationId) {
+      throw new UnauthorizedException({ code: 'IMPERSONATION_ENDED', message: 'The impersonation session is not active.' });
+    }
+    return {
+      id: ctx.targetUserId,
+      userId: ctx.targetUserId,
+      email: ctx.targetEmail,
+      organizationId: ctx.organizationId,
+      role: ctx.memberRole,
+      systemRole: 'USER',
+      emailVerified: ctx.emailVerified,
+      mfaEnabled: ctx.mfaEnabled,
+      jti: undefined,
+      exp: payload.exp,
+      impersonation: {
+        id: ctx.id,
+        impersonatorId: ctx.impersonatorId,
+        impersonatorEmail: ctx.impersonatorEmail,
+        readOnly: ctx.readOnly,
+        expiresAt: ctx.expiresAt,
+      },
     };
   }
 }

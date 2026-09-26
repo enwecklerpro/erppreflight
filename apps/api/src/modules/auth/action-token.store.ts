@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import { generateOpaqueToken, hashOpaqueToken, isWellFormedOpaqueToken } from './crypto/opaque-token';
 
-export type ActionTokenPurpose = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET';
+export type ActionTokenPurpose = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET' | 'MAGIC_LINK';
 
 export interface ActionTokenRow {
   id: string;

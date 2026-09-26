@@ -1,0 +1,21 @@
+{
+  "target_user": "TEST_RETIRED_USER",
+  "evaluation_date": "2026-09-15",
+  "users": [
+    {
+      "bname": "TEST_RETIRED_USER",
+      "user_type": "A",
+      "lock_status": 128
+    }
+  ],
+  "jobs": [],
+  "rfc_destinations": [],
+  "work_items": [
+    {
+      "wi_id": "000000481516",
+      "wi_type": "W",
+      "status": "READY",
+      "assigned_agent": "TEST_RETIRED_USER"
+    }
+  ]
+}

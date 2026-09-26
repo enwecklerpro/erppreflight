@@ -1,0 +1,1 @@
+{"field_name": "YY1_DISCONNECTED", "hops": [["MM_PURCHASE_ORDER_ITEM", "HR_PERSONNEL_DATA"]], "field_definitions": {"MM_PURCHASE_ORDER_ITEM": {"type": "CHAR", "length": 10}, "HR_PERSONNEL_DATA": {"type": "CHAR", "length": 10}}}

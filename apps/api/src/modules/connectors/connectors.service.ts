@@ -1,3 +1,5 @@
+import type { ApiLocale } from '../../common/i18n/request-locale';
+import { localizeConnectorType } from './connector-registry.i18n';
 import {
   BadRequestException,
   ConflictException,
@@ -24,7 +26,14 @@ import {
   describeConnectorType,
   getConnectorDefinition,
 } from './connector-registry';
-import { createConnectorHttp, describeConnectorError } from './connector-http';
+import {
+  ConnectorAttemptInfo,
+  createConnectorHttp,
+  describeConnectorError,
+  distributedConnectorLimiter,
+} from './connector-http';
+import { RateLimiterService } from '../rate-limit/rate-limiter.service';
+import { UsageService } from '../usage/usage.service';
 import {
   CircuitOpenError,
   CircuitSnapshot,
@@ -125,7 +134,9 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: IntegrationAuditService,
     @Optional() private readonly outbox?: OutboxService,
     @Optional() private readonly telemetry?: TelemetryService,
-    @Optional() private readonly ingestion?: IngestionService
+    @Optional() private readonly ingestion?: IngestionService,
+    @Optional() private readonly rateLimiter?: RateLimiterService,
+    @Optional() private readonly usage?: UsageService
   ) {
     this.adapters = createAdapterRegistry(async (ctx) => {
       const res = await this.db.query(
@@ -155,8 +166,8 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
   // -------------------------------------------------------------------------
   // Registry
   // -------------------------------------------------------------------------
-  listTypes() {
-    return CONNECTOR_TYPES.map((t) => describeConnectorType(CONNECTOR_DEFINITIONS[t]));
+  listTypes(locale: ApiLocale = 'en') {
+    return CONNECTOR_TYPES.map((t) => localizeConnectorType(describeConnectorType(CONNECTOR_DEFINITIONS[t]), locale));
   }
 
   getAdapter(type: ConnectorType): ConnectorAdapter {
@@ -407,8 +418,30 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
       type: row.connector_type,
       config: row.config,
       credentials,
-      http: createConnectorHttp(row.id),
+      http: createConnectorHttp(row.id, {
+        // One token bucket per connector instance shared by every API process (Redis).
+        ...(this.rateLimiter ? { limiter: distributedConnectorLimiter(this.rateLimiter) } : {}),
+        onAttempt: (info) => this.meterOutboundRequest(row, info),
+      }),
+      recordOutbound: (info) => this.meterOutboundRequest(row, info),
     };
+  }
+
+  /** P3: every outbound connector request that reached the network is metered (CONNECTOR_REQUEST). */
+  private async meterOutboundRequest(row: ConnectorRow, info: ConnectorAttemptInfo): Promise<void> {
+    if (!this.usage) return;
+    await this.usage.recordSafe(row.organization_id, 'CONNECTOR_REQUEST', 1, {
+      resourceType: 'CONNECTOR',
+      resourceId: row.id,
+      metadata: {
+        connectorType: row.connector_type,
+        method: info.method,
+        host: info.host,
+        attempt: info.attempt,
+        status: info.status,
+        error: info.error,
+      },
+    });
   }
 
   async execute<T>(
@@ -769,7 +802,7 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
                 fileSize: buf.length,
                 mimeType: 'text/x-abap',
               } as any);
-              const confirmed: any = await this.ingestion!.confirmUpload(organizationId, projectId, presigned.fileId, buf);
+              const confirmed: any = await this.ingestion!.confirmUpload(organizationId, projectId, presigned.fileId, buf, { actorId, source: 'connector-import' });
               ingested.push({ path: f.path, fileId: presigned.fileId, status: confirmed?.quarantineStatus || confirmed?.status || 'PROCESSED' });
             } catch (err: any) {
               ingested.push({ path: f.path, status: 'REJECTED', error: String(err?.response?.message || err?.message).slice(0, 200) });
@@ -890,6 +923,9 @@ export class ConnectorsService implements OnModuleInit, OnModuleDestroy {
       `SELECT organization_id, id FROM connector_instances
         WHERE status = 'ACTIVE' AND connector_type NOT IN ('FILE')
           AND (last_checked_at IS NULL OR last_checked_at < NOW() - INTERVAL '10 minutes')
+          -- No outbound calls with the credentials of a suspended organization (spec 10.7).
+          AND NOT EXISTS (SELECT 1 FROM organizations o
+                           WHERE o.id = connector_instances.organization_id AND o.status = 'SUSPENDED')
         ORDER BY last_checked_at NULLS FIRST LIMIT 50`,
       [],
       { bypassRls: true }

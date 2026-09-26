@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { MessageKey, TFunction, TranslateVars } from './translate';
+import { apiErrorCodes } from './messages/app/en/apiErrorCodes';
 
 /**
  * Localized validation messages (spec C §42).
@@ -84,18 +85,86 @@ interface ErrorLike {
   name?: string;
   message?: string;
   statusCode?: number;
+  code?: unknown;
+}
+
+/** API error codes with their own dictionary text (tenant access: suspension, IP allowlist, impersonation). */
+const CODED_ERRORS: Record<string, MessageKey> = {
+  TENANT_SUSPENDED: 'app.tenantAccess.errors.TENANT_SUSPENDED',
+  IP_NOT_ALLOWED: 'app.tenantAccess.errors.IP_NOT_ALLOWED',
+  IMPERSONATION_READ_ONLY: 'app.tenantAccess.errors.IMPERSONATION_READ_ONLY',
+  IMPERSONATION_SECRET_ACCESS_DENIED: 'app.tenantAccess.errors.IMPERSONATION_SECRET_ACCESS_DENIED',
+  IMPERSONATION_EXPIRED: 'app.tenantAccess.errors.IMPERSONATION_EXPIRED',
+  IMPERSONATION_ENDED: 'app.tenantAccess.errors.IMPERSONATION_ENDED',
+};
+
+/** Dictionary key for a coded API error, if it has one. */
+export function codedErrorKey(error: unknown): MessageKey | null {
+  const code = (error as ErrorLike | null)?.code;
+  return typeof code === 'string' && code in CODED_ERRORS ? CODED_ERRORS[code] : null;
+}
+
+export type ApiErrorCode = keyof typeof apiErrorCodes.codes;
+
+/** Codes derived from the HTTP status alone: the server message is more specific than the code. */
+const GENERIC_API_ERROR_CODES = new Set<string>([
+  'BAD_REQUEST',
+  'VALIDATION_FAILED',
+  'UNAUTHENTICATED',
+  'PAYMENT_REQUIRED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'METHOD_NOT_ALLOWED',
+  'REQUEST_TIMEOUT',
+  'CONFLICT',
+  'GONE',
+  'PAYLOAD_TOO_LARGE',
+  'UNSUPPORTED_MEDIA_TYPE',
+  'UNPROCESSABLE_ENTITY',
+  'INTERNAL_ERROR',
+  'BAD_GATEWAY',
+  'SERVICE_UNAVAILABLE',
+  'GATEWAY_TIMEOUT',
+  'UNKNOWN_ERROR',
+]);
+
+/**
+ * Specific codes whose server message carries details the dictionary text cannot know
+ * (the invalid CIDR entries, the extension limit in days, the reason a rerun's inputs
+ * are gone): treated like generic codes, so the server message is kept (with the
+ * localized summary prepended outside English).
+ */
+const DETAIL_API_ERROR_CODES = new Set<string>([
+  'IP_ALLOWLIST_INVALID',
+  'TRIAL_EXTENSION_LIMIT',
+  'TRIAL_NOT_APPLICABLE',
+  'RERUN_INPUTS_UNAVAILABLE',
+  'INVALID_API_BASELINE_REQUEST',
+  'API_BASELINE_TOO_LARGE',
+]);
+
+export function isKnownApiErrorCode(code: unknown): code is ApiErrorCode {
+  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(apiErrorCodes.codes, code);
 }
 
 /**
- * Localized, user-facing text for an error thrown by an API call. Rate limits,
- * transport failures and malformed responses get dictionary text; known server
- * messages are mapped; anything else shows the server's message (or `fallback`).
+ * Localized, user-facing text for an error thrown by an API call (spec C §42).
+ *
+ * 1. A specific machine code from the API envelope (`code`, e.g. PROJECT_NOT_FOUND) → dictionary text.
+ * 2. Rate limits, transport failures and malformed responses → dictionary text.
+ * 3. Known English server messages → dictionary text.
+ * 4. Otherwise the server's message; for generic codes (NOT_FOUND, VALIDATION_FAILED, …) the
+ *    localized summary is prepended in languages other than English (`app.apiErrorCodes.withDetail`).
  */
 export function localizeError(error: unknown, t: TFunction, fallback?: string): string {
   const generic = fallback ?? t('app.validation.genericError');
   if (!error) return generic;
   const e = error as ErrorLike;
+  const coded = codedErrorKey(e);
+  if (coded) return t(coded);
   if (e.name === 'ZodError') return t('app.validation.unexpectedResponse');
+  const code = isKnownApiErrorCode(e.code) ? e.code : null;
+  if (code && !GENERIC_API_ERROR_CODES.has(code) && !DETAIL_API_ERROR_CODES.has(code)) return t(`app.apiErrorCodes.codes.${code}`);
   if (e.statusCode === 429) return t('app.validation.tooManyAttempts');
   if (e.name === 'TypeError' && /fetch|network|load failed/i.test(e.message ?? '')) return t('app.validation.networkError');
   if (typeof e.message === 'string' && e.message) {
@@ -104,11 +173,13 @@ export function localizeError(error: unknown, t: TFunction, fallback?: string): 
       if (e.statusCode === 403) return t('app.validation.forbidden');
       if (e.statusCode === 404) return t('app.validation.notFound');
       if (e.statusCode === 402) return t('app.validation.planLimit');
-      return generic;
+      return code ? t(`app.apiErrorCodes.codes.${code}`) : generic;
     }
-    return translateMessage(e.message, t);
+    const mapped = translateMessage(e.message, t);
+    if (mapped !== e.message || !code || t('app.apiErrorCodes.appendSummary') !== 'yes') return mapped;
+    return t('app.apiErrorCodes.withDetail', { summary: t(`app.apiErrorCodes.codes.${code}`), message: e.message });
   }
-  return generic;
+  return code ? t(`app.apiErrorCodes.codes.${code}`) : generic;
 }
 
 /** Zod 3 error map emitting message references for built-in issues. */

@@ -40,6 +40,11 @@ export const security: typeof En = {
       INVITATION: 'Einladung',
       REGISTRATION: 'Registrierung',
       PASSWORD_RESET: 'Passwort-Zurücksetzung',
+      PASSWORD_2FA: 'Passwort + 2FA',
+      MAGIC_LINK: 'Anmeldelink per E-Mail',
+      MAGIC_LINK_2FA: 'Anmeldelink per E-Mail + 2FA',
+      SIGNUP: 'Registrierung',
+      SSO: 'Single Sign-on',
     },
   },
   org: {

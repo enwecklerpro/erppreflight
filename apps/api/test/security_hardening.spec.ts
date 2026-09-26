@@ -1,3 +1,4 @@
+import { RateLimiterService } from '../src/modules/rate-limit/rate-limiter.service';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   BadRequestException,
@@ -234,10 +235,10 @@ describe('M3: auth rate limiting', () => {
     else process.env.AUTH_RATE_LIMIT_SCALE = envBackup;
   });
 
-  it('returns 429 after the per IP+email budget and sets Retry-After', () => {
+  it('returns 429 after the per IP+email budget and sets Retry-After', async () => {
     process.env.AUTH_RATE_LIMIT_SCALE = '1';
     const reflector = new Reflector();
-    const guard = new AuthRateLimitGuard(reflector);
+    const guard = new AuthRateLimitGuard(reflector, RateLimiterService.inMemory());
     const handler = () => undefined;
     Reflect.defineMetadata(AUTH_RATE_LIMIT_KEY, LOGIN_RATE_LIMIT, handler);
     const headers: Record<string, string> = {};
@@ -252,11 +253,11 @@ describe('M3: auth rate limiting', () => {
       }) as any;
 
     for (let i = 0; i < LOGIN_RATE_LIMIT.maxPerIpAndEmail; i++) {
-      expect(guard.canActivate(ctx('Victim@Example.com'))).toBe(true);
+      expect(await guard.canActivate(ctx('Victim@Example.com'))).toBe(true);
     }
     let error: any;
     try {
-      guard.canActivate(ctx('victim@example.com'));
+      await guard.canActivate(ctx('victim@example.com'));
     } catch (e) {
       error = e;
     }
@@ -264,7 +265,7 @@ describe('M3: auth rate limiting', () => {
     expect(error.getStatus()).toBe(429);
     expect(Number(headers['Retry-After'])).toBeGreaterThan(0);
     // A different account from the same IP is still allowed (per-IP budget is larger)
-    expect(guard.canActivate(ctx('other@example.com'))).toBe(true);
+    expect(await guard.canActivate(ctx('other@example.com'))).toBe(true);
   });
 });
 

@@ -1,0 +1,95 @@
+{
+  "baseline": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Supplier API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/A_Supplier": {
+        "get": {
+          "summary": "List suppliers",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ]
+        }
+      },
+      "/A_SupplierContact": {
+        "get": {
+          "summary": "List supplier contacts"
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "Supplier": {
+          "type": "object",
+          "properties": {
+            "SupplierName": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "Status": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "BLOCKED"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "candidate": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Supplier API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/A_Supplier": {
+        "get": {
+          "summary": "List suppliers",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "Supplier": {
+          "type": "object",
+          "properties": {
+            "SupplierName": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "Status": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "BLOCKED"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -38,11 +38,12 @@ export const AUTH_REQUIRED_PREFIXES = [
   '/admin',
   '/onboarding',
   '/feedback',
+  '/suspended',
 ] as const;
 
 /** HTTP-only session cookie set by the API when it shares the site's host. */
 export const API_SESSION_COOKIE = 'erppreflight_session';
-/** Non-sensitive marker cookie set by the web app when a sign-in token is stored. */
+/** Non-sensitive marker cookie (no credential) set by the web app while a sign-in exists. */
 export const AUTH_HINT_COOKIE = 'erp_auth';
 
 function matchesPrefix(path: string, prefix: string): boolean {

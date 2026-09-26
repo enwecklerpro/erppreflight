@@ -330,7 +330,7 @@ export class FindingsService {
         params
       ),
       this.db.query(
-        `SELECT COUNT(*)::int AS total FROM analyses WHERE ${where} AND status IN ('COMPLETED', 'PARTIAL')`,
+        `SELECT COUNT(*)::int AS total FROM analyses WHERE ${where} AND status IN ('COMPLETED', 'PARTIAL') AND kind IN ('STANDARD', 'FULL_PREFLIGHT')`,
         params
       ),
     ]);

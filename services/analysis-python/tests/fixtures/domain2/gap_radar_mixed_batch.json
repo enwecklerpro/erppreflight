@@ -1,0 +1,13 @@
+{
+  "requirements": [
+    {
+      "id": "REQ-SD-100",
+      "requirement": "Expose the released API_SALES_ORDER_SRV OData API to the CRM integration",
+      "scope_items": ["BD9"]
+    },
+    {
+      "id": "REQ-MISC-999",
+      "requirement": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
+    }
+  ]
+}

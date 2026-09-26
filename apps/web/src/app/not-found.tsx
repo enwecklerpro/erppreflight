@@ -5,10 +5,13 @@ import { getRequestLocale } from '../i18n/server';
 import { getT } from '../i18n/translate';
 import { localizePath } from '../lib/routing';
 
-export const metadata: Metadata = {
-  title: 'Page not found — ERP Preflight',
-  robots: { index: false, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = getT(await getRequestLocale());
+  return {
+    title: `${t('notFound.title')} — ERP Preflight`,
+    robots: { index: false, follow: true },
+  };
+}
 
 export default async function NotFound() {
   const locale = await getRequestLocale();

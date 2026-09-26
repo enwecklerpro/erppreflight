@@ -27,7 +27,7 @@ export const support: typeof En = {
   ticketStatus: {
     OPEN: 'Offen',
     IN_PROGRESS: 'In Bearbeitung',
-    WAITING_FOR_CUSTOMER: 'Wartet auf Ihre Antwort',
+    WAITING_ON_CUSTOMER: 'Wartet auf Ihre Antwort',
     RESOLVED: 'Gelöst',
     CLOSED: 'Geschlossen',
   },

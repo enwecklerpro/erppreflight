@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "YY1_PROJECT_CODE": [
+      "CDS_PURCHASE_ORDERS",
+      "FORM_PURCHASE_ORDER"
+    ],
+    "CDS_PURCHASE_ORDERS": [
+      "API_PURCHASING_ANALYTICS"
+    ],
+    "FORM_PURCHASE_ORDER": [],
+    "API_PURCHASING_ANALYTICS": []
+  },
+  "target_object": "YY1_PROJECT_CODE",
+  "action": "MODIFY"
+}

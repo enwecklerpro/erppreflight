@@ -25,7 +25,7 @@
 #   POSTGRES_DB               [erppreflight]
 #   S3_ACCESS_KEY / S3_SECRET_KEY   MinIO credentials (required unless BACKUP_SKIP_S3=1)
 #   S3_BUCKETS                ["erppreflight-quarantine erppreflight-clean erppreflight-reports"]
-#   MC_IMAGE                  image providing `mc` [elestio/minio:latest — same as the stack]
+#   MC_IMAGE                  image providing `mc` [the digest-pinned elestio/minio image of docker-compose.coolify.yml]
 #   MC_NETWORK                docker network to reach MinIO [erppreflight-network]
 #   MC_ENDPOINT               MinIO URL inside that network [http://erppreflight-minio:9000]
 #   BACKUP_SKIP_S3=1          database only
@@ -42,7 +42,7 @@ PG_CONTAINER="${PG_CONTAINER:-erppreflight-postgres}"
 PGU="${POSTGRES_USER:-erppreflight}"
 PGD="${POSTGRES_DB:-erppreflight}"
 BUCKETS="${S3_BUCKETS:-erppreflight-quarantine erppreflight-clean erppreflight-reports}"
-MC_IMAGE="${MC_IMAGE:-elestio/minio:latest}"
+MC_IMAGE="${MC_IMAGE:-elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd}"
 MC_NETWORK="${MC_NETWORK:-erppreflight-network}"
 MC_ENDPOINT="${MC_ENDPOINT:-http://erppreflight-minio:9000}"
 

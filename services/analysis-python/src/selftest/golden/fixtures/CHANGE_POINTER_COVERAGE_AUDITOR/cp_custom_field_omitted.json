@@ -1,0 +1,42 @@
+{
+  "description": "Edge case: Custom table extension (YY1_) added to MARA but omitted from BD52 linkage",
+  "message_type": "MATMAS",
+  "target_message_type": "MATMAS",
+  "change_document_object": "MATERIAL",
+  "bd61_active": true,
+  "bd61": true,
+  "bd50_msg_types": [
+    "MATMAS"
+  ],
+  "bd52_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "GROES"
+    ]
+  ],
+  "expected_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "GROES"
+    ],
+    [
+      "MARA",
+      "YY1_SUSTAINABILITY_SCORE"
+    ]
+  ],
+  "custom_fields": [
+    {
+      "table": "MARA",
+      "field": "YY1_SUSTAINABILITY_SCORE",
+      "rollname": "YY1_SUSTAINABILITY"
+    }
+  ]
+}

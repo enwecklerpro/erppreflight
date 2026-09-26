@@ -19,6 +19,13 @@ export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+/** Actions performed through an impersonation session name the real operator (spec 10.8). */
+function impersonationRef(request: any): Record<string, unknown> {
+  const imp = request?.impersonation;
+  if (!imp || typeof imp.id !== 'string') return {};
+  return { impersonation: { id: imp.id, impersonatorId: imp.impersonatorId, impersonatorEmail: imp.impersonatorEmail } };
+}
+
 function clientIp(request: any): string | null {
   const ip: string | undefined = request?.ip || request?.socket?.remoteAddress;
   if (!ip) return null;
@@ -85,8 +92,12 @@ export class AuditInterceptor implements NestInterceptor {
   private async recordSuccess(spec: AuditSpec, request: any, result: any): Promise<void> {
     const ctx = this.buildContext(request, result);
     const fromResult = spec.tenantFromResult?.(result) ?? null;
+    const explicitTenant = spec.tenantId?.(ctx);
     const organizationId: string | undefined =
-      request.tenantId || request.user?.organizationId || fromResult?.organizationId;
+      (isUuid(explicitTenant) ? explicitTenant : undefined) ||
+      request.tenantId ||
+      request.user?.organizationId ||
+      fromResult?.organizationId;
     const actorId: string | null = request.user?.id ?? fromResult?.actorId ?? null;
 
     if (!isUuid(organizationId)) {
@@ -98,6 +109,7 @@ export class AuditInterceptor implements NestInterceptor {
     const rawTarget = spec.targetId?.(ctx) ?? null;
     const payload: Record<string, unknown> = {
       ...(spec.payload?.(ctx) ?? {}),
+      ...impersonationRef(request),
       outcome: 'SUCCESS',
       ...(rawTarget && !isUuid(rawTarget) ? { targetRef: String(rawTarget).slice(0, 200) } : {}),
     };
@@ -128,7 +140,9 @@ export class AuditInterceptor implements NestInterceptor {
     if (!spec.failureAction) return;
     const status = err instanceof HttpException ? err.getStatus() : 500;
     try {
-      let organizationId: string | null = request.tenantId || request.user?.organizationId || null;
+      const explicitTenant = spec.tenantId?.(this.buildContext(request, null));
+      let organizationId: string | null =
+        (isUuid(explicitTenant) ? explicitTenant : null) || request.tenantId || request.user?.organizationId || null;
       let actorId: string | null = request.user?.id ?? null;
       let email: string | null = null;
 
@@ -151,6 +165,7 @@ export class AuditInterceptor implements NestInterceptor {
         resourceType: spec.targetType,
         resourceId: null,
         payload: {
+          ...impersonationRef(request),
           outcome: 'FAILURE',
           httpStatus: status,
           ...(email ? { email } : {}),
