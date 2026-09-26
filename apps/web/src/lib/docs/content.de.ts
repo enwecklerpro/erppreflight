@@ -177,20 +177,20 @@ Exportformate: \`PDF\`, \`XLSX\`, \`CSV\`, \`JSON_BUNDLE\`, \`HTML_OFFLINE\`, \`
       {
         id: 'cli',
         title: 'CLI erp-preflight',
-        body: `Die CLI (Paket \`@erppreflight/cli\`, Node.js 18 oder neuer) nutzt dieselbe API mit einem API-Schlüssel. Richten Sie sie mit \`ERP_PREFLIGHT_API_URL\` auf Ihre Instanz (z. B. \`https://api.example.com/api/v1\`) und speichern Sie den Schlüssel einmalig:
+        body: `Die CLI (Paket \`@erppreflight/cli\`, Node.js 18 oder neuer) nutzt dieselbe API mit einem API-Schlüssel. Richten Sie sie mit \`--api-url\` oder \`ERP_PREFLIGHT_API_URL\` auf Ihre Instanz (z. B. \`https://api.example.com\`); \`login\` prüft den Schlüssel und speichert ihn in einer nur für Sie lesbaren Konfigurationsdatei:
 
 \`\`\`
-erp-preflight login --key erppf_live_…
-erp-preflight project list
-erp-preflight project create --name "S/4HANA 2023 Upgrade" --release S4H_2023
-erp-preflight report download <analysis-id> --out bundle.zip
-erp-preflight matrix
+erp-preflight login --key erppf_live_… --api-url https://api.example.com
 erp-preflight status
+erp-preflight project create --name "S/4HANA 2023 Upgrade" --release S4H_2023
+erp-preflight upload <projectId> ./exports/billing_opd.xml
+erp-preflight analyze <projectId> --engines OPD_GUARD --wait --fail-on BLOCKER,CRITICAL
+erp-preflight findings <projectId> --severity CRITICAL
+erp-preflight report export <projectId> <analysisId> --format PDF --out report.pdf
+erp-preflight report download <analysisId> --out bundle.zip
 \`\`\`
 
-Der Schlüssel kann auch pro Aufruf über \`ERP_PREFLIGHT_API_KEY\` übergeben werden. \`report download\` speichert das Reproduzierbarkeits-Bundle eines Laufs und gibt dessen SHA-256 aus.
-
-\`erp-preflight analyze clean-core <pfad>\`, \`analyze api-diff\` und \`analyze mfs\` sind **lokale Schnellprüfungen**, die auf Ihrem Rechner laufen und nichts hochladen; sie decken nur eine kleine Auswahl an Mustern ab und sind als CI-Vorprüfung gedacht. Die vollständige Analyse läuft in einem Projekt (Upload + Analysis Launcher oder \`POST /api/v1/analyses\`).`,
+Uploads durchlaufen dieselben serverseitigen Prüfungen wie in der Web-App (Magic Bytes, Malware-Scan, Schwärzung von Geheimnissen), Analysen laufen mit denselben deterministischen Engines. \`analyze clean-core|api-diff|mfs <pfad…> --project <id>\` lädt lokale Dateien hoch und startet die passende Engine. Mit \`--fail-on\` endet die CLI mit Exit-Code 3, wenn Befunde dieser Schweregrade existieren — als Qualitätstor in CI. \`--json\` liefert maschinenlesbare Ausgabe. Exit-Codes: 0 ok, 1 Fehler, 2 Aufruf/Authentifizierung, 3 Qualitätstor verletzt.`,
       },
       {
         id: 'mcp',
@@ -201,22 +201,25 @@ Der Schlüssel kann auch pro Aufruf über \`ERP_PREFLIGHT_API_KEY\` übergeben w
   },
   'local-agent': {
     title: 'Lokaler Agent',
-    description: 'Was heute auf Ihrer Seite läuft und was für private Landschaften geplant ist.',
+    description: 'Den rein ausgehend verbundenen lokalen Agenten im eigenen Netz betreiben: Enrollment, signierte Jobs, lokales Scannen und Schwärzen.',
     sections: [
       {
         id: 'today',
-        title: 'Heute verfügbar',
-        body: `Einen separat zu installierenden Agent-Dienst gibt es noch nicht. Lokal läuft heute:
+        title: 'So arbeitet der Agent',
+        body: `Der lokale Agent (\`erp-preflight-agent\`, Container-Image \`infra/docker/Dockerfile.local-agent\`) läuft in Ihrem Netz neben privaten SAP-Landschaften und baut nur **ausgehende** HTTPS-Verbindungen zu ERP Preflight auf.
 
-- die CLI \`erp-preflight\` mit ihrem stdio-MCP-Server, authentifiziert mit einem API-Schlüssel der Organisation — geeignet für CI-Pipelines und Entwicklerrechner;
-- die lokalen Schnellprüfungen der CLI, die Dateien auf Ihrem Rechner lesen und nichts hochladen.
+1. Unter **Integrations → Local agents** erzeugt ein Organisationsinhaber ein einmal gültiges **Enrollment-Token**.
+2. Auf dem Agent-Host: \`erp-preflight-agent enroll <apiUrl> <enrollmentToken> --name <gerätename>\`. Der Agent erzeugt sein Geräteschlüsselpaar lokal; registriert wird nur der öffentliche Schlüssel.
+3. Starten Sie die Schleife mit \`erp-preflight-agent daemon\`. Sie sendet signierte Heartbeats, holt Jobs ab, prüft die Signatur jedes Jobs und führt ihn lokal aus.
 
-Daten aus SAP-Systemen gelangen als hochgeladene Exporte (Dateien, die Sie mit Standard-SAP-Transaktionen oder -Werkzeugen erzeugen) über Web-App, API oder CLI zu ERP Preflight.`,
+Jobs werden je Gerät unter **Integrations → Local agents** eingeplant: *Scan directory* (nur innerhalb der in \`ERP_PREFLIGHT_AGENT_SCAN_ROOTS\` auf dem Host konfigurierten Verzeichnisse — die SaaS kann den Agenten nichts anderes lesen lassen) und *Probe SAP URL* (TLS wird immer geprüft). Dateien werden auf dem Host gehasht (SHA-256) und von Geheimnissen bereinigt; standardmäßig verlässt nur ein Manifest das Netz. Geräte lassen sich jederzeit widerrufen.
+
+Weitere Befehle: \`status\`, \`scan <verzeichnis>\` (nur lokal, lädt nichts hoch), \`probe <sapUrl>\`, \`check-update\` und \`verify-update\` (signierte Update-Manifeste).`,
       },
       {
         id: 'planned',
-        title: 'Geplant',
-        body: `Ein lokaler Agent, der neben privaten SAP-Landschaften läuft und planmäßig schreibgeschützte Extrakte abholt, ist auf der Roadmap. Bis dahin bleiben Uploads der unterstützte Weg; diese Seite beschreibt den Agenten, sobald er verfügbar ist.`,
+        title: 'Uploads bleiben verfügbar',
+        body: `Uploads über Web-App, API oder CLI stehen für jede Engine weiterhin zur Verfügung; der Agent ist optional. Geplante schreibgeschützte Extraktion weiterer SAP-Artefakttypen durch den Agenten wird hier dokumentiert, sobald sie verfügbar ist.`,
       },
     ],
   },
@@ -228,7 +231,7 @@ Daten aus SAP-Systemen gelangen als hochgeladene Exporte (Dateien, die Sie mit S
       {
         question: 'Verbindet sich ERP Preflight mit meinem SAP-System?',
         answer:
-          'Eine direkte Systemverbindung ist nicht nötig. Sie laden Exporte hoch (XML, JSON, CSV, ABAP-Quellen, ZIP-Archive), die Sie in SAP erzeugen; die Analyse arbeitet auf diesen Dateien.',
+          'Eine direkte Systemverbindung ist nicht nötig. Sie laden Exporte hoch (XML, JSON, CSV, ABAP-Quellen, ZIP-Archive), die Sie in SAP erzeugen; die Analyse arbeitet auf diesen Dateien. Optional scannt der rein ausgehend verbundene lokale Agent freigegebene Verzeichnisse und prüft SAP-Endpunkte in Ihrem Netz.',
       },
       {
         question: 'Werden die Befunde von einer KI erzeugt?',

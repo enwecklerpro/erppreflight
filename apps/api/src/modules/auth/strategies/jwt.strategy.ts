@@ -98,7 +98,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       this.sessions.touch(sessionId, row.last_seen_at);
     }
     const systemRole: string = row.system_role || 'USER';
-    if (!row.member_role && systemRole !== 'SUPER_ADMIN') {
+    // Partner mode (modules/partners): TenancyMiddleware verified an active, unexpired
+    // delegated-access grant for exactly this tenant on this request.
+    const delegated =
+      !row.member_role && req?.delegatedAccess && req.tenantId === organizationId &&
+      new Date(req.delegatedAccess.expiresAt).getTime() > Date.now()
+        ? (req.delegatedAccess as { tenantRole: string })
+        : null;
+    if (!row.member_role && !delegated && systemRole !== 'SUPER_ADMIN') {
       throw new UnauthorizedException('Organization membership has been revoked; please sign in again');
     }
     return {
@@ -107,7 +114,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       userId: payload.sub,
       email: payload.email,
       organizationId,
-      role: row.member_role || payload.role,
+      role: row.member_role || delegated?.tenantRole || payload.role,
       systemRole,
       emailVerified: !!row.email_verified_at,
       mfaEnabled: !!row.totp_enabled_at,

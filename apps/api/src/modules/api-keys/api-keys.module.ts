@@ -4,10 +4,10 @@ import { ApiKeysController } from './api-keys.controller';
 import { DatabaseModule } from '../database/database.module';
 
 /**
- * Global so that every JwtAuthGuard instance (guards are instantiated in the
- * module that uses them) can resolve ApiKeysService: without it the optional
- * injection is undefined and `x-api-key` requests are rejected on every route
- * outside AuthModule — which broke the CLI and the API-key REST access.
+ * Global so that JwtAuthGuard — instantiated in every feature module that uses
+ * it — can always resolve ApiKeysService. Without this, API-key authentication
+ * (developer API / CLI, C §47) was rejected on every route outside AuthModule
+ * with "API key authentication is not available on this route".
  */
 @Global()
 @Module({

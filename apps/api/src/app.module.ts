@@ -41,6 +41,9 @@ import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { resolveRedisConnectionOptions } from './modules/jobs/redis-connection.factory';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
+import { ConnectorsModule } from './modules/connectors/connectors.module';
+import { SsoModule } from './modules/sso/sso.module';
+import { PartnersModule } from './modules/partners/partners.module';
 import { UsageModule } from './modules/usage/usage.module';
 import { RetentionModule } from './modules/retention/retention.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
@@ -100,6 +103,9 @@ import { PublicToolsModule } from './modules/public-tools/public-tools.module';
     AiGatewayModule,
     BillingModule,
     TelemetryModule,
+    ConnectorsModule,
+    SsoModule,
+    PartnersModule,
     UsageModule,
     RetentionModule,
     FeatureFlagsModule,

@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
 import type { RequestMeta } from './security-audit.service';
 
-export type SessionAuthMethod = 'PASSWORD' | 'PASSWORD_2FA' | 'INVITATION' | 'SIGNUP' | 'REFRESH';
+export type SessionAuthMethod = 'PASSWORD' | 'PASSWORD_2FA' | 'INVITATION' | 'SIGNUP' | 'REFRESH' | 'SSO';
 export type SessionRevocationReason =
   | 'LOGOUT'
   | 'LOGOUT_ALL'

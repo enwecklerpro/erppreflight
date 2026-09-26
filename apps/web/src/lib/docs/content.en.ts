@@ -178,20 +178,20 @@ Export formats: \`PDF\`, \`XLSX\`, \`CSV\`, \`JSON_BUNDLE\`, \`HTML_OFFLINE\`, \
       {
         id: 'cli',
         title: 'erp-preflight CLI',
-        body: `The CLI (package \`@erppreflight/cli\`, Node.js 18 or newer) talks to the same API with an API key. Point it at your instance with \`ERP_PREFLIGHT_API_URL\` (for example \`https://api.example.com/api/v1\`) and store the key once:
+        body: `The CLI (package \`@erppreflight/cli\`, Node.js 18 or newer) uses the same API with an API key. Point it at your instance with \`--api-url\` or \`ERP_PREFLIGHT_API_URL\` (for example \`https://api.example.com\`); \`login\` verifies the key and stores it in a config file readable only by you:
 
 \`\`\`
-erp-preflight login --key erppf_live_…
-erp-preflight project list
-erp-preflight project create --name "S/4HANA 2023 upgrade" --release S4H_2023
-erp-preflight report download <analysis-id> --out bundle.zip
-erp-preflight matrix
+erp-preflight login --key erppf_live_… --api-url https://api.example.com
 erp-preflight status
+erp-preflight project create --name "S/4HANA 2023 upgrade" --release S4H_2023
+erp-preflight upload <projectId> ./exports/billing_opd.xml
+erp-preflight analyze <projectId> --engines OPD_GUARD --wait --fail-on BLOCKER,CRITICAL
+erp-preflight findings <projectId> --severity CRITICAL
+erp-preflight report export <projectId> <analysisId> --format PDF --out report.pdf
+erp-preflight report download <analysisId> --out bundle.zip
 \`\`\`
 
-The key can also be passed per call with \`ERP_PREFLIGHT_API_KEY\`. \`report download\` saves the reproducibility bundle of a run and prints its SHA-256.
-
-\`erp-preflight analyze clean-core <path>\`, \`analyze api-diff\` and \`analyze mfs\` are **local quick checks** that run on your machine without uploading anything; they cover a small subset of patterns and are meant as a CI pre-check. The complete analysis runs in a project (upload + Analysis Launcher or \`POST /api/v1/analyses\`).`,
+Uploads go through the same server-side checks as the web app (magic bytes, malware scan, secret redaction) and analyses run the same deterministic engines. \`analyze clean-core|api-diff|mfs <path…> --project <id>\` uploads local files and runs the matching engine. With \`--fail-on\` the CLI exits with code 3 when findings of those severities exist — use it as a CI quality gate. Add \`--json\` for machine-readable output. Exit codes: 0 ok, 1 error, 2 usage/authentication, 3 quality gate failed.`,
       },
       {
         id: 'mcp',
@@ -202,22 +202,25 @@ The key can also be passed per call with \`ERP_PREFLIGHT_API_KEY\`. \`report dow
   },
   'local-agent': {
     title: 'Local agent',
-    description: 'What runs on your side today and what is planned for private deployments.',
+    description: 'Run the outbound-only local agent inside your network: enrollment, signed jobs, local scanning and redaction.',
     sections: [
       {
         id: 'today',
-        title: 'Available today',
-        body: `There is no separate agent service to install yet. What runs locally today:
+        title: 'How the agent works',
+        body: `The local agent (\`erp-preflight-agent\`, container image \`infra/docker/Dockerfile.local-agent\`) runs inside your network next to private SAP landscapes and only makes **outbound** HTTPS calls to ERP Preflight.
 
-- the \`erp-preflight\` CLI and its stdio MCP server, authenticated with an organization API key — suitable for CI pipelines and developer machines;
-- the CLI's local quick checks, which read files on your machine and upload nothing.
+1. In **Integrations → Local agents**, an organization owner issues a single-use **enrollment token**.
+2. On the agent host run \`erp-preflight-agent enroll <apiUrl> <enrollmentToken> --name <deviceName>\`. The agent generates its device key pair locally; only the public key is registered.
+3. Start the loop with \`erp-preflight-agent daemon\`. It sends signed heartbeats, fetches jobs, verifies each job's signature and executes it locally.
 
-Data from SAP systems reaches ERP Preflight as uploaded exports (files you create with standard SAP transactions or tools), through the web app, the API or the CLI.`,
+Jobs are queued per device in **Integrations → Local agents**: *Scan directory* (only inside the directories listed in \`ERP_PREFLIGHT_AGENT_SCAN_ROOTS\` on the host — the SaaS cannot make the agent read anything else) and *Probe SAP URL* (TLS is always validated). Files are hashed (SHA-256) and secrets are redacted on the host; by default only a manifest leaves the network. Devices can be revoked at any time.
+
+Other commands: \`status\`, \`scan <directory>\` (local only, uploads nothing), \`probe <sapUrl>\`, \`check-update\` and \`verify-update\` (signed update manifests).`,
       },
       {
         id: 'planned',
-        title: 'Planned',
-        body: `A local agent that runs next to private SAP landscapes and pulls read-only extracts on a schedule is on the roadmap. Until it is available, uploads remain the supported way in; this page will describe the agent once it ships.`,
+        title: 'Uploads remain available',
+        body: `Uploads through the web app, the API or the CLI remain available for every engine; the agent is optional. Scheduled read-only extraction of further SAP artifact types by the agent will be documented here when it ships.`,
       },
     ],
   },
@@ -229,7 +232,7 @@ Data from SAP systems reaches ERP Preflight as uploaded exports (files you creat
       {
         question: 'Does ERP Preflight connect to my SAP system?',
         answer:
-          'No direct system connection is needed. You upload exports (XML, JSON, CSV, ABAP sources, ZIP archives) that you create in SAP; the analysis works on those files.',
+          'No direct system connection is needed. You upload exports (XML, JSON, CSV, ABAP sources, ZIP archives) that you create in SAP; the analysis works on those files. Optionally, the outbound-only local agent scans approved directories and probes SAP endpoints inside your network.',
       },
       {
         question: 'Are the findings produced by AI?',

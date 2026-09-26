@@ -17,6 +17,8 @@ export interface ScanOptions {
   rootDir: string;
   redactSecrets?: boolean;
   maxFileSizeBytes?: number;
+  /** Upper bound on the number of artifacts returned (default 1000). */
+  maxFiles?: number;
 }
 
 export class LocalDirectoryScanner {
@@ -39,11 +41,14 @@ export class LocalDirectoryScanner {
 
     const maxSizeBytes = options.maxFileSizeBytes || 100 * 1024 * 1024; // 100MB
     const artifacts: ScannedArtifact[] = [];
+    const maxFiles = options.maxFiles ?? 1000;
 
     const walk = (currentDir: string) => {
       const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
+      entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       for (const entry of entries) {
+        if (artifacts.length >= maxFiles) return;
         const fullPath = path.join(currentDir, entry.name);
 
         if (entry.isDirectory()) {

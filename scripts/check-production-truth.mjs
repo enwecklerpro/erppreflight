@@ -54,16 +54,28 @@ const TRUTH_CHECKS = [
     forbidden: true,
   },
   {
-    name: 'CloudAlmConnectorService performs real OAuth token request',
-    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'traceability', 'connectors', 'cloud-alm.connector.ts'),
-    pattern: /fetch\s*\(\s*(?:params\.)?tokenUrl/,
+    name: 'Connector OAuth2 client performs a real client_credentials token request',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'connectors', 'adapters', 'oauth2.ts'),
+    pattern: /grant_type:\s*'client_credentials'[\s\S]*?url:\s*tokenUrl/,
     forbidden: false, // Must be present!
   },
   {
-    name: 'TraceabilityService explicitly handles CREDENTIALS_REQUIRED status',
-    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'traceability', 'traceability.service.ts'),
-    pattern: /CREDENTIALS_REQUIRED/,
+    name: 'CloudAlmAdapter authenticates with the configured OAuth token URL',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'connectors', 'adapters', 'cloud-alm.adapter.ts'),
+    pattern: /getClientCredentialsToken\(\s*ctx\.http,\s*ctx\.config\.tokenUrl/,
     forbidden: false, // Must be present!
+  },
+  {
+    name: 'TraceabilityService explicitly reports NOT_CONFIGURED when no work item connector exists',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'traceability', 'traceability.service.ts'),
+    pattern: /status:\s*'NOT_CONFIGURED'/,
+    forbidden: false, // Must be present!
+  },
+  {
+    name: 'Zero simulated SYNCHRONIZED work items in TraceabilityService',
+    file: path.join(ROOT_DIR, 'apps', 'api', 'src', 'modules', 'traceability', 'traceability.service.ts'),
+    pattern: /'SYNCHRONIZED'/,
+    forbidden: true,
   },
   {
     name: 'What-If Simulation queries real sap_objects from PostgreSQL catalog',
