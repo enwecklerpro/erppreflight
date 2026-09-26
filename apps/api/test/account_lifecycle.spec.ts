@@ -313,41 +313,57 @@ describe('VerifiedEmailGuard (unverified users cannot run analyses / exports)', 
   });
 });
 
-describe('JwtStrategy session / token-version revocation', () => {
+describe('JwtStrategy re-validation (status, token version, session, membership)', () => {
   const sessions = { touch: vi.fn() };
+  let db: any;
   const make = (row: any) => {
-    const db: any = { query: vi.fn().mockResolvedValue({ rows: row ? [row] : [] }) };
+    db = { query: vi.fn().mockResolvedValue({ rows: row ? [row] : [] }) };
     return new JwtStrategy(configWith({ JWT_SECRET }), db, sessions as any);
   };
   const future = new Date(Date.now() + 3600_000);
-  const base = { sub: USER, organizationId: ORG, email: 'u@example.com', role: 'VIEWER', tv: 2, jti: SESSION };
+  const base = { sub: USER, organizationId: ORG, email: 'u@example.com', role: 'ORGANIZATION_OWNER', systemRole: 'SUPER_ADMIN', tv: 2, jti: SESSION };
+  const active = { status: 'ACTIVE', system_role: 'USER', token_version: 2, session_id: SESSION, expires_at: future, member_role: 'VIEWER' };
+  const req = {};
 
-  it('accepts an active session with the current token_version', async () => {
-    const s = make({ status: 'ACTIVE', token_version: 2, email_verified_at: new Date(), session_id: SESSION, expires_at: future });
-    const user = await s.validate(base as any);
-    expect(user).toMatchObject({ id: USER, emailVerified: true, mfaEnabled: false, jti: SESSION });
+  it('accepts an active session and takes roles from the database, not the token', async () => {
+    const user = await make({ ...active, email_verified_at: new Date() }).validate(req, base as any);
+    expect(user).toMatchObject({ id: USER, emailVerified: true, mfaEnabled: false, jti: SESSION, role: 'VIEWER', systemRole: 'USER' });
+    expect(db.query.mock.calls[0][1]).toEqual([USER, SESSION, ORG]);
+  });
+
+  it('rejects SUSPENDED and DELETED users immediately (security review S12)', async () => {
+    await expect(make({ ...active, status: 'SUSPENDED' }).validate(req, base as any)).rejects.toThrow(/not active/);
+    await expect(make({ ...active, status: 'DELETED' }).validate(req, base as any)).rejects.toThrow(/not active/);
+    await expect(make(null).validate(req, base as any)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects users removed from the organization the request acts in', async () => {
+    await expect(make({ ...active, member_role: null }).validate(req, base as any)).rejects.toThrow(/membership/);
+    // The membership-verified tenant from TenancyMiddleware takes precedence over the token claim
+    const other = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const user = await make(active).validate({ tenantId: other }, base as any);
+    expect(user.organizationId).toBe(other);
+    expect(db.query.mock.calls[0][1][2]).toBe(other);
+    // Super admins may act without membership
+    expect(await make({ ...active, member_role: null, system_role: 'SUPER_ADMIN' }).validate(req, base as any)).toMatchObject({
+      systemRole: 'SUPER_ADMIN',
+    });
   });
 
   it('rejects revoked, expired or unknown sessions and stale token versions', async () => {
-    await expect(
-      make({ status: 'ACTIVE', token_version: 2, session_id: SESSION, revoked_at: new Date(), expires_at: future }).validate(base as any)
-    ).rejects.toThrow(UnauthorizedException);
-    await expect(
-      make({ status: 'ACTIVE', token_version: 2, session_id: SESSION, expires_at: new Date(Date.now() - 1000) }).validate(base as any)
-    ).rejects.toThrow(UnauthorizedException);
-    await expect(make({ status: 'ACTIVE', token_version: 2, session_id: null }).validate(base as any)).rejects.toThrow(
+    await expect(make({ ...active, revoked_at: new Date() }).validate(req, base as any)).rejects.toThrow(UnauthorizedException);
+    await expect(make({ ...active, expires_at: new Date(Date.now() - 1000) }).validate(req, base as any)).rejects.toThrow(
       UnauthorizedException
     );
-    await expect(
-      make({ status: 'ACTIVE', token_version: 3, session_id: SESSION, expires_at: future }).validate(base as any)
-    ).rejects.toThrow(/revoked/);
-    await expect(make({ status: 'DELETED', token_version: 2 }).validate(base as any)).rejects.toThrow(/not active/);
+    await expect(make({ ...active, session_id: null }).validate(req, base as any)).rejects.toThrow(UnauthorizedException);
+    await expect(make({ ...active, token_version: 3 }).validate(req, base as any)).rejects.toThrow(/revoked/);
   });
 
-  it('never accepts 2FA challenge tokens or malformed session ids as sessions', async () => {
-    const s = make({ status: 'ACTIVE', token_version: 0 });
-    await expect(s.validate({ sub: USER, typ: 'mfa_challenge', organizationId: ORG } as any)).rejects.toThrow();
-    await expect(s.validate({ ...base, jti: "x' OR '1'='1" } as any)).rejects.toThrow();
+  it('never accepts 2FA challenge tokens or malformed ids as sessions', async () => {
+    const s = make(active);
+    await expect(s.validate(req, { sub: USER, typ: 'mfa_challenge', organizationId: ORG } as any)).rejects.toThrow();
+    await expect(s.validate(req, { ...base, jti: "x' OR '1'='1" } as any)).rejects.toThrow();
+    await expect(s.validate(req, { ...base, organizationId: 'not-a-uuid' } as any)).rejects.toThrow();
   });
 });
 

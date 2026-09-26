@@ -66,10 +66,12 @@ interface AuthResponse {
   };
 }
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { evictTenantQueryCache } from '@/lib/query/query-provider';
 
 export default function SignupPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [serverError, setServerError] = React.useState<string | null>(null);
 
   const signupMutation = useMutation({
@@ -84,7 +86,9 @@ export default function SignupPage() {
         }),
       });
     },
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
+      // New identity: drop anything cached while signed out (e.g. a 401 for /auth/me).
+      await evictTenantQueryCache(queryClient);
       if (res?.accessToken) {
         setStoredAuthToken(res.accessToken);
       }
