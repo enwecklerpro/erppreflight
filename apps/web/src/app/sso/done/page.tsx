@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { setStoredAuthToken, setStoredTenantId } from '@/lib/api/custom-instance';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
+import { useT } from '@/i18n/client';
 
 /**
  * Landing page of the OIDC flow. The API redirects here with the session token
@@ -13,9 +14,10 @@ import { evictTenantQueryCache } from '@/lib/query/query-provider';
  * removed from the address bar immediately.
  */
 export default function SsoDonePage() {
+  const t = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState(false);
 
   React.useEffect(() => {
     const frag = new URLSearchParams(window.location.hash.slice(1));
@@ -24,7 +26,7 @@ export default function SsoDonePage() {
     const next = frag.get('next') || '/projects';
     window.history.replaceState(null, '', window.location.pathname);
     if (!token || !org) {
-      setError('The sign-in response was incomplete. Please start again.');
+      setError(true);
       return;
     }
     (async () => {
@@ -39,11 +41,11 @@ export default function SsoDonePage() {
     <div className="py-16 text-center" role="status" aria-live="polite">
       {error ? (
         <p className="text-sm text-destructive">
-          {error} <a className="underline" href="/sso">Back to SSO sign-in</a>
+          {t('app.auth.sso.incomplete')} <a className="underline" href="/sso">{t('app.auth.sso.back')}</a>
         </p>
       ) : (
         <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
-          <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Completing single sign-on…
+          <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" /> {t('app.auth.sso.completing')}
         </p>
       )}
     </div>

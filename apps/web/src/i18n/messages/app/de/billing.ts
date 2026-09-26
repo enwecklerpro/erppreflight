@@ -31,6 +31,37 @@ export const commercial: typeof EnCommercial = {
     INCOMPLETE: 'Unvollständig',
     NONE: 'Kein Abonnement',
   },
+  exports: {
+    panelLabel: 'Berichtsexporte für Analyse {id}',
+    reportType: 'Berichtstyp',
+    formatGroup: 'Exportformat',
+    generating: 'Bericht wird erstellt …',
+    done: '{file} wurde erstellt und heruntergeladen.',
+    limitTitle: 'Monatliches Exportlimit erreicht',
+    limitHint: 'Upgrade unter Einstellungen → Tarif und Abrechnung.',
+    failed: 'Export fehlgeschlagen',
+    previous: 'Frühere Berichte',
+    previousError: 'Frühere Berichte konnten nicht geladen werden',
+    none: 'Für diesen Lauf wurden noch keine Berichte erstellt. Wählen Sie oben ein Format.',
+    download: 'Herunterladen',
+    downloadLabel: '{file} herunterladen',
+    format: {
+      PDF: 'PDF-Bericht',
+      XLSX: 'Excel (XLSX)',
+      CSV: 'CSV-Matrix',
+      JSON_BUNDLE: 'JSON-Paket',
+      HTML_OFFLINE: 'Offline-HTML',
+      ZIP_ALL: 'Alle Formate (ZIP)',
+    },
+    type: {
+      TECHNICAL: 'Technische Befunde',
+      EXECUTIVE: 'Management-Zusammenfassung',
+      PROJECT_READINESS: 'Projektbereitschaft',
+      MIGRATION_BLOCKER: 'Migrationsblocker',
+      CLEAN_CORE: 'Clean Core',
+      AUDIT: 'Audit (mit Prüfpfad)',
+    },
+  },
 };
 
 export const billing: typeof En = {

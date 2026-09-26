@@ -28,6 +28,8 @@ import { artifacts } from './artifacts';
 import { sapNative } from './sapNative';
 import { kg } from './kg';
 import { notifications, inspector } from './notifications';
+import { status, demo, changelog, trust, procurement, feedback, onboarding } from './platform';
+import { objects } from './objects';
 
 export const appDe: AppMessages = {
   ui,
@@ -59,4 +61,12 @@ export const appDe: AppMessages = {
   kg,
   notifications,
   inspector,
+  status,
+  demo,
+  changelog,
+  trust,
+  procurement,
+  feedback,
+  onboarding,
+  objects,
 };

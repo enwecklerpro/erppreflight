@@ -29,6 +29,8 @@ import { artifacts } from './artifacts';
 import { sapNative } from './sapNative';
 import { kg } from './kg';
 import { notifications, inspector } from './notifications';
+import { status, demo, changelog, trust, procurement, feedback, onboarding } from './platform';
+import { objects } from './objects';
 
 export const appEn = {
   ui,
@@ -60,6 +62,14 @@ export const appEn = {
   kg,
   notifications,
   inspector,
+  status,
+  demo,
+  changelog,
+  trust,
+  procurement,
+  feedback,
+  onboarding,
+  objects,
 };
 
 export type AppMessages = typeof appEn;

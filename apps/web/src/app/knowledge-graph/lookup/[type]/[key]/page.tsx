@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { ObjectDetailView } from '@/components/knowledge-graph/object-detail';
 import { fetchPublicObject } from '@/lib/knowledge-graph';
+import { getRequestLocale } from '@/i18n/server';
+import { getT } from '@/i18n/translate';
 
 type Params = { type: string; key: string };
 
@@ -40,13 +42,14 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 
 export default async function PublicObjectPage({ params }: { params: Promise<Params> }) {
   const p = await params;
+  const t = getT(await getRequestLocale());
   let detail;
   try {
     detail = await load(p);
   } catch {
     return (
       <div role="alert" className="mx-auto max-w-2xl rounded-xl border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
-        The knowledge service is temporarily unavailable. Please try again in a moment.
+        {t('app.kg.publicLookup.unavailable')}
       </div>
     );
   }
@@ -54,17 +57,14 @@ export default async function PublicObjectPage({ params }: { params: Promise<Par
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <Link href="/knowledge-graph/lookup" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" aria-hidden="true" /> Clean Core Object Lookup
+        <ArrowLeft className="size-3.5" aria-hidden="true" /> {t('app.kg.publicLookup.back')}
       </Link>
       <ObjectDetailView detail={detail} mode="public" />
       <aside className="rounded-xl border border-border bg-card p-4 text-sm">
-        <p className="font-semibold">Where is {detail.object.objectKey} used in your system?</p>
-        <p className="mt-1 text-muted-foreground">
-          Upload ABAP sources or an abapGit repository and ERP Preflight lists every usage with line-level evidence and
-          the successor to migrate to.
-        </p>
+        <p className="font-semibold">{t('app.kg.publicLookup.usedTitle', { object: detail.object.objectKey })}</p>
+        <p className="mt-1 text-muted-foreground">{t('app.kg.publicLookup.usedBody')}</p>
         <Link href="/signup" className="mt-2 inline-flex items-center gap-1 text-primary hover:underline">
-          Run a full project analysis <ArrowRight className="size-3.5" aria-hidden="true" />
+          {t('app.kg.publicLookup.usedLink')} <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
       </aside>
     </div>

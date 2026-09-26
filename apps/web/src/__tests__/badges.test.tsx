@@ -210,17 +210,17 @@ describe('Accessible Severity & Domain Badge Triad Verification', () => {
       {
         tier: 'TIER_1_CLOUD',
         expectedLabel: 'Tier 1: Cloud',
-        expectedDesc: 'Cloud Compliant (Public API / RAP)',
+        expectedDesc: 'Cloud compliant (public API / RAP)',
       },
       {
         tier: 'TIER_2_DEVELOPER',
         expectedLabel: 'Tier 2: Developer',
-        expectedDesc: 'Developer Extensibility (Transitional Custom Code)',
+        expectedDesc: 'Developer extensibility (transitional custom code)',
       },
       {
         tier: 'TIER_3_CLASSIC',
         expectedLabel: 'Tier 3: Classic',
-        expectedDesc: 'Classic Modification (Prohibited Migration Hazard)',
+        expectedDesc: 'Classic modification (blocks the move to the cloud)',
       },
     ];
 

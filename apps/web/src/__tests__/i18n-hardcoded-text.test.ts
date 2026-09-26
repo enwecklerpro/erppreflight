@@ -86,13 +86,16 @@ function stripComments(src: string): string {
   return src
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '{}')
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+    // Template literals hold data (sample payloads, URLs, class names), never JSX; keep line numbers.
+    .replace(/`(?:[^`\\]|\\.)*`/g, (m) => m.replace(/[^\n]/g, ' '));
 }
 
 /** A string is "English copy" when it contains a word with 3+ letters that has a lower-case letter. */
 function looksLikeCopy(text: string): boolean {
   const t = text.replace(/&[a-z]+;|&#\d+;/g, ' ').trim();
   if (!t || ALLOWED_TEXT.has(t)) return false;
+  if (/^https?:\/\/\S+$/.test(t)) return false; // example URLs
   return /[A-Za-z]*[a-z][A-Za-z]*/.test(t) && /\b[A-Za-z]*[a-z][A-Za-z]{1,}\b/.test(t) && /[a-z]{2,}/.test(t);
 }
 

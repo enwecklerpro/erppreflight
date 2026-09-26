@@ -30,6 +30,37 @@ export const commercial = {
     INCOMPLETE: 'Incomplete',
     NONE: 'No subscription',
   },
+  exports: {
+    panelLabel: 'Report exports for analysis {id}',
+    reportType: 'Report type',
+    formatGroup: 'Export format',
+    generating: 'Generating report…',
+    done: '{file} was generated and downloaded.',
+    limitTitle: 'Monthly export limit reached',
+    limitHint: 'Upgrade in Settings → Plan and billing.',
+    failed: 'Export failed',
+    previous: 'Previous reports',
+    previousError: 'Could not load previous reports',
+    none: 'No reports generated for this run yet. Choose a format above.',
+    download: 'Download',
+    downloadLabel: 'Download {file}',
+    format: {
+      PDF: 'PDF report',
+      XLSX: 'Excel (XLSX)',
+      CSV: 'CSV matrix',
+      JSON_BUNDLE: 'JSON bundle',
+      HTML_OFFLINE: 'Offline HTML',
+      ZIP_ALL: 'All formats (ZIP)',
+    },
+    type: {
+      TECHNICAL: 'Technical findings',
+      EXECUTIVE: 'Executive summary',
+      PROJECT_READINESS: 'Project readiness',
+      MIGRATION_BLOCKER: 'Migration blockers',
+      CLEAN_CORE: 'Clean Core',
+      AUDIT: 'Audit (with audit trail)',
+    },
+  },
 };
 
 export const billing = {

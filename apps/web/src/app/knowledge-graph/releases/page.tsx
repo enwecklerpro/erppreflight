@@ -22,8 +22,10 @@ function DiffTable({ page, caption }: { page: DiffPage; caption: string }) {
   if (page.items.length === 0) {
     return <p className="p-4 text-sm text-muted-foreground">{t('app.kg.releases.noDiff')}</p>;
   }
-  const state = (s: { supportState: string } | null) =>
-    s ? isSupportState(s.supportState) ? <SupportStateBadge state={s.supportState} /> : s.supportState : <span className="text-muted-foreground">{t('app.kg.releases.notListed')}</span>;
+  const state = (s: { supportState: string } | null) => {
+    if (!s) return <span className="text-muted-foreground">{t('app.kg.releases.notListed')}</span>;
+    return isSupportState(s.supportState) ? <SupportStateBadge state={s.supportState} /> : s.supportState;
+  };
   const succ = (s: { successors?: unknown } | null) =>
     s && Array.isArray(s.successors) && s.successors.length > 0
       ? (s.successors as Array<{ objectKey?: string }>).map((x) => x.objectKey).filter(Boolean).join(', ')

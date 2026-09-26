@@ -100,7 +100,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                   ))
               ) : (
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  {selectedValues.size} selected
+                  {selectedValues.size} {t('app.dataTable.selected')}
                 </span>
               )}
             </div>

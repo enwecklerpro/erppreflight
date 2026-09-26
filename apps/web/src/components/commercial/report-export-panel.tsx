@@ -3,15 +3,13 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, Download, FileJson, FileSpreadsheet, FileText, Globe, Loader2, Table2 } from 'lucide-react';
-import { ErrorState, InlineSpinner, SkeletonBlock, errorMessage } from '@/components/commercial/states';
+import { ErrorState, InlineSpinner, SkeletonBlock, useCommercialErrorText } from '@/components/commercial/states';
+import { useFmt, useLabel, useT } from '@/i18n/client';
 import {
   EXPORT_FORMATS,
-  EXPORT_FORMAT_LABELS,
   REPORT_TYPES,
-  REPORT_TYPE_LABELS,
   downloadReportFile,
   fetchAnalysisReports,
-  formatBytes,
   generateReport,
   type ReportFormat,
   type ReportTypeId,
@@ -32,6 +30,10 @@ const FORMAT_ICONS: Record<ReportFormat, React.ComponentType<{ className?: strin
  * download it through the authenticated API; lists previously generated reports.
  */
 export function ReportExportPanel({ projectId, analysisId }: { projectId: string; analysisId: string }) {
+  const t = useT();
+  const label = useLabel();
+  const fmt = useFmt();
+  const errorText = useCommercialErrorText();
   const queryClient = useQueryClient();
   const [reportType, setReportType] = React.useState<ReportTypeId>('TECHNICAL');
   const [lastMessage, setLastMessage] = React.useState<string | null>(null);
@@ -49,7 +51,7 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
       return created;
     },
     onSuccess: (created) => {
-      setLastMessage(`${created.fileName} generated and downloaded.`);
+      setLastMessage(t('app.commercial.exports.done', { file: created.fileName }));
       queryClient.invalidateQueries({ queryKey: reportsKey });
       queryClient.invalidateQueries({ queryKey: ['billing', 'overview'] });
     },
@@ -64,26 +66,26 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
   return (
     <section
       className="mt-3 rounded-lg border border-border bg-muted/20 p-4 space-y-4"
-      aria-label={`Report exports for analysis ${analysisId.slice(0, 8)}`}
+      aria-label={t('app.commercial.exports.panelLabel', { id: analysisId.slice(0, 8) })}
       data-testid={`export-panel-${analysisId}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-        <label className="text-xs font-medium text-foreground flex flex-col gap-1">
-          Report type
+        <label className="text-sm font-medium text-foreground flex flex-col gap-1">
+          {t('app.commercial.exports.reportType')}
           <select
             value={reportType}
             onChange={(e) => setReportType(e.target.value as ReportTypeId)}
             className="h-9 rounded-lg border border-input bg-background px-2 text-sm"
             data-testid="report-type-select"
           >
-            {REPORT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {REPORT_TYPE_LABELS[t]}
+            {REPORT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {label('app.commercial.exports.type', type)}
               </option>
             ))}
           </select>
         </label>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Export format">
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t('app.commercial.exports.formatGroup')}>
           {EXPORT_FORMATS.map((format) => {
             const Icon = FORMAT_ICONS[format];
             const pending = exportMutation.isPending && exportMutation.variables === format;
@@ -104,7 +106,7 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
                 ) : (
                   <Icon className="size-3.5" aria-hidden="true" />
                 )}
-                {EXPORT_FORMAT_LABELS[format]}
+                {label('app.commercial.exports.format', format)}
               </button>
             );
           })}
@@ -112,18 +114,18 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
       </div>
 
       <div aria-live="polite">
-        {exportMutation.isPending && <InlineSpinner label="Generating report…" />}
+        {exportMutation.isPending && <InlineSpinner label={t('app.commercial.exports.generating')} />}
         {lastMessage && !exportMutation.isPending && (
-          <p className="text-xs text-foreground" role="status" data-testid="export-status">
+          <p className="text-sm text-foreground" role="status" data-testid="export-status">
             {lastMessage}
           </p>
         )}
         {exportMutation.isError && (
           <ErrorState
-            title={limitHit ? 'Monthly export limit reached' : 'Export failed'}
+            title={limitHit ? t('app.commercial.exports.limitTitle') : t('app.commercial.exports.failed')}
             error={
               limitHit
-                ? new Error(`${errorMessage(exportMutation.error)} Upgrade in Settings → Plan & billing.`)
+                ? new Error(`${errorText(exportMutation.error)} ${t('app.commercial.exports.limitHint')}`)
                 : exportMutation.error
             }
           />
@@ -131,13 +133,13 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
       </div>
 
       <div>
-        <h4 className="text-xs font-semibold text-foreground mb-2">Previous reports</h4>
+        <h4 className="text-sm font-semibold text-foreground mb-2">{t('app.commercial.exports.previous')}</h4>
         {reports.isLoading ? (
           <SkeletonBlock className="h-16" />
         ) : reports.isError ? (
-          <ErrorState title="Could not load previous reports" error={reports.error} onRetry={() => reports.refetch()} />
+          <ErrorState title={t('app.commercial.exports.previousError')} error={reports.error} onRetry={() => reports.refetch()} />
         ) : reports.data && reports.data.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No reports generated for this run yet. Choose a format above.</p>
+          <p className="text-sm text-muted-foreground">{t('app.commercial.exports.none')}</p>
         ) : (
           <ul className="divide-y divide-border text-xs" data-testid="report-history">
             {reports.data?.map((r) => (
@@ -145,8 +147,8 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
                 <span className="min-w-0">
                   <span className="font-semibold">{r.format}</span>{' '}
                   <span className="text-muted-foreground">
-                    · {REPORT_TYPE_LABELS[r.reportType as ReportTypeId] ?? r.reportType} · {formatBytes(r.fileSize)} ·{' '}
-                    {new Date(r.createdAt).toLocaleString()}
+                    · {label('app.commercial.exports.type', r.reportType)} · {fmt.bytes(r.fileSize)} ·{' '}
+                    {fmt.dateTime(r.createdAt)}
                   </span>
                   {r.checksumSha256 && (
                     <span className="block font-mono text-[10px] text-muted-foreground break-all">sha256 {r.checksumSha256}</span>
@@ -157,15 +159,15 @@ export function ReportExportPanel({ projectId, analysisId }: { projectId: string
                   onClick={() => redownload.mutate({ id: r.id, fileName: r.fileName })}
                   disabled={redownload.isPending}
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
-                  aria-label={`Download ${r.fileName}`}
+                  aria-label={t('app.commercial.exports.downloadLabel', { file: r.fileName })}
                 >
-                  <Download className="size-3" aria-hidden="true" /> Download
+                  <Download className="size-3" aria-hidden="true" /> {t('app.commercial.exports.download')}
                 </button>
               </li>
             ))}
           </ul>
         )}
-        {redownload.isError && <p role="alert" className="text-xs text-destructive mt-1">{errorMessage(redownload.error)}</p>}
+        {redownload.isError && <p role="alert" className="text-xs text-destructive mt-1">{errorText(redownload.error)}</p>}
       </div>
     </section>
   );

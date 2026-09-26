@@ -217,9 +217,9 @@ async function api(method, p, token, body) {
   await step('17 SSO start page', async () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${WEB}/sso`);
-    await page.getByLabel(/Work e-mail/).fill(`nobody@unknown-${R}.test`);
+    await page.getByLabel(/Work e-?mail/).fill(`nobody@unknown-${R}.test`);
     await page.getByRole('button', { name: /Continue with SSO/ }).click();
-    await page.getByText(/not configured for this e-mail domain/).waitFor({ timeout: 10000 });
+    await page.getByText(/not configured for this e-?mail domain/).waitFor({ timeout: 10000 });
   });
 
   await browser.close();
