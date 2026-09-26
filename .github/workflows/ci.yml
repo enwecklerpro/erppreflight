@@ -84,14 +84,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: services/analysis-python/requirements*.txt
-      - name: Install Python dependencies
+      - name: Install Python dependencies (runtime + test tooling from requirements-dev.txt)
         run: |
           python -m pip install --upgrade pip
-          pip install -r services/analysis-python/requirements.txt
-          if [ -f services/analysis-python/requirements-dev.txt ]; then
-            pip install -r services/analysis-python/requirements-dev.txt
-          fi
-          pip install pytest pytest-asyncio hypothesis
+          pip install -r services/analysis-python/requirements-dev.txt
       - name: Analysis service test suite (services/analysis-python/tests)
         run: python -m pytest services/analysis-python/tests -q --durations=10
       - name: Opaque-box E2E contract suite + redaction stress (tests/e2e)
@@ -196,7 +192,7 @@ jobs:
           docker compose -f docker-compose.coolify.yml -f tests/ci/compose.ci.yml up -d postgres redis minio clamav
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Python dependencies
+      - name: Install Python dependencies (runtime only, like the analysis image)
         run: |
           python -m pip install --upgrade pip
           pip install -r services/analysis-python/requirements.txt

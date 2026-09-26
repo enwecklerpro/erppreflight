@@ -14,11 +14,15 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libxml2-dev libxslt-dev && \
     rm -rf /var/lib/apt/lists/*
 
+# Runtime dependencies only: test tooling (pytest, pytest-asyncio, pytest-cov, hypothesis) is in
+# requirements-dev.txt, which CI and local test runs install, and never ships in this image.
 COPY services/analysis-python/requirements.txt services/analysis-python/requirements-otel.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 # Tracing packages are inert unless OTEL_EXPORTER_OTLP_ENDPOINT is set; build with INSTALL_OTEL=false to omit them.
 ARG INSTALL_OTEL=true
 RUN if [ "$INSTALL_OTEL" = "true" ]; then pip install --no-cache-dir --user -r requirements-otel.txt; fi
+# Guard: fail the build if a test-only package slipped into the runtime dependency tree.
+RUN python -c "import importlib.util as u, sys; bad = [m for m in ('pytest', 'pytest_asyncio', 'pytest_cov', 'hypothesis') if u.find_spec(m)]; print('test-only packages in runtime image:', bad) if bad else None; sys.exit(1 if bad else 0)"
 
 # Stage 2: Hardened production runner
 FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runner

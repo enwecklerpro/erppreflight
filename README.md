@@ -24,7 +24,7 @@ findings that point to the exact file, line and SHA-256.
 pnpm install
 pnpm --filter "./packages/*" build
 pnpm run typecheck && pnpm run lint && pnpm run test
-python -m pip install -r services/analysis-python/requirements.txt && pnpm run test:python
+python -m pip install -r services/analysis-python/requirements-dev.txt && pnpm run test:python
 ```
 
 Full local stack against real Postgres/Redis/MinIO/ClamAV, exactly as CI runs it:
