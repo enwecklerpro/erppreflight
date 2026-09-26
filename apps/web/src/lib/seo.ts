@@ -32,6 +32,10 @@ export const PRIVATE_ROUTE_PREFIXES = [
   '/knowledge',
   '/login',
   '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/accept-invite',
   '/api',
 ] as const;
 

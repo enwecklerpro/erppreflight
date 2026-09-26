@@ -14,7 +14,7 @@ import {
 } from './api/custom-instance';
 
 export const accountKeys = {
-  me: ['auth', 'me'] as const,
+  me: ['account', 'me'] as const,
   twoFactor: ['account', 'two-factor'] as const,
   sessions: ['account', 'sessions'] as const,
   organizations: ['account', 'organizations'] as const,
