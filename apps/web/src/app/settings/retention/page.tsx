@@ -208,7 +208,7 @@ export default function RetentionSettingsPage() {
           ) : query.isError ? (
             <ErrorState title="Could not load retention settings" error={query.error} onRetry={() => query.refetch()} />
           ) : query.data ? (
-            <RetentionForm key={`${query.data.artifactRetentionDays}-${query.data.reportRetentionDays}`} settings={query.data} />
+            <RetentionForm settings={query.data} />
           ) : null}
           <ReportBrandingCard />
         </div>

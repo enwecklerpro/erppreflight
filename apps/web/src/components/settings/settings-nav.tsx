@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CreditCard, History, Key, Trash2 } from 'lucide-react';
+import { CreditCard, History, Key, LifeBuoy, Trash2 } from 'lucide-react';
 
 const ITEMS = [
   { href: '/settings', label: 'Developer & AI', icon: Key },
   { href: '/settings/billing', label: 'Plan & billing', icon: CreditCard },
   { href: '/settings/audit', label: 'Audit log', icon: History },
-  { href: '/settings/retention', label: 'Data retention', icon: Trash2 },
+  { href: '/settings/retention', label: 'Data & reports', icon: Trash2 },
+  { href: '/settings/support', label: 'Support', icon: LifeBuoy },
 ] as const;
 
 /** Secondary navigation shared by all organization settings pages. */

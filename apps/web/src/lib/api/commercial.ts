@@ -33,7 +33,7 @@ export class ContractError extends Error {
   }
 }
 
-function parse<S extends z.ZodTypeAny>(schema: S, endpoint: string, data: unknown): z.output<S> {
+export function parse<S extends z.ZodTypeAny>(schema: S, endpoint: string, data: unknown): z.output<S> {
   const res = schema.safeParse(data);
   if (!res.success) throw new ContractError(endpoint, res.error.issues);
   return res.data;
@@ -392,6 +392,11 @@ export async function searchAdminTenants(q: string): Promise<TenantSearchItem[]>
 }
 
 export const TenantDetailSchema = z.object({
+  activeSupportGrant: z
+    .object({ id: z.string(), reason: z.string(), expiresAt: z.string(), grantedByEmail: z.string().nullable() })
+    .passthrough()
+    .nullable()
+    .optional(),
   organization: z.object({
     id: z.string(),
     name: z.string(),

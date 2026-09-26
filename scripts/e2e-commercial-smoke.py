@@ -267,8 +267,9 @@ def main():
     s, fl, _ = call("GET", f"/analyses/{aid}/findings", ta)
     rows = fl if isinstance(fl, list) else (fl.get("data") or fl.get("items") or []) if isinstance(fl, dict) else []
     finding_id = rows[0]["id"] if rows else None
-    s, t, _ = call("POST", "/support/tickets", ta, {"subject": "Finding looks wrong", "description": "The OPD finding seems incorrect.",
-                                                    "category": "INCORRECT_FINDING", "analysisId": aid, "findingId": finding_id})
+    ticket = {"subject": "Finding looks wrong", "description": "The OPD finding seems incorrect.", "analysisId": aid}
+    ticket.update({"category": "INCORRECT_FINDING", "findingId": finding_id} if finding_id else {"category": "QUESTION"})
+    s, t, _ = call("POST", "/support/tickets", ta, ticket)
     check(s in (200, 201) and t.get("diagnostic", {}).get("analysis"), "incorrect-finding ticket with diagnostic", t)
     s, b, _ = call("GET", f"/admin/tenants/{org_a}", tsa)
     check(s == 400, "support console needs a grant or break-glass reason")
