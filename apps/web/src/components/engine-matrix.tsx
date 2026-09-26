@@ -287,7 +287,7 @@ export function EngineMatrix() {
                       <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
                         {domainLabel(eng.domain)}
                       </span>
-                      <h3 className="font-bold text-sm text-foreground mt-0.5">
+                      <h3 className="font-bold text-sm text-foreground mt-0.5" translate="no">
                         {eng.name}
                       </h3>
                     </div>

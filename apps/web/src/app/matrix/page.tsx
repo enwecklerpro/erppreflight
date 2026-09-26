@@ -103,7 +103,7 @@ export default function ReleaseMatrixPage() {
                   return (
                     <tr key={item.engineId} className="hover:bg-muted/40 transition-colors align-top">
                       <td className="p-3">
-                        <div className="font-bold text-foreground">{item.engineName}</div>
+                        <div className="font-bold text-foreground" translate="no">{item.engineName}</div>
                         <div className="font-mono text-muted-foreground text-xs">{item.engineId}</div>
                       </td>
                       <td className="p-3 text-muted-foreground">{domainLabel(item.domain)}</td>

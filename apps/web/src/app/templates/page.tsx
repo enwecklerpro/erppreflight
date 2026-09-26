@@ -154,7 +154,8 @@ export default function TemplatesPage() {
                     {template.isSystemTemplate ? t('app.templates.system') : t('app.templates.custom')}
                   </span>
                 </div>
-                <div>
+                {/* Template content is authored data (system catalog or your organization), shown as written. */}
+                <div translate="no">
                   <h2 className="text-base font-bold text-foreground break-words">{template.name}</h2>
                   <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3 leading-relaxed">{template.description}</p>
                 </div>
@@ -170,7 +171,7 @@ export default function TemplatesPage() {
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs uppercase font-bold text-muted-foreground">{t('app.templates.checks')}</span>
-                  <ul className="text-sm text-muted-foreground space-y-1">
+                  <ul className="text-sm text-muted-foreground space-y-1" translate="no">
                     {template.standardChecks.slice(0, 2).map((check, idx) => (
                       <li key={idx} className="flex items-center gap-1.5 min-w-0">
                         <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden="true" />

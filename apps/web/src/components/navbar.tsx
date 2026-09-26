@@ -136,10 +136,10 @@ export function Navbar() {
   return (
     <header className="border-b border-border bg-card sticky top-0 z-40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-        <div className="flex items-center min-w-0">
+        <div className="flex items-center shrink-0">
           <Link href={homeHref} className="flex items-center gap-3 shrink-0" aria-label={t('common.brand')}>
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
-              <Layers className="h-6 w-6" />
+              <Layers className="h-6 w-6" aria-hidden="true" />
             </div>
             <span className="hidden sm:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               {t('common.brand')}
@@ -147,7 +147,7 @@ export function Navbar() {
           </Link>
         </div>
 
-        <nav className="hidden lg:flex space-x-1" aria-label={t('nav.primary')}>
+        <nav className="hidden lg:flex min-w-0 space-x-1" aria-label={t('nav.primary')}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const path = hrefPath(item.href);
@@ -185,7 +185,7 @@ export function Navbar() {
             title={t('nav.searchTitle')}
           >
             <Search className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="text-[11px]">{t('nav.search')}</span>
+            <span className="hidden xl:inline text-[11px] whitespace-nowrap">{t('nav.search')}</span>
             <kbd className="font-mono text-[9px] bg-background border border-border px-1 py-0.2 rounded font-bold">
               ⌘K
             </kbd>
@@ -194,9 +194,9 @@ export function Navbar() {
           {/* Demo Sandbox Link */}
           <Link
             href="/demo"
-            className="hidden xl:inline-flex whitespace-nowrap items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 font-semibold transition-colors"
+            className="hidden 2xl:inline-flex whitespace-nowrap items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 hover:bg-amber-500/20 font-semibold transition-colors"
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
             <span>{t('nav.demo')}</span>
           </Link>
 
@@ -206,7 +206,7 @@ export function Navbar() {
             <div className="flex items-center gap-1.5 sm:gap-3">
               <NotificationsBell />
               <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
-              <div className="hidden xl:flex flex-col items-end">
+              <div className="hidden 2xl:flex flex-col items-end">
                 <span className="font-semibold text-foreground">{currentUser.email}</span>
                 <span
                   className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
@@ -225,7 +225,7 @@ export function Navbar() {
                 aria-label={t('nav.logout')}
               >
                 <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">{t('nav.logout')}</span>
+                <span className="hidden 2xl:inline">{t('nav.logout')}</span>
               </button>
             </div>
           ) : (

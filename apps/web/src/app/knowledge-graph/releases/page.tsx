@@ -160,7 +160,7 @@ export default function ReleasesPage() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-8">
       <KnowledgeGraphNav />
       <header>
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -224,17 +224,17 @@ export default function ReleasesPage() {
           {t('app.kg.releases.compare')}
         </h2>
         <div className="flex flex-wrap items-end gap-3 text-xs">
-          <label className="flex flex-col gap-1">
+          <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
             <span className="text-muted-foreground">{t('app.kg.releases.from')}</span>
-            <select value={from} onChange={(e) => { setFrom(e.target.value); setOffset(0); }} className="rounded-md border border-input bg-background px-2 py-1.5">
+            <select value={from} onChange={(e) => { setFrom(e.target.value); setOffset(0); }} className="w-full max-w-full rounded-md border border-input bg-background px-2 py-1.5 sm:max-w-xs">
               {releases.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
             <span className="text-muted-foreground">{t('app.kg.releases.to')}</span>
-            <select value={to} onChange={(e) => { setTo(e.target.value); setOffset(0); }} className="rounded-md border border-input bg-background px-2 py-1.5">
+            <select value={to} onChange={(e) => { setTo(e.target.value); setOffset(0); }} className="w-full max-w-full rounded-md border border-input bg-background px-2 py-1.5 sm:max-w-xs">
               {releases.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
@@ -249,7 +249,7 @@ export default function ReleasesPage() {
         ) : diff.data ? (
           <div className="space-y-2">
             <SummaryChips summary={diff.data.summary} value={changeType} onChange={(v) => { setChangeType(v); setOffset(0); }} />
-            <div className={`rounded-xl border border-border ${diff.isFetching ? 'opacity-70' : ''}`}>
+            <div className={`min-w-0 overflow-hidden rounded-xl border border-border ${diff.isFetching ? 'opacity-70' : ''}`}>
               <DiffTable page={diff.data} caption={t('app.kg.releases.diffCaption')} />
               <Pager offset={offset} total={diff.data.total} onChange={setOffset} />
             </div>

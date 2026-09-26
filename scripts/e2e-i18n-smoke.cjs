@@ -71,7 +71,8 @@ async function mailLink(to, template) {
 
 function wordRegex(phrase) {
   const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^A-Za-zÄÖÜäöüß])${esc}($|[^A-Za-zÄÖÜäöüß])`);
+  // Hyphenated German compounds (e.g. "Upgrade-Stabilität") are not English copy.
+  return new RegExp(`(^|[^A-Za-zÄÖÜäöüß-])${esc}($|[^A-Za-zÄÖÜäöüß-])`);
 }
 const DENY = EN_DENYLIST.map((p) => [p, wordRegex(p)]);
 
@@ -169,6 +170,18 @@ const DENY = EN_DENYLIST.map((p) => [p, wordRegex(p)]);
     const info = await page.evaluate(() => ({
       lang: document.documentElement.lang,
       text: document.body.innerText,
+      // Content marked translate="no" (canonical SAP/engine names, customer data) is not UI copy.
+      uiText: (() => {
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll('[translate="no"], script, style').forEach((el) => el.remove());
+        document.body.appendChild(clone);
+        clone.style.position = 'absolute';
+        clone.style.left = '-99999px';
+        // Product names that contain English words.
+        const text = clone.innerText.replace(/GitHub Actions|Cloud ALM|Clean Core/g, ' ');
+        clone.remove();
+        return text;
+      })(),
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
       // Outermost elements sticking out on the right (diagnostics for overflow failures).
@@ -186,8 +199,13 @@ const DENY = EN_DENYLIST.map((p) => [p, wordRegex(p)]);
     const raw = info.text.match(RAW_KEY);
     if (raw) problems.push(`raw dictionary key rendered: ${raw[1]}`);
     if (locale === 'de' && !p.partial) {
-      const hits = DENY.filter(([, re]) => re.test(info.text)).map(([phrase]) => phrase);
-      if (hits.length) problems.push(`English text on German page: ${hits.slice(0, 8).join(', ')}`);
+      const hits = DENY.map(([phrase, re]) => {
+        const m = info.uiText.match(re);
+        if (!m) return null;
+        const at = m.index ?? 0;
+        return `${phrase} (…${info.uiText.slice(Math.max(0, at - 25), at + phrase.length + 25).replace(/\s+/g, ' ')}…)`;
+      }).filter(Boolean);
+      if (hits.length) problems.push(`English text on German page: ${hits.slice(0, 8).join('; ')}`);
     }
     if (info.scrollWidth > info.innerWidth + 1) problems.push(`horizontal scroll (${info.scrollWidth}px > ${info.innerWidth}px: ${info.offenders.join(' ; ')})`);
     if (problems.length) fail(`${p.path} [${locale} ${width}px] ${problems.join(' | ')}`);

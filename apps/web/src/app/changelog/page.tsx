@@ -14,7 +14,7 @@ function Section({ title, items, tone }: { title: string; items: string[]; tone:
   return (
     <div className="space-y-1.5 pt-2">
       <h4 className={`text-xs font-bold uppercase tracking-wider ${tone}`}>{title}</h4>
-      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">
+      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90" translate="no">
         {items.map((item, idx) => (
           <li key={idx}>{item}</li>
         ))}
@@ -125,7 +125,8 @@ export default function ChangelogPage() {
                     </div>
                   </div>
 
-                  <div>
+                  {/* Release notes are published content, shown as written. */}
+                  <div translate="no">
                     <h2 className="text-lg font-bold text-foreground">{item.title}</h2>
                     <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{item.summary}</p>
                   </div>
@@ -140,7 +141,7 @@ export default function ChangelogPage() {
                         <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                         {t('app.changelog.breakingChanges')}
                       </h4>
-                      <ul className="list-disc pl-5 space-y-0.5">
+                      <ul className="list-disc pl-5 space-y-0.5" translate="no">
                         {item.breakingChanges.map((brk, idx) => (
                           <li key={idx}>{brk}</li>
                         ))}
