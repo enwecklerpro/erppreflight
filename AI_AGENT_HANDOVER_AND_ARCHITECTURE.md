@@ -2,7 +2,7 @@
 > **Document Purpose**: Authoritative handoff and onboarding specification for autonomous AI coding agents and enterprise engineers.  
 > **Target Repository**: `https://github.com/enwecklerpro/erppreflight`  
 > **Production Target**: Hostinger VPS (Ubuntu 22.04 / 24.04 LTS) with Coolify v4+ or Docker Compose  
-> **Current Baseline**: commit `6303f1d` (2026-09-26, all remediation workstreams merged). Verdict and owner actions: `RELEASE_READINESS_REPORT.md`; canonical per-capability status: `docs/CURRENT_PRODUCT_STATUS.md`; commands and test counts: `docs/E2E_TEST_REPORT.md`. **Nothing on this commit has been deployed or verified in production** (`docs/LIVE_PRODUCTION_VERIFICATION.md`).  
+> **Current Baseline**: commit `0aaa83d` (2026-09-26, all remediation workstreams + wave 5 merged: session-security, analysis-lifecycle, tenant-access-admin, admin-governance, i18n-completion, engines-completion, platform-hardening, ops-quality; `main` carries the same content via PR #2). Verdict and owner actions: `RELEASE_READINESS_REPORT.md`; canonical per-capability status: `docs/CURRENT_PRODUCT_STATUS.md`; commands and test counts: `docs/E2E_TEST_REPORT.md`; open items: `docs/KNOWN_LIMITATIONS.md`. **Nothing on this commit has been deployed or verified in production** — Coolify did not auto-deploy the merge (owner: Redeploy, or set the Coolify instance domain `https://coolify.erppreflight.com`); GitHub Actions jobs fail at account level (`docs/LIVE_PRODUCTION_VERIFICATION.md`).  
 
 ---
 
@@ -29,7 +29,7 @@
                         +----------------------------------+                         +----------------------------------+
                         |     services/analysis-python     |                         |             Postgres             |
                         |      Python 3.13 FastAPI         |                         |      PostgreSQL 16 + pgvector    |
-                        |  19 Deterministic SAP Engines    |                         |  62 tenant tables, FORCE RLS     |
+                        |  19 Deterministic SAP Engines    |                         |  67 tenant tables, FORCE RLS     |
                         +----------------------------------+                         +----------------------------------+
                                          |                                                        |
                                          | Ingestion Verification                                 | Cache & Queues
@@ -60,13 +60,14 @@ The repository is managed via `pnpm` workspaces (v9+) and `turbo` pipelines.
 H:/erppreflight/
 ├── apps/
 │   ├── web/                        # Next.js 15 App Router Frontend (Port 3000)
-│   │   ├── src/app/                # 64 pages: public [locale]/ (EN/DE site, pricing, tools, sap/*, docs, knowledge, legal) + app routes
+│   │   ├── src/app/                # 71 pages: public [locale]/ (EN/DE site, pricing, tools, sap/*, docs, knowledge, legal) + app routes
+│   │   │                           #   wave 5: projects/[id]/analyses/[analysisId], admin/{rules,ai,knowledge,sources}, login/magic, suspended
 │   │   ├── src/components/         # Accessible UI components (DataTable, Form, Badges)
 │   │   ├── src/hooks/              # TanStack Query & Table hooks
 │   │   └── src/lib/                # SSR-safe QueryClient, API clients, utilities
 │   │
 │   ├── api/                        # NestJS 11 Core SaaS Backend (Port 3001)
-│   │   ├── src/modules/auth/       # Multi-tenant Argon2id auth, JWT, session scoping
+│   │   ├── src/modules/auth/       # Argon2id auth, server sessions, HttpOnly cookie sessions + CsrfGuard, magic link (025)
 │   │   ├── src/modules/projects/   # Project lifecycle, baselines, and drift
 │   │   ├── src/modules/findings/   # Preflight findings, review workflows, and cascades
 │   │   ├── src/modules/changesets/ # What-If simulation engine & blast radius traversal
@@ -86,6 +87,10 @@ H:/erppreflight/
 │   │   ├── src/modules/{connectors,sso,partners}/      # 9 connector types, work items, local-agent API, OIDC + SCIM, partner grants (015)
 │   │   ├── src/modules/findings/, lab/regression/      # finding lifecycle, Test Lab (017)
 │   │   ├── src/modules/{router,analyses}/              # Problem Router, SSE progress, Full Project Preflight (018); run detail, cancel, rerun (020)
+│   │   ├── src/modules/tenant-access/                  # suspension, trial extension, impersonation, IP allowlist, ticket threads (021)
+│   │   ├── src/modules/governance/, ai-gateway/        # Rule / Source Sync Admin, knowledge-graph admin view; AI Admin (022)
+│   │   ├── src/modules/api-baselines/                  # API Change Guard stored baselines (023)
+│   │   ├── src/modules/rate-limit/                     # Redis-backed distributed rate limiting (024: usage metric, preferred_locale)
 │   │   ├── src/modules/public-tools/                   # free tools + programmatic SEO gate
 │   │   └── src/observability/      # Pino logger, OTel tracing, Sentry-protocol reporter, Scalar API reference
 │   │
@@ -105,7 +110,8 @@ H:/erppreflight/
 │       │   ├── mfs_blackbox.py     # Handling Unit conveyor state machine engine
 │       │   └── ...                 # 15 additional domain-specific engines
 │       ├── src/platform/           # Evidence engine, confidence classifier, AI problem router
-│       └── tests/                  # 1169 pytest tests (+1 optional-dependency skip): unit, adversarial, golden fixtures, Hypothesis
+│       ├── src/selftest/           # Golden rule self-test (157 cases in golden/manifest.json) for the Rule Admin publish gate
+│       └── tests/                  # 1665 pytest tests (+1 optional-dependency skip): unit, adversarial, golden fixtures, Hypothesis
 │
 ├── packages/
 │   ├── database/                   # Drizzle ORM schema & client (Part 21.42 compliance)
@@ -127,19 +133,23 @@ H:/erppreflight/
 │       ├── Dockerfile.api          # NestJS Fastify production build
 │       ├── Dockerfile.analysis     # Python 3.13 FastAPI microservice
 │       ├── Dockerfile.local-agent  # On-premise agent image
-│       └── api-entrypoint.sh       # Migration auto-runner entrypoint
+│       ├── Dockerfile.db-backup    # pre-migration pg_dump job (premigration-backup.sh)
+│       └── api-entrypoint.sh       # API entrypoint; mode `migrate` = one-shot migration job
+│   └── observability/              # opt-in Prometheus (14 alert rules) + Grafana dashboard profile
 │
 ├── tests/
-│   └── e2e/                        # End-to-End Playwright test suite
-│       ├── preflight-pipeline.mocked-ui.spec.ts # Category A: UI Contract tests
-│       └── preflight-pipeline.live.spec.ts      # Category B: Live multi-container E2E
+│   └── e2e/                        # End-to-End Playwright test suite (+ Python tier tests)
+│       ├── preflight-pipeline.mocked-ui.spec.ts # Category A: auth UI contract tests
+│       ├── preflight-pipeline.live.spec.ts      # Category B: live pipeline against the real stack
+│       └── accessibility.live.spec.ts           # axe-core WCAG 2.2 AA audit (playwright.live.config.ts)
 │
 ├── docker-compose.coolify.yml      # ★ LIVE production compose deployed by Coolify on the Hostinger VPS
 ├── .env.coolify.example            # Env template matching the live compose file
 ├── docker-compose.yaml             # Legacy compose (no ClamAV) — reference only
 ├── server.js                       # Alternative: Hostinger hPanel Node.js startup file (Next.js only)
 ├── scripts/                        # Quality-gate checks + Coolify deploy/monitor helpers (*.py)
-├── .github/workflows/              # ci.yml, security.yml, docker.yml, release.yml (never run on GitHub yet)
+├── .github/workflows/              # ci.yml, security.yml, docker.yml, release.yml (never run on GitHub: jobs fail at account level)
+├── .github/CODEOWNERS, BRANCH_PROTECTION.md
 ├── AGENTS.md                       # Binding repository rules & Cardinal Axioms
 ├── ARCHITECTURE_DECISIONS.md       # Authoritative ADR records (Base UI, Drizzle, etc.)
 └── package.json                    # Workspace orchestrator & verification scripts
@@ -231,6 +241,9 @@ Access the Coolify dashboard at `http://[HOSTINGER_VPS_IP]:8000`.
    - Compose File Path: `/docker-compose.coolify.yml` (repo root — see warning in 4.1)
 3. Configure the **Environment Variables** in Coolify using the values from the root `.env.coolify.example`.
 4. Database migrations run in the one-shot compose job `migrate` (`infra/docker/api-entrypoint.sh migrate`, SQL files from `MIGRATIONS_DIR=/app/packages/database/migrations`) after the `db-backup` job (`infra/docker/Dockerfile.db-backup` + `premigration-backup.sh`) has dumped the database when migrations are pending; the `api` service depends on `migrate` completing successfully and runs with `AUTO_MIGRATE=false` in compose (`AUTO_MIGRATE=true` = fallback in-container migration; the image default and local `node dist/src/main.js` still migrate). See `DEPLOYMENT_GUIDE.md` §6a.
+5. **Upgrading the running v0 (`main@7a76aea`)**: follow `docs/runbooks/UPGRADE_FROM_V0.md` (env diff incl. the new required `MAIL_TRANSPORT`/`MAIL_FROM`, pre-upgrade backup, rollback target = last working Coolify deployment because plain `7a76aea` does not boot, uploads quarantined by the old ClamAV parser stay quarantined). Rehearsed with data: 76/76.
+
+> **Deployment status (2026-09-26):** production does **not** run `0aaa83d`. Coolify did not auto-deploy the merge to `main`, and the Coolify API is not reachable from the build environment; the owner must click **Redeploy** in Coolify or set the Coolify instance domain `https://coolify.erppreflight.com` (DNS record exists). Secrets that were shared in plain text must be rotated first (`RELEASE_READINESS_REPORT.md` §1).
 
 ---
 
@@ -294,7 +307,13 @@ The API **refuses to start** in `NODE_ENV=production` when a required secret is 
 | `MAX_UPLOAD_SIZE_MB` | default `100` | Multipart upload cap (413 above it). |
 | `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `CONNECTOR_ALLOW_PRIVATE_NETWORKS`, `SSO_ALLOW_PRIVATE_NETWORKS` | default `false` | SSRF policy exceptions for private receivers/IdPs/connector targets (staging only). |
 | `AGENT_JOB_SIGNING_KEY`, `AGENT_UPDATE_MANIFEST_*` | for local agents | Signs jobs sent to enrolled local agents; update channels. |
-| `AUTH_RATE_LIMIT_SCALE`, `TRUST_PROXY`, `BILLING_RETURN_ORIGINS`, `ALLOW_PRIVATE_LANDSCAPE_PROBES` | optional | See `.env.coolify.example`. |
+| `TRUST_PROXY` | **must match the topology** | Number of reverse-proxy hops in front of the API (Traefik = 1). Rate limits and the organisation IP allowlist key on the resulting client address (`clientIpOf()`); a wrong value, or an API port reachable without Traefik, lets a spoofed `X-Forwarded-For` bypass both. |
+| `MASTER_ENCRYPTION_KEY_PREVIOUS` | for key rotation | Old master key(s), comma-separated; old credential-vault ciphertexts keep decrypting and are re-encrypted on the next write. |
+| `SUPPORT_INBOX_EMAIL`, `SUPPORT_INBOX_LOCALE` | optional | Support ticket e-mails to the operator inbox. |
+| `SOURCE_FRESHNESS_CRON` | optional | Hourly knowledge-source freshness check (stale alerts). |
+| `ANALYSIS_STREAM_THRESHOLD_MB`, `MAX_STREAM_SIZE_MB`, `MAX_CONCURRENT_STREAMS`, `STREAM_MIN_FREE_DISK_MB` | optional | Streaming of large logs to streaming engines and the spool guards of `POST /api/v1/analyze/stream`. |
+| `AUTO_MIGRATE` | `false` in compose | Migrations run in the `migrate` job; `true` = fallback in-container migration. |
+| `AUTH_RATE_LIMIT_SCALE`, `BILLING_RETURN_ORIGINS`, `ALLOW_PRIVATE_LANDSCAPE_PROBES` | optional | See `.env.coolify.example`. |
 | `RATE_LIMIT_REDIS_FAILURE_MODE`, `RATE_LIMIT_KEY_PREFIX` | default `memory`, `erppreflight:` | Rate limits are shared by all API instances through Redis (`modules/rate-limit`). Redis down: `memory` enforces the same limits per instance, `closed` answers 503 on rate-limited endpoints. |
 
 Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from the environment (§4.1.1).
@@ -310,8 +329,8 @@ Never commit real values. Coolify helper scripts read `COOLIFY_*` variables from
 pnpm install
 
 # Database migrations: there is NO root `db:migrate` script.
-# Migrations (packages/database/migrations/001..026) run automatically when the API starts
-# (AUTO_MIGRATE=true). 001-009 core platform; 010 RLS runtime role erppreflight_app; 011 account lifecycle;
+# Migrations (packages/database/migrations/001..026) run in the compose `migrate` job in production
+# (after `db-backup`); a local `node dist/src/main.js` still migrates at start (AUTO_MIGRATE defaults to true). 001-009 core platform; 010 RLS runtime role erppreflight_app; 011 account lifecycle;
 # 012 billing/usage/retention; 013 knowledge articles; 014 knowledge graph + release intelligence;
 # 015 connectors/identity/partner; 016 billing_events RLS; 017 finding lifecycle + Test Lab;
 # 018 analysis orchestration; 019 knowledge content workflow; 020 analysis run lifecycle (inputs, cancel,
@@ -345,11 +364,11 @@ cd services/analysis-python && uvicorn src.main:app --reload --port 8000   # ent
 ### 5.2 Mandatory Pre-Commit Quality Gates
 
 ```bash
-pnpm run typecheck                         # 0 errors (13 packages)
+pnpm run typecheck                         # 0 errors
 pnpm run lint
-pnpm run test                              # API 979, Web 233, local-agent 10 — all must pass (6303f1d)
-pnpm run test:python                       # 1169 passed + 1 skipped (scripts/run-pytest.mjs picks python3/python/py)
-python -m pytest tests/e2e tests/empirical_redaction_stress.py -q   # 267
+pnpm run test                              # API 1218, Web 310, local-agent 10 — all must pass (0aaa83d)
+pnpm run test:python                       # 1665 passed + 1 skipped (scripts/run-pytest.mjs picks python3/python/py)
+python -m pytest tests/e2e tests/empirical_redaction_stress.py -q   # 267 on 6303f1d (not re-run on 0aaa83d)
 python scripts/generate-engine-catalog.py --check                   # ENGINE_CATALOG.md up to date (19 engines)
 python scripts/generate-rule-catalog-i18n.py --check               # rule-catalog.en.json (key list of the German rule texts) up to date
 pnpm run check:deps && pnpm run check:no-production-facades && pnpm run check:production-truth
@@ -365,8 +384,8 @@ analysis, tenancy, redaction or export, run the relevant suites against a runnin
 
 All suites create throwaway tenants. Most follow e-mail links from the dev mailbox, so the API must run with
 `MAIL_TRANSPORT=dev`; pass `MAIL_DEV_OUTBOX_TOKEN` when the API sets one. Browser suites need Chromium
-(`CHROMIUM_PATH=/path/to/chromium` if Playwright's bundled browser is not installed). Results on `6303f1d`: all passed
-(`docs/E2E_TEST_REPORT.md`).
+(`CHROMIUM_PATH=/path/to/chromium` if Playwright's bundled browser is not installed). Results on `0aaa83d`: all passed
+(12 existing + 6 new suites; Playwright 13/13 + live config 9/9, Chromium only; `docs/E2E_TEST_REPORT.md`).
 
 ```bash
 # API: register, verification, reset, 2FA, invitations, org switch, GDPR, upload + ClamAV, OPD Guard run, exports,
@@ -396,7 +415,7 @@ WEB_URL=... API_BASE_URL=... [SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=...] no
 WEB_URL=... API_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-i18n-smoke.cjs             # DE on every app page, 375/1440 px
 # Cookie-only browser session (no JWT in web storage), cookie flags, CSRF 403/2xx, logout revocation,
 # magic link end to end (single use, superseded, expired via DATABASE_URL, 2FA continuation)
-WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... DATABASE_URL=... node scripts/e2e-session-security-smoke.cjs   # pnpm smoke:session-security, 14 steps
+WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... DATABASE_URL=... node scripts/e2e-session-security-smoke.cjs   # pnpm smoke:session-security, 16 steps
 # Analysis run lifecycle: detail page, cancel queued + running run, rerun (identical inputs, immutability),
 # Test Lab runs in the history, generated-test promotion, VIEWER 403, cross-tenant 404, EN/DE + 375 px — 16 steps
 WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-analysis-lifecycle-smoke.cjs   # pnpm smoke:analysis-lifecycle
@@ -406,7 +425,7 @@ WEB_URL=... API_BASE_URL=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-engines-
 # Two API processes with the same environment (second one e.g. on API port + 2): shared Redis rate limit,
 # presigned upload metered once, assignment e-mail (DE) + deep link, FormDoctor file names [+ connector metering
 # with DOUBLES_FILE]
-WEB_URL=... API_URL=... API_URL_2=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-platform-hardening-smoke.cjs   # pnpm smoke:platform-hardening
+WEB_URL=... API_URL=... API_URL_2=... MAIL_DEV_OUTBOX_TOKEN=... node scripts/e2e-platform-hardening-smoke.cjs   # pnpm smoke:platform-hardening, 12 steps
 # Enterprise integrations against the contract doubles. Start them first:
 #   node apps/api/test/doubles/run-doubles.cjs --host <ip> --base-port 3710 --certs /tmp/erppf-certs --out /tmp/erppf-doubles.json
 # and start the API with NODE_EXTRA_CA_CERTS=/tmp/erppf-certs/ca.pem, CONNECTOR_/WEBHOOK_/SSO_ALLOW_PRIVATE_NETWORKS=true,
@@ -422,6 +441,10 @@ WEB_URL=... API_BASE_URL=... DOUBLES_FILE=... MAIL_DEV_OUTBOX_TOKEN=... node scr
 # REDIS_URL (the API's Redis) enables the queue check; SUPPORT_INBOX_EMAIL on the API enables the inbox checks.
 WEB_URL=... API_BASE_URL=... SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... MAIL_DEV_OUTBOX_TOKEN=... [REDIS_URL=...] \
   node scripts/e2e-tenant-admin-smoke.cjs [shotDir]                                          # pnpm smoke:tenant-admin, 37 steps
+# Platform governance: SUPER_ADMIN-only access, rule self-test + publish gate, AI kill switch + cost ceiling
+# (local OpenAI-compatible stub, concurrent burst), knowledge draft -> review -> publish, stale source alerts, UI EN/DE
+API_BASE_URL=... WEB_URL=... SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... [MAIL_DEV_OUTBOX_TOKEN=...] \
+  node scripts/e2e-admin-governance-smoke.cjs [shotDir]                                      # pnpm smoke:admin-governance, 44 steps
 # Everything the CI live-e2e job runs (infra, builds, API prod mode, smokes, backup/restore drill):
 PG_ADMIN_URL=... S3_ACCESS_KEY=... S3_SECRET_KEY=... bash scripts/ci-live-e2e.sh
 ```
@@ -495,7 +518,7 @@ Local API run with production semantics: `pnpm --filter @erppreflight/api build`
 | **Add or edit UI views** | `apps/web/src/app/` | Must use TanStack Query (`useQuery`), loading skeletons, and accessible badges. |
 | **Add a new REST API endpoint** | `apps/api/src/modules/` | Add controller method with `@UseGuards(JwtAuthGuard, TenancyGuard)` and `@RequireEntitlement()`. The global `CsrfGuard` (`modules/auth/csrf.guard.ts`) already protects cookie-authenticated POST/PUT/PATCH/DELETE; mark endpoints that authenticate by signature/bearer only (webhooks, device APIs) with `@SkipCsrf()`. Endpoints that issue a session must go through `SessionCookieService.present()` (sets the HttpOnly cookie + CSRF cookie and never returns the token to browsers). |
 | **Browser auth in the web app** | `apps/web/src/lib/api/custom-instance.ts` | Cookie-only: `credentials: 'include'`, no `Authorization` header, `X-CSRF-Token` on unsafe methods (erp_csrf cookie → in-memory → `GET /auth/csrf`, one retry on `CSRF_REJECTED`). Never store a token in `localStorage`/`sessionStorage`; after sign-in call `storeSession()`/`markSignedIn()`, on sign-out `useLogout()`. |
-| **Database changes / New tables** | `packages/database/` | 1. Add a new SQL file `migrations/020_*.sql` (next free number; never edit an applied migration)<br>2. Every table with `organization_id` needs ENABLE + FORCE RLS and a policy (enforced by `scripts/ci-migration-check.sh`)<br>3. Add Drizzle table in `src/schema/`<br>4. Export in `src/schema.ts`. |
+| **Database changes / New tables** | `packages/database/` | 1. Add a new SQL file `migrations/027_*.sql` (next free number; never edit an applied migration)<br>2. Every table with `organization_id` needs ENABLE + FORCE RLS and a policy (enforced by `scripts/ci-migration-check.sh`)<br>3. Add Drizzle table in `src/schema/`<br>4. Export in `src/schema.ts`. |
 | **Modify SAP Analysis Rules** | `services/analysis-python/src/engines/` | Must be deterministic. Add golden fixture tests in `services/analysis-python/tests/`. |
 | **API Change Guard baselines** | `apps/api/src/modules/api-baselines/`, `services/analysis-python/src/engines/api_change.py` | Registry `/projects/:projectId/api-baselines` (create from a CLEAN upload, list, `:id/activate`, DELETE; @Audited; migration 023). The executor sends the explicit (`apiBaselineId` on POST /analyses) or active baseline as `configuration.stored_baseline` (content + SHA-256, verified on both sides). Findings carry `changeCategory` (oasdiff-style id), `jsonPointer` / `xmlPath`, `specRole`. UI: `components/analysis/api-baselines-panel.tsx`. |
 | **Large logs / streaming engines** | `services/analysis-python/src/core/streaming.py`, `src/api/analyze_stream.py`, `apps/api/src/modules/jobs/analysis-executor.ts` | Engines with `supports_streaming` (MFS BlackBox) implement `analyze_stream(request, LineSource)` sharing the inline code path. The executor pipes CSV/TXT artifacts >= `ANALYSIS_STREAM_THRESHOLD_MB` that only streaming engines read from MinIO to `POST /api/v1/analyze/stream` (framed: JSON metadata line + bytes); call records show `transport`, `bytes`, `peakMemoryBytes`. Disk/DoS guards: declared Content-Length above `MAX_STREAM_SIZE_MB` -> 413 before spooling; at most `MAX_CONCURRENT_STREAMS` spools at once (others wait `STREAM_QUEUE_TIMEOUT_SECONDS`, then 503); spooling stops with 507 before the spool volume's free space falls below `STREAM_MIN_FREE_DISK_MB`. |
@@ -543,7 +566,7 @@ Every Test Lab execution is recorded as an analysis (`LabAnalysisRecorder`): one
 - **API error codes:** every API error envelope carries a stable machine `code` (`apps/api/src/common/filters/api-error-codes.ts`, additive to `statusCode`/`message`/`details`): an explicit code thrown with the exception wins (`PLAN_LIMIT_EXCEEDED`, `SSO_REQUIRED`, …), well-known messages map to specific codes (`INVALID_CREDENTIALS`, `PROJECT_NOT_FOUND`, …), everything else gets a status code (`NOT_FOUND`, `VALIDATION_FAILED`, `RATE_LIMITED`, …). Codes are public contract — add, never rename. The web translates them from `app.apiErrorCodes.codes` (EN/DE); for generic codes the server detail is kept and, in German, prefixed with the localized summary. `__tests__/api-error-codes.test.ts` fails when the API can emit a code without EN+DE text (it scans `new …Exception({ code })` in `apps/api/src`).
 - **Rule catalog (finding titles/remediation):** engines emit English, deterministic text (part of the finding fingerprint and of every export). `scripts/generate-rule-catalog-i18n.py` exports all finding codes of all engines to `apps/web/src/i18n/rule-catalog/rule-catalog.en.json`; German texts live in `rule-catalog/de.ts` (input-validation codes via one template per suffix). `useLocalizedRule()` / `<RuleTitle>` / `<RuleRemediation>` show the German catalog title and remediation in the German UI and keep the finding-specific engine wording visible (marked `translate="no"`). New or changed rule → run the script (Python test `test_rule_catalog_i18n_export.py` fails while the JSON is stale) and add the German text (web test `rule-catalog-i18n.test.ts` fails otherwise).
 - **Exports stay English:** PDF/XLSX/CSV/JSON/HTML/ZIP exports render the stored finding records verbatim (engine wording, rule codes, SHA-256 evidence) because they are audit evidence tied to an immutable knowledge snapshot and are compared byte-for-byte across runs; a translated export would no longer match the evidence chain. German readers get the German rule text for every code in the app and in the public engine docs (`/de/docs/engines/<engine>`).
-- **Server-authored content:** the web sends the UI language as `Accept-Language`; `resolveRequestLocale(query, header)` (`apps/api/src/common/i18n/request-locale.ts`, explicit `?locale=en|de` wins) localizes system templates (`templates.i18n.ts`), changelog entries (`changelog.i18n.ts`) and the connector registry (`connector-registry.i18n.ts`). Canonical keys (template domain, engine IDs, scopes, versions) never change; include the locale in TanStack query keys of such data. In-app notifications are stored in English when the outbox event is processed (no per-user language is persisted); `lib/notification-text.ts` renders the known templates in German (contract test against the API renderer). Notification e-mails are English.
+- **Server-authored content:** the web sends the UI language as `Accept-Language`; `resolveRequestLocale(query, header)` (`apps/api/src/common/i18n/request-locale.ts`, explicit `?locale=en|de` wins) localizes system templates (`templates.i18n.ts`), changelog entries (`changelog.i18n.ts`) and the connector registry (`connector-registry.i18n.ts`). Canonical keys (template domain, engine IDs, scopes, versions) never change; include the locale in TanStack query keys of such data. Notifications are rendered per recipient language (`users.preferred_locale`, `GET/PUT /notifications/locale`): `finding.assigned` is fully EN/DE (in-app row and e-mail); the other event texts (`analysis.*`, `finding.critical`, `release_watch.changed`) are English and `lib/notification-text.ts` renders the known English and German templates in the UI language (contract test against the API renderer). Their e-mails use the localized frame but English text.
 - **Zod messages:** write `z.string().min(3, vmsg('app.validation.minChars', { min: 3 }))`; built-in Zod issues are localized by the error map installed in `i18n/client.tsx`, and `FormField` translates `vmsg` references.
 - **Guards:** `__tests__/i18n-hardcoded-text.test.ts` fails on hardcoded English JSX text or user-facing attributes in all of `app/` and `components/` except the public site (`app/[locale]`, `components/public`, `components/tools`, which have their own dictionaries). `scripts/e2e-i18n-smoke.cjs` (`pnpm smoke:i18n`, part of `ci-live-e2e.sh`) switches the navbar to German and checks every app page (incl. all integrations tabs, findings, lab) for raw keys, an English denylist and horizontal scroll at 375/1440 px, plus the launcher/run-history tabs, a finding detail with its German rule title, an API error rendered in German, the API `code` field and German server-authored content. Mark proper names, engine output and authored/customer content with `translate="no"` so the denylist skips it.
-- **Known gaps:** notification e-mails and export files are English (see above); free-text server messages without a specific code are shown with the English server detail (prefixed by a German summary).
+- **Known gaps:** notification e-mails are English except the assignment e-mail, export files are English by design (see above); free-text server messages without a specific code are shown with the English server detail (prefixed by a German summary).
