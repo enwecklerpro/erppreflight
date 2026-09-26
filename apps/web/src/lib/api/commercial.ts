@@ -11,6 +11,9 @@ import {
   InvoiceSummarySchema,
   PlanTierEnum,
   RetentionSettingsSchema,
+  ReportBrandingSchema,
+  ReportTypeEnum,
+  type ReportBranding,
   type BillingOverview,
   type InvoiceSummary,
   type PlanTierId,
@@ -30,7 +33,7 @@ export class ContractError extends Error {
   }
 }
 
-function parse<T>(schema: z.ZodType<T>, endpoint: string, data: unknown): T {
+function parse<S extends z.ZodTypeAny>(schema: S, endpoint: string, data: unknown): z.output<S> {
   const res = schema.safeParse(data);
   if (!res.success) throw new ContractError(endpoint, res.error.issues);
   return res.data;
@@ -209,6 +212,7 @@ export const ReportRecordSchema = z
   .object({
     id: z.string().uuid(),
     format: z.string(),
+    report_type: z.string().nullable().optional(),
     file_name: z.string(),
     file_size: z.union([z.number(), z.string()]).transform((v) => Number(v)),
     checksum_sha256: z.string().nullable().optional(),
@@ -217,6 +221,7 @@ export const ReportRecordSchema = z
   .transform((r) => ({
     id: r.id,
     format: r.format,
+    reportType: r.report_type ?? 'TECHNICAL',
     fileName: r.file_name,
     fileSize: r.file_size,
     checksumSha256: r.checksum_sha256 ?? null,
@@ -230,12 +235,28 @@ export async function fetchAnalysisReports(projectId: string, analysisId: string
 }
 
 /** Generates an export (POST) and returns the stored report reference. */
-export async function generateReport(projectId: string, analysisId: string, format: ReportFormat) {
+export const REPORT_TYPES = ReportTypeEnum.options;
+export type ReportTypeId = (typeof REPORT_TYPES)[number];
+export const REPORT_TYPE_LABELS: Record<ReportTypeId, string> = {
+  TECHNICAL: 'Technical findings',
+  EXECUTIVE: 'Executive summary',
+  PROJECT_READINESS: 'Project readiness',
+  MIGRATION_BLOCKER: 'Migration blockers',
+  CLEAN_CORE: 'Clean Core',
+  AUDIT: 'Audit (with audit trail)',
+};
+
+export async function generateReport(
+  projectId: string,
+  analysisId: string,
+  format: ReportFormat,
+  reportType: ReportTypeId = 'TECHNICAL'
+) {
   const path = `/projects/${encodeURIComponent(projectId)}/analyses/${encodeURIComponent(analysisId)}/export`;
   return parse(
     ExportResultSchema,
     'export',
-    await customInstance(path, { method: 'POST', body: JSON.stringify({ format }) })
+    await customInstance(path, { method: 'POST', body: JSON.stringify({ format, reportType }) })
   );
 }
 
@@ -468,4 +489,20 @@ export const METER_LABELS: Record<string, string> = {
 export function formatMeterValue(key: string, value: number): string {
   if (key === 'storageBytes') return formatBytes(value);
   return new Intl.NumberFormat('en-US').format(value);
+}
+
+// -----------------------------------------------------------------------------
+// Report branding (Professional plan and higher)
+// -----------------------------------------------------------------------------
+
+export async function fetchReportBranding(): Promise<ReportBranding> {
+  return parse(ReportBrandingSchema, '/reports/branding', await customInstance('/reports/branding'));
+}
+
+export async function updateReportBranding(branding: ReportBranding): Promise<ReportBranding> {
+  return parse(
+    ReportBrandingSchema,
+    '/reports/branding',
+    await customInstance('/reports/branding', { method: 'PUT', body: JSON.stringify(ReportBrandingSchema.parse(branding)) })
+  );
 }
