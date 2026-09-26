@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { publicToolsEn } from './public-tools.en';
 
 /**
  * English dictionary — the reference key set. `de.ts` is typed as `Messages`,
@@ -526,6 +527,8 @@ export const en = {
     home: 'Go to the homepage',
     knowledge: 'Browse the knowledge base',
   },
+  /** Free tools, programmatic SEO pages and documentation chrome (./public-tools.en.ts). */
+  publicTools: publicToolsEn,
 };
 
 export type Messages = typeof en;

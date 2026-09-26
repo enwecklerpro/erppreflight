@@ -25,6 +25,7 @@ import {
   PlayCircle,
   FileBox,
   FileText,
+  Wrench,
   CreditCard,
   ScrollText,
   Archive,
@@ -101,7 +102,8 @@ export function Navbar() {
     { key: 'pricing', label: t('nav.pricing'), href: localizePath(locale, '/pricing'), icon: Tag },
     { key: 'knowledge', label: t('nav.knowledge'), href: localizePath(locale, '/knowledge'), icon: BookOpen },
     { key: 'security', label: t('nav.security'), href: localizePath(locale, '/security'), icon: Lock },
-    { key: 'docs', label: t('nav.docs'), href: '/docs', icon: FileText },
+    { key: 'tools', label: t('publicTools.nav.tools'), href: localizePath(locale, '/tools'), icon: Wrench },
+    { key: 'docs', label: t('nav.docs'), href: localizePath(locale, '/docs'), icon: FileText },
   ];
   const publicSecondary: NavLinkItem[] = [
     { key: 'matrix', label: t('nav.matrix'), href: '/matrix', icon: ShieldCheck },

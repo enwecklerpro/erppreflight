@@ -207,7 +207,8 @@ async function main() {
 
       case 'matrix': {
         console.log('SAP Release Compatibility Matrix (Part 17 Release Governance):\n');
-        const matrix = await apiRequest('/knowledge/matrix');
+        const body = await apiRequest('/knowledge/matrix');
+        const matrix = Array.isArray(body) ? body : body.matrix || [];
         console.table(
           matrix.map((m) => ({
             Engine: m.engineId,
@@ -220,7 +221,12 @@ async function main() {
       }
 
       case 'status': {
-        const health = await apiRequest('/health/liveness');
+        // Health probes live outside the /api/v1 prefix.
+        const config = loadConfig();
+        const root = String(config.apiUrl || DEFAULT_API_URL).replace(/\/+$/, '').replace(/\/api\/v1$/, '');
+        const res = await fetch(`${root}/health/liveness`);
+        if (!res.ok) throw new Error(`API Error [${res.status}]: ${await res.text()}`);
+        const health = await res.json();
         console.log('ERP Preflight System Status:');
         console.log(JSON.stringify(health, null, 2));
         break;

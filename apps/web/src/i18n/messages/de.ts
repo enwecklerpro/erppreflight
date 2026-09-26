@@ -1,4 +1,5 @@
 import type { Messages } from './en';
+import { publicToolsDe } from './public-tools.de';
 
 /**
  * Deutsches Wörterbuch. Typisiert als `Messages`: fehlende oder zusätzliche
@@ -542,4 +543,5 @@ export const de: Messages = {
     home: 'Zur Startseite',
     knowledge: 'Wissensdatenbank durchsuchen',
   },
+  publicTools: publicToolsDe,
 };

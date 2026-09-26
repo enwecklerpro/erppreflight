@@ -52,3 +52,18 @@
 - **Decision**: Prohibit standard Python `xml.etree` parsing on untrusted inputs; mandate `SafeXmlParser` backed by `defusedxml` with DTD and external entities strictly forbidden.
 - **Consequences**:
   - Total prevention of XML External Entity (XXE) injection and recursive entity expansion attacks.
+
+## ADR-021: Product documentation as typed content pages (Fumadocs not adopted)
+- **Status**: Accepted (2026-09-26, workstream W3)
+- **Context**: Part 21 / C §46 suggest Fumadocs "if it fits the main repo". Fumadocs needs `fumadocs-core`, `fumadocs-ui`, `fumadocs-mdx` and an MDX compilation pipeline (remark/rehype plugins, its own layout/theme and search index), i.e. either a second Next.js app or a large set of new dependencies and a second styling system inside `apps/web`. The docs must also be localized (EN/DE via next-intl), share the public-site chrome, CSP nonce handling and SEO helpers, and part of their content (engine catalog, file formats) is generated from live data.
+- **Decision**: Implement documentation as MDX-free, typed content modules (`apps/web/src/lib/docs/content.{en,de}.ts`, page list in `lib/docs/pages.ts`) rendered under `/[locale]/docs/**` with the existing safe markdown renderer (`components/public/markdown.tsx`). The engine catalog and file-format pages are generated from the analysis service catalog through the API (`GET /api/v1/public/tools/engines`). The OpenAPI reference stays with the API (Scalar at `/api/v1/reference`, owned by the connectors workstream) and is linked from the docs.
+- **Consequences**:
+  - No new dependencies (No-Dependency-Soup policy), one styling system, same i18n/SEO/CSP pipeline as the public site; EN/DE page and section parity is unit-tested.
+  - No raw HTML or MDX components in docs content (the renderer only emits React elements), so docs cannot inject scripts.
+  - Full-text docs search is not provided by the docs framework; the public knowledge & error search tool covers articles, SAP objects and engine finding codes.
+
+## ADR-022: Public free tools and programmatic SEO read only global reviewed knowledge
+- **Status**: Accepted (2026-09-26, workstream W3)
+- **Context**: Part 01 §1.11 free tools and Part 02 §2.8/§2.9 programmatic SEO pages are unauthenticated; Part 04 §4.14 forbids exposing tenant knowledge.
+- **Decision**: A dedicated `public-tools` API module (`/api/v1/public/tools/*`) serves the tools and SEO page data. Every statement filters `organization_id IS NULL` and `review_status = 'PUBLISHED'` explicitly (unit-tested on every statement), endpoints are rate limited per client IP, and the form XML checker is proxied to the stateless analysis service (`POST /api/v1/tools/xml-field-check`, defusedxml, in memory, nothing stored). SEO object pages are rendered on demand (never generated for all objects) and indexed only when the shared quality gate (`evaluateSeoGate` in `@erppreflight/schemas`, mirrored in SQL for the sitemap) passes; the sitemap is an index split by content type with ≤ 50 000 URLs per child.
+- **Consequences**: No tenant data can reach a public page; thin object pages are served `noindex`; the sitemap lists exactly the pages that pass the gate.

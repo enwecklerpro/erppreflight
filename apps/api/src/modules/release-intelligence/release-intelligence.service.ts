@@ -172,6 +172,8 @@ export class ReleaseIntelligenceService {
     q?: string;
     limit: number;
     offset: number;
+    /** Public free tool: restrict to global, published objects (Part 04 §4.14). */
+    publicOnly?: boolean;
   }) {
     const latest = await latestSnapshot(this.db);
     if (!latest) return { summary: {}, total: 0, items: [], snapshot: null };
@@ -207,6 +209,7 @@ export class ReleaseIntelligenceService {
             OR x.successors IS DISTINCT FROM y.successors
       )`;
     const filters: string[] = [];
+    if (q.publicOnly) filters.push(`o.organization_id IS NULL AND o.review_status = 'PUBLISHED'`);
     if (q.q) {
       params.push(`${escapeLike(q.q.toUpperCase())}%`);
       filters.push(`o.object_key LIKE $${params.length} ESCAPE '\\'`);
