@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.registry import register_engine
 from src.models.enums import (
@@ -244,6 +244,13 @@ class GapRadarEngine(BaseEngine):
     rule_prefix = "GAP_RADAR"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="12-tier Clean Core resolution keyword rules", location="src/engines/gap_radar.py:GapRadarEngine.*_REGEX",
+            source="Curated keyword heuristics mapped to SAP extensibility tiers (Clean Core guidelines)",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(TIER_METADATA),
+        ),
+    )
     name = "SAP Gap Radar"
     description = "Fit-to-standard vs custom delta analyzer with Clean Core recommendations"
     version = "1.0.0"

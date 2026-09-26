@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.registry import register_engine
 from src.models.enums import (
@@ -766,6 +766,13 @@ class SPRO2CloudEngine(BaseEngine):
     rule_prefix = "SPRO"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="SPRO/IMG -> SSCUI/CBC mapping catalog", location="src/engines/spro2cloud.py:SPRO_CATALOG",
+            source="Static seed catalog authored from SAP Help / SSCUI documentation; not yet migrated to the knowledge system",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(SPRO_CATALOG),
+        ),
+    )
     name = "SPRO2Cloud"
     description = "On-premise IMG/SPRO configuration to Cloud CBC mapping and delta analysis"
     version = "2.0.0"

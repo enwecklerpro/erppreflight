@@ -109,6 +109,29 @@ def standard_input_rules(prefix: str, engine_name: str, formats_doc: str) -> Dic
     )
 
 
+@dataclass(frozen=True)
+class KnowledgeSource:
+    """Provenance of a static mapping / canonical list used by an engine (spec §59 knowledge audit)."""
+    name: str
+    location: str
+    source: str
+    release: str
+    verification_status: str  # VERIFIED_AGAINST_SOURCE | CURATED_UNVERIFIED
+    last_verified: Optional[str] = None
+    entries: Optional[int] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "location": self.location,
+            "source": self.source,
+            "release": self.release,
+            "verificationStatus": self.verification_status,
+            "lastVerified": self.last_verified,
+            "entries": self.entries,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Input contract
 # ---------------------------------------------------------------------------
@@ -416,6 +439,7 @@ def validate_request_input(engine, request) -> None:
 
 __all__ = [
     "RuleSpec",
+    "KnowledgeSource",
     "rule_catalog",
     "standard_input_rules",
     "InputFormat",

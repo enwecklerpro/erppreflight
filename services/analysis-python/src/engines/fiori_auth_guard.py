@@ -141,11 +141,6 @@ RULES = rule_catalog(
         "(trust / CN mapping).", "Infrastructure / Cloud Connector",
     ),
     RuleSpec(
-        "FIORI_CATALOG_ROLE_MISSING", "Business catalog / role not assigned", Severity.MAJOR,
-        "Assign the business role containing the app's catalog (Maintain Business Roles / PFCG).",
-        "Authorization / Security",
-    ),
-    RuleSpec(
         "FIORI_403_INSUFFICIENT_TELEMETRY", "Root cause not determinable from supplied telemetry", Severity.MINOR,
         "Capture an SU53 trace, the /IWFND/ERROR_LOG entry and the SICF status for the failing request and "
         "re-run; the supplied data did not identify a root cause.", "Diagnostic Telemetry Gap",
@@ -227,7 +222,6 @@ class Fiori403Engine(BaseEngine):
     RULE_AUTH_OBJECT_MISSING = "FIORI_AUTH_OBJECT_MISSING"
     RULE_UCON_DENIED = "FIORI_UCON_DENIED"
     RULE_CLOUD_CONNECTOR_DENIED = "FIORI_CLOUD_CONNECTOR_DENIED"
-    RULE_CATALOG_ROLE_MISSING = "FIORI_CATALOG_ROLE_MISSING"
     RULE_INSUFFICIENT_TELEMETRY = "FIORI_403_INSUFFICIENT_TELEMETRY"
 
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:

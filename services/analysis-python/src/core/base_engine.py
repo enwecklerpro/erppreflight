@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
-from src.core.contracts import InputContract, RuleSpec, standard_input_rules
+from src.core.contracts import InputContract, KnowledgeSource, RuleSpec, standard_input_rules
 from src.models.enums import ArtifactType, EngineType
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse
@@ -52,6 +52,7 @@ class BaseEngine(ABC):
     target_releases: Tuple[str, ...] = DEFAULT_TARGET_RELEASES
     finding_codes: ClassVar[Dict[str, RuleSpec]] = {}
     input_contract: ClassVar[Optional[InputContract]] = None
+    knowledge_sources: ClassVar[Tuple[KnowledgeSource, ...]] = ()
 
     @abstractmethod
     async def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
@@ -85,6 +86,59 @@ class BaseEngine(ABC):
             "rule_codes": sorted(self.finding_codes),
         }
 
+    # ------------------------------------------------------------------ SDK
+    def engine_health_checks(self) -> List[Tuple[str, bool, str]]:
+        """Engine-specific health checks (override to verify knowledge files etc.)."""
+        return []
+
+    def health(self) -> Dict[str, Any]:
+        """Operational self-check for the Admin Trust Center (Axiom 2 #13, Engine SDK §5.12)."""
+        checks: List[Tuple[str, bool, str]] = [
+            ("rule_catalog_declared", bool(self.finding_codes), f"{len(self.finding_codes)} finding codes"),
+            (
+                "remediation_complete",
+                all(spec.remediation.strip() for spec in self.get_rule_catalog().values()),
+                "every declared code has remediation text",
+            ),
+            ("input_contract_declared", self.input_contract is not None, "explicit input contract"),
+        ]
+        try:
+            checks.extend(self.engine_health_checks())
+        except Exception as exc:  # noqa: BLE001 — a failing check is reported, not raised
+            checks.append(("engine_specific_checks", False, type(exc).__name__))
+        ok = all(c[1] for c in checks)
+        return {
+            "engine_type": self.engine_type.value,
+            "status": "OPERATIONAL" if ok else "DEGRADED",
+            "checks": [{"name": n, "ok": passed, "detail": d} for n, passed, d in checks],
+        }
+
+    @staticmethod
+    def contract_probes() -> List[Tuple[str, Dict[str, Any]]]:
+        """Test-generation hook: adversarial request payloads every engine must reject without a verdict.
+
+        Used by the parametrized contract test for all registered engines (Axiom 2 #8/#10)."""
+        from src.parsers.json_input import MAX_JSON_DEPTH
+        from src.parsers.safe_xml import MAX_XML_DEPTH
+        import base64
+
+        random_bytes = bytes((i * 131 + 17) % 256 for i in range(512))  # fixed pseudo-random, deterministic
+        depth = MAX_JSON_DEPTH + 1
+        xml_depth = MAX_XML_DEPTH + 1
+        return [
+            ("empty", {"raw_content": ""}),
+            ("whitespace", {"raw_content": "   \n\t  \r\n"}),
+            ("random_bytes_base64", {"raw_content": base64.b64encode(random_bytes).decode(), "raw_content_encoding": "base64"}),
+            ("empty_object", {"raw_content": "{}"}),
+            ("empty_array", {"raw_content": "[]"}),
+            ("malformed_json", {"raw_content": '{"key": [1, 2, {"open": '}),
+            ("malformed_xml", {"raw_content": "<root><unclosed attr='x'></root>"}),
+            ("json_nesting_bomb", {"raw_content": "[" * depth + "]" * depth}),
+            ("json_object_nesting_bomb", {"raw_content": '{"a":' * depth + "1" + "}" * depth}),
+            ("xml_nesting_bomb", {"raw_content": "<a>" * xml_depth + "</a>" * xml_depth}),
+            ("unrelated_json", {"raw_content": '{"hello": "world", "n": 1}'}),
+        ]
+
     def get_catalog_entry(self) -> Dict[str, Any]:
         """Full admin-visibility entry: metadata, rule inventory (with remediation) and input contract."""
         entry = self.get_metadata()
@@ -92,4 +146,6 @@ class BaseEngine(ABC):
         entry["rules"] = [catalog[c].as_dict() for c in sorted(catalog)]
         entry["input_validation_rule_codes"] = sorted(set(catalog) - set(self.finding_codes))
         entry["input_contract"] = self.input_contract.describe() if self.input_contract else None
+        entry["knowledge_sources"] = [k.as_dict() for k in self.knowledge_sources]
+        entry["health"] = self.health()
         return entry

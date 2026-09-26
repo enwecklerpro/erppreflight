@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.registry import register_engine
 from src.models.enums import (
@@ -257,6 +257,13 @@ class IAMCostEngine(BaseEngine):
     rule_prefix = "IAM"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="Fiori app -> license tier price categories", location="src/engines/iam_cost_guard.py:DEFAULT_PRICE_CATEGORIES",
+            source="Static seed of app license categories; customer price_categories override it",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(DEFAULT_PRICE_CATEGORIES),
+        ),
+    )
     name = "IAM Cost Optimizer"
     description = (
         "Role catalog over-licensing, license tier escalation driver pinpointing, "

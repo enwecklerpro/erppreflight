@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.registry import register_engine
 from src.models.enums import (
@@ -815,6 +815,18 @@ class ECC2CloudEngine(BaseEngine):
     rule_prefix = "ECC"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="ECC transaction -> Fiori/cloud successor catalog", location="src/engines/ecc2cloud.py:TCODE_CATALOG",
+            source="Static seed catalog (SAP Fiori apps reference library / simplification list); not yet migrated",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(TCODE_CATALOG),
+        ),
+        KnowledgeSource(
+            name="BAPI/RFC/IDoc interface successor catalog", location="src/engines/ecc2cloud.py:INTERFACE_CATALOG",
+            source="Static seed catalog (SAP Business Accelerator Hub); not yet migrated",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(INTERFACE_CATALOG),
+        ),
+    )
     name = "ECC2Cloud Navigator"
     description = "Custom code remediation, obsolete transaction / table migration roadmap"
     version = "2.0.0"

@@ -345,7 +345,7 @@ class ExtensionImpactEngine(BaseEngine):
         def dfs_cycle(u: str, path: List[str]):
             color[u] = 1  # GRAY
             path.append(u)
-            for v in forward_consumers.get(u, set()):
+            for v in sorted(forward_consumers.get(u, set())):
                 if color.get(v, 0) == 1:  # Cycle detected
                     cycle_start_idx = path.index(v)
                     cycle_path = path[cycle_start_idx:] + [v]
@@ -430,7 +430,7 @@ class ExtensionImpactEngine(BaseEngine):
             visited.add(current)
             consumer_depths[current] = depth
 
-            for next_node in forward_consumers.get(current, set()):
+            for next_node in sorted(forward_consumers.get(current, set())):
                 if next_node not in visited and next_node != target_object:
                     queue.append((next_node, depth + 1))
 

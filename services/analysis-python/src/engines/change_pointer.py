@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.registry import register_engine
 from src.models.enums import (
@@ -262,6 +262,13 @@ class ChangePointerEngine(BaseEngine):
     rule_prefix = "CP"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="Standard message type field profiles / change document objects", location="src/engines/change_pointer.py",
+            source="Static seed from standard ALE message types (MATMAS/DEBMAS/CREMAS); findings based on it are never VERIFIED",
+            release="S4H_2023", verification_status="CURATED_UNVERIFIED", entries=len(STANDARD_MESSAGE_PROFILES),
+        ),
+    )
     name = "Change Pointer Coverage Auditor"
     description = "BD61/BD50/BD52 change pointer configuration and event trigger validation"
     version = "2.0.0"

@@ -820,7 +820,7 @@ class SoftwareCollectionEngine(BaseEngine):
                 ),
                 evidence=[ev],
                 technical_details={"cycle": cycle, "cycles": detected_cycles, "code": "SC_CIRCULAR_DEPENDENCY"},
-                affected_objects=list(set(cycle)),
+                affected_objects=sorted(set(cycle)),
             )
             findings.append(ConfidenceClassifier.classify(f))
 
@@ -994,7 +994,7 @@ class SoftwareCollectionEngine(BaseEngine):
             dependents: Dict[str, List[str]] = {c: [] for c in all_col_ids}
 
             for c in all_col_ids:
-                local_prereqs = [p for p in col_deps.get(c, set()) if p in in_degree]
+                local_prereqs = [p for p in sorted(col_deps.get(c, set())) if p in in_degree]
                 in_degree[c] = len(local_prereqs)
                 for p in local_prereqs:
                     dependents[p].append(c)

@@ -32,7 +32,7 @@ from pydantic import model_validator
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
-    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
 )
 from src.core.exceptions import EngineInputError
 from src.core.registry import register_engine
@@ -582,11 +582,29 @@ class CleanCoreEngine(BaseEngine):
     rule_prefix = "CLEAN_CORE"
     finding_codes = RULES
     input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="Released / not-released object snapshot",
+            location="src/knowledge/clean_core_released_objects.v2408.1.json",
+            source="Curated subset of the SAP Cloudification Repository (github.com/SAP/abap-atc-cr-cv-s4hc)",
+            release="S4HANA_CLOUD_2408",
+            verification_status="CURATED_UNVERIFIED",
+        ),
+    )
     accepts_binary_input = True
     name = "Clean Core Object Guard"
     description = "Token-based ABAP Cloud / Clean Core static analysis and released-object classification"
     version = "2.0.0"
     supported_artifact_types = [ArtifactType.ABAP, ArtifactType.ZIP, ArtifactType.TXT, ArtifactType.JSON]
+
+    def engine_health_checks(self):
+        k = load_release_knowledge()
+        return [(
+            "knowledge_snapshot_loaded",
+            bool(k.released_cds and k.not_released_tables),
+            f"{k.snapshot_id}: {len(k.released_fms) + len(k.released_cds) + len(k.released_classes)} released, "
+            f"{len(k.not_released_fms) + len(k.not_released_classes) + len(k.not_released_tables)} not released",
+        )]
 
     @classmethod
     def evaluate(cls, abap_code: str) -> Dict[str, Any]:
