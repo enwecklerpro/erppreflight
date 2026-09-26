@@ -1,12 +1,20 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { TenancyContext } from '@erppreflight/tenancy';
 
+/**
+ * Returns the membership-verified tenant for the request.
+ *
+ * `request.tenantId` and the TenancyContext are only populated by
+ * TenancyMiddleware / JwtAuthGuard after the caller's membership (or API key
+ * ownership) has been verified; an unverified X-Tenant-Id header is never used.
+ */
 export const CurrentTenant = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): string => {
+  (_data: unknown, ctx: ExecutionContext): string => {
     const request = ctx.switchToHttp().getRequest();
-    if (request.tenantId) {
-      return request.tenantId;
+    const tenantId = request.tenantId || TenancyContext.get()?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException('A verified tenant context is required for this operation');
     }
-    return TenancyContext.getTenantId();
+    return tenantId;
   }
 );

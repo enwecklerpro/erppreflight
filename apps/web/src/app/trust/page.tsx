@@ -1,207 +1,128 @@
 'use client';
 
 import React from 'react';
-import {
-  ShieldCheck,
-  Lock,
-  Database,
-  Cpu,
-  Server,
-  FileText,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-  Download,
-  PackageCheck,
-  Binary,
-  Mail,
-} from 'lucide-react';
-
-const CONTROLS = [
-  {
-    title: 'Tenant Data Isolation (PostgreSQL RLS)',
-    desc: 'Every tenant database query executes inside a dedicated transaction setting app.current_tenant_id. Cross-tenant leakage is prevented at the database kernel level.',
-    status: 'ACTIVE_ENFORCED',
-  },
-  {
-    title: 'Fail-Closed Antivirus Ingestion Gate',
-    desc: 'Uploaded customer files pass through streaming ClamAV INSTREAM inspection. Any connection loss or error immediately fails closed with quarantine rejection.',
-    status: 'ACTIVE_ENFORCED',
-  },
-  {
-    title: 'Deterministic Logic & Epistemic Ceiling',
-    desc: 'Analysis engines rely on pure AST/XML rules and SHA-256 evidence. AI is strictly capped at INFERRED (0.60) confidence and never overrides deterministic findings.',
-    status: 'ACTIVE_ENFORCED',
-  },
-  {
-    title: 'Zero Customer AI Training Policy',
-    desc: 'Customer artifacts, code snippets, and logs are never used to train foundational AI models. Enterprise settings allow pure deterministic-only execution.',
-    status: 'ACTIVE_ENFORCED',
-  },
-  {
-    title: 'Argon2id Cryptographic Authentication',
-    desc: 'Passwords are protected with Argon2id (memoryCost: 19456 KB, timeCost: 2) with HttpOnly, Secure, SameSite=Lax session cookies.',
-    status: 'ACTIVE_ENFORCED',
-  },
-];
-
-const SUBPROCESSORS = [
-  { name: 'Hostinger Cloud VPS', purpose: 'Primary SaaS Compute & Container Hosting', region: 'European Union (Frankfurt)', dpaSigned: true },
-  { name: 'MinIO / AWS S3', purpose: 'Encrypted Multi-Tenant Artifact & Report Storage', region: 'European Union / Tenant Scoped', dpaSigned: true },
-  { name: 'Anthropic / OpenAI (Optional)', purpose: 'Secondary Explanatory & Translation Assistance (When Enabled)', region: 'EU / US (Zero-Retention)', dpaSigned: true },
-];
+import Link from 'next/link';
+import { ShieldCheck, CheckCircle2, PackageCheck, Mail, Info } from 'lucide-react';
+import { useMessages, useT } from '@/i18n/client';
 
 export default function TrustCenterPage() {
-  const handleDownloadSbom = () => {
-    // SBOM generation requires build pipeline integration
-  };
+  const t = useT();
+  const m = useMessages().app.trust;
+  const packageHref = `mailto:contact@erppreflight.com?subject=${encodeURIComponent(m.packageSubject)}`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-5xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-4 border border-emerald-500/20">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Enterprise Assurance & Security Standards
+            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            {t('app.trust.badge')}
           </div>
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
-            ERP Preflight Trust Center
-          </h1>
-          <p className="mt-3 text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">
-            Transparent security architecture, deterministic epistemic boundaries, and data handling governance for enterprise transformation teams.
-          </p>
+          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">{t('app.trust.title')}</h1>
+          <p className="mt-3 text-sm sm:text-base text-slate-400 max-w-2xl mx-auto">{t('app.trust.intro')}</p>
         </div>
 
-        {/* Security Controls Grid */}
-        <div className="mb-12">
-          <h2 className="text-xl font-bold text-white mb-4">Core Security & Privacy Controls</h2>
+        <section className="mb-12" aria-labelledby="trust-controls">
+          <h2 id="trust-controls" className="text-xl font-bold text-white mb-4">{t('app.trust.controlsTitle')}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {CONTROLS.map((ctrl) => (
+            {m.controls.map((ctrl) => (
               <div key={ctrl.title} className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-sm text-white">{ctrl.title}</span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3 h-3" />
-                    ENFORCED
-                  </span>
+                <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                  <h3 className="font-bold text-sm text-white">{ctrl.title}</h3>
+                  {ctrl.enforced ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                      {t('app.trust.enforced')}
+                    </span>
+                  ) : (
+                    <Link
+                      href="/status"
+                      className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded bg-slate-500/10 text-slate-300 border border-slate-500/20 hover:text-white"
+                    >
+                      <Info className="w-3 h-3" aria-hidden="true" />
+                      {t('app.trust.seeStatus')}
+                    </Link>
+                  )}
                 </div>
-                <p className="text-xs text-slate-400 leading-relaxed">{ctrl.desc}</p>
+                <p className="text-sm text-slate-400 leading-relaxed">{ctrl.desc}</p>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        {/* Authorized Subprocessors Table */}
-        <div className="mb-12">
-          <h2 className="text-xl font-bold text-white mb-4">Authorized Enterprise Subprocessors</h2>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
+        <section className="mb-12" aria-labelledby="trust-subprocessors">
+          <h2 id="trust-subprocessors" className="text-xl font-bold text-white mb-4">{t('app.trust.subprocessorsTitle')}</h2>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto shadow-xl">
+            <table className="w-full min-w-[520px] text-left text-sm border-collapse">
+              <caption className="sr-only">{t('app.trust.subprocessorsCaption')}</caption>
+              <thead className="bg-slate-950 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3.5">Subprocessor</th>
-                  <th className="p-3.5">Operational Purpose</th>
-                  <th className="p-3.5">Data Hosting Region</th>
-                  <th className="p-3.5">DPA Status</th>
+                  <th scope="col" className="p-3.5">{t('app.trust.colName')}</th>
+                  <th scope="col" className="p-3.5">{t('app.trust.colPurpose')}</th>
+                  <th scope="col" className="p-3.5">{t('app.trust.colRegion')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {SUBPROCESSORS.map((sp) => (
-                  <tr key={sp.name} className="hover:bg-slate-800/40">
-                    <td className="p-3.5 font-bold text-white">{sp.name}</td>
+                {m.subprocessors.map((sp) => (
+                  <tr key={sp.name}>
+                    <th scope="row" className="p-3.5 font-bold text-white">{sp.name}</th>
                     <td className="p-3.5">{sp.purpose}</td>
-                    <td className="p-3.5 font-mono text-cyan-400">{sp.region}</td>
-                    <td className="p-3.5 text-emerald-400 font-semibold">Active & Executed</td>
+                    <td className="p-3.5 text-cyan-400">{sp.region}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        {/* Software Bill of Materials (SBOM) & Supply Chain Security (Part 20.3 & 20.5) */}
-        <div className="mb-12">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <PackageCheck className="w-5 h-5 text-emerald-400" />
-                Software Bill of Materials (SBOM) & Build Provenance
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Every release includes a machine-readable CycloneDX 1.5 and SPDX 2.3 inventory verifying zero unpatched critical vulnerabilities.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-500 text-xs font-semibold cursor-not-allowed shrink-0 shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              SBOM Requires Build Pipeline Integration
-            </button>
-          </div>
+        <section className="mb-12" aria-labelledby="trust-sbom">
+          <h2 id="trust-sbom" className="text-xl font-bold text-white flex items-center gap-2 mb-2">
+            <PackageCheck className="w-5 h-5 text-emerald-400" aria-hidden="true" />
+            {t('app.trust.sbomTitle')}
+          </h2>
+          <ul className="bg-slate-900 border border-slate-800 rounded-xl p-5 text-sm text-slate-300 space-y-2 list-disc list-inside">
+            {m.sbomItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Specification Standard</span>
-              <span className="font-mono text-sm font-bold text-white mt-1 block">CycloneDX 1.5 / SPDX 2.3</span>
-              <span className="text-[10px] text-emerald-400 mt-1 block">Cryptographically Signed</span>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Vetted Production Packages</span>
-              <span className="font-mono text-sm font-bold text-cyan-400 mt-1 block">83 Direct Dependencies</span>
-              <span className="text-[10px] text-slate-400 mt-1 block">0 Unpatched High/Critical CVEs</span>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <span className="text-[11px] text-slate-400 block">Container Hardening</span>
-              <span className="font-mono text-sm font-bold text-white mt-1 block">Non-Root UID 10001</span>
-              <span className="text-[10px] text-emerald-400 mt-1 block">Read-Only Root Filesystem</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Responsible Disclosure Program (Part 20.12) */}
-        <div className="mb-12 bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <section className="mb-12 bg-slate-900 border border-slate-800 rounded-xl p-6" aria-labelledby="trust-disclosure">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              <Mail className="w-5 h-5" />
+              <Mail className="w-5 h-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="font-bold text-white text-base">Responsible Vulnerability Disclosure</h3>
-              <p className="text-xs text-slate-400">
-                We welcome reports from enterprise customers and independent security researchers. No paying account required.
-              </p>
+              <h2 id="trust-disclosure" className="font-bold text-white text-base">{t('app.trust.disclosureTitle')}</h2>
+              <p className="text-sm text-slate-400">{t('app.trust.disclosureIntro')}</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-2">
+          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm pt-2">
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px]">Reporting Channel</span>
-              <span className="font-mono text-cyan-400 font-semibold">security@erppreflight.com</span>
+              <dt className="text-slate-400 text-xs">{t('app.trust.channel')}</dt>
+              <dd className="font-mono text-cyan-400 font-semibold break-all">security@erppreflight.com</dd>
             </div>
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px]">Triage Commitment</span>
-              <span className="text-white font-semibold">Response within 24–48 hours</span>
+              <dt className="text-slate-400 text-xs">{t('app.trust.triage')}</dt>
+              <dd className="text-white font-semibold">{t('app.trust.triageValue')}</dd>
             </div>
             <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-              <span className="text-slate-500 block text-[10px]">Safe Harbor Policy</span>
-              <span className="text-emerald-400 font-semibold">Active & Legally Binding</span>
+              <dt className="text-slate-400 text-xs">{t('app.trust.safeHarbor')}</dt>
+              <dd className="text-emerald-400 font-semibold">{t('app.trust.safeHarborValue')}</dd>
             </div>
-          </div>
-        </div>
+          </dl>
+        </section>
 
-        {/* Downloads / Legal */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <h3 className="font-bold text-white text-sm">Need our Enterprise Security Package or Custom DPA?</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Download our complete Architecture Overview, Data Flow Diagrams, and SBOM summary.</p>
+            <h2 className="font-bold text-white text-sm">{t('app.trust.packageTitle')}</h2>
+            <p className="text-sm text-slate-400 mt-0.5">{t('app.trust.packageBody')}</p>
           </div>
           <a
-            href="mailto:contact@erppreflight.com?subject=Enterprise%20Security%20Packet%20Request"
-            className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 whitespace-nowrap transition-colors"
+            href={packageHref}
+            className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/20 transition-colors text-center"
           >
-            Request Security Package
+            {t('app.trust.packageCta')}
           </a>
         </div>
       </div>

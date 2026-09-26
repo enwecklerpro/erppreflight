@@ -27,6 +27,11 @@ export class TenancyGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
+    // Membership already verified by TenancyMiddleware for this exact tenant
+    if (request.tenantId === store.tenantId && request.tenantRole) {
+      return true;
+    }
+
     // Super Admin bypass
     if (user.systemRole === 'SUPER_ADMIN') {
       return true;

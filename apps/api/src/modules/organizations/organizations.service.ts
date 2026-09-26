@@ -1,10 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
-export interface UpdateOrganizationDto {
-  name?: string;
-  dataPolicy?: Record<string, unknown>;
-}
+import type { UpdateOrganizationDto } from './dto/update-organization.dto';
+export type { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 @Injectable()
 export class OrganizationsService {
@@ -12,7 +10,7 @@ export class OrganizationsService {
 
   async getCurrentOrganization(organizationId: string) {
     const res = await this.db.query(
-      `SELECT id, name, slug, plan_tier, status, data_policy, created_at, updated_at
+      `SELECT id, name, slug, plan_tier, status, data_policy, require_2fa, created_at, updated_at
        FROM organizations
        WHERE id = $1`,
       [organizationId],

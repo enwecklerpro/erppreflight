@@ -1,256 +1,290 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Download, ExternalLink, GitMerge, Layers, ListChecks, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import {
-  Layers,
-  CheckCircle2,
-  AlertTriangle,
-  ShieldAlert,
-  ArrowRight,
-  Download,
-  RefreshCw,
-  PlusCircle,
-  ExternalLink,
-  ShieldCheck,
-  FileSpreadsheet,
-} from 'lucide-react';
-import {
-  fetchTraceabilityMatrix,
-  syncTraceability,
-  createTraceabilityTask,
-  TraceabilityNodeItem,
-  TraceabilityMatrixResponse,
-} from '@/lib/api-client';
+  fetchCloudAlmProjects,
+  fetchConnectors,
+  fetchProjectLinks,
+  fetchTraceability,
+  importRequirements,
+  linkProjectToCloudAlm,
+} from '@/lib/api/integrations';
+import { exportRawData } from '@/lib/export';
+import { Button, PanelEmpty, PanelLoading, RemediationBadge } from '@/components/integrations/ui';
+import { useErrorText, useFmt, useRichT, useT } from '@/i18n/client';
+import { SeverityBadge } from '@/components/findings/severity-badge';
 
-export default function TraceabilityMatrixPage() {
-  const queryClient = useQueryClient();
-  const params = useParams();
-  const projectId = params.id as string;
-
-  const { data, isLoading: loading } = useQuery({
-    queryKey: ['projects', projectId, 'traceability'],
-    queryFn: () => fetchTraceabilityMatrix(projectId),
-  });
-
-  const [creatingTask, setCreatingTask] = useState<string | null>(null);
-
-  const syncMutation = useMutation({
-    mutationFn: () => syncTraceability(projectId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] })
-  });
-
-  const createTaskMutation = useMutation({
-    mutationFn: (findingId: string) => createTraceabilityTask(projectId, findingId, 'SAP_CLOUD_ALM'),
-    onMutate: (id) => setCreatingTask(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] }),
-    onSettled: () => setCreatingTask(null)
-  });
-
-  function handleSync() {
-    syncMutation.mutate();
-  }
-
-  function handleCreateTask(findingId: string) {
-    createTaskMutation.mutate(findingId);
-  }
-  
-  const syncing = syncMutation.isPending;
-
+function Kpi({ label, value, hint, icon: Icon, tone }: { label: string; value: React.ReactNode; hint: string; icon: React.ElementType; tone: string }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2 border border-emerald-500/20">
-              <Layers className="w-3.5 h-3.5" />
-              End-to-End Delivery Traceability Graph
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-              Migration Traceability Matrix
-            </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Bidirectional governance mapping Business Processes → Requirements → Preflight Findings → ALM Remediation Tasks → Tests → Transports → Release.
-            </p>
-          </div>
+    <div className={`rounded-xl border bg-card p-4 ${tone}`}>
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+        <Icon className="size-3.5" aria-hidden="true" /> {label}
+      </p>
+      <p className="mt-1 text-2xl font-extrabold text-foreground">{value}</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-200 text-xs font-semibold transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              Sync Findings
-            </button>
-            <a
-              href={`/api/v1/projects/${projectId}/export?format=XLSX`}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download Matrix (XLSX)
-            </a>
-          </div>
-        </div>
-
-        {/* Gap & Risk Summary KPI Cards (Part 15.18) */}
-        {data?.summary && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-              <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1">
-                Requirements at Risk
-              </div>
-              <div className="text-2xl font-extrabold text-white">{data.summary.totalRequirements}</div>
-              <div className="text-xs text-slate-500 mt-1">Total mapped transformational items</div>
-            </div>
-
-            <div className="bg-slate-900 border border-rose-500/20 rounded-xl p-5">
-              <div className="text-xs text-rose-400 font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Criticals Without ALM Tasks
-              </div>
-              <div className="text-2xl font-extrabold text-rose-400">
-                {data.summary.criticalFindingsWithoutTasks}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">Requires work-item synchronization</div>
-            </div>
-
-            <div className="bg-slate-900 border border-amber-500/20 rounded-xl p-5">
-              <div className="text-xs text-amber-400 font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5" />
-                Untested Requirements
-              </div>
-              <div className="text-2xl font-extrabold text-amber-400">
-                {data.summary.requirementsWithoutTests}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">Missing regression test verification</div>
-            </div>
-
-            <div className="bg-slate-900 border border-emerald-500/20 rounded-xl p-5">
-              <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Delivery Readiness
-              </div>
-              <div className="text-2xl font-extrabold text-emerald-400">
-                {data.summary.overallReadinessPercent}%
-              </div>
-              <div className="text-xs text-slate-500 mt-1">Cutover readiness index</div>
-            </div>
-          </div>
-        )}
-
-        {/* 8-Column Traceability Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-950 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="p-3.5">Business Process</th>
-                  <th className="p-3.5">Requirement</th>
-                  <th className="p-3.5">Preflight Finding</th>
-                  <th className="p-3.5">Remediation Task</th>
-                  <th className="p-3.5">Test Case</th>
-                  <th className="p-3.5">Defect</th>
-                  <th className="p-3.5">Transport (CTS)</th>
-                  <th className="p-3.5">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80 text-slate-300">
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500">
-                      Loading traceability graph...
-                    </td>
-                  </tr>
-                ) : !data?.nodes?.length ? (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500">
-                      No traceability nodes found. Click Sync Findings to auto-populate from project findings.
-                    </td>
-                  </tr>
-                ) : (
-                  data.nodes.map((node) => {
-                    const isCritical = node.finding_severity === 'CRITICAL' || node.finding_severity === 'BLOCKER';
-                    return (
-                      <tr key={node.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="p-3.5 font-medium text-slate-200">{node.process_hierarchy}</td>
-                        <td className="p-3.5">
-                          <div className="font-mono font-bold text-white">{node.requirement_id}</div>
-                          <div className="text-slate-400 text-[11px] truncate max-w-[180px]">{node.requirement_title}</div>
-                        </td>
-                        <td className="p-3.5">
-                          {node.finding_id ? (
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
-                                    isCritical ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-slate-800 text-slate-300 border-slate-700'
-                                  }`}
-                                >
-                                  {node.finding_severity}
-                                </span>
-                                <span className="font-mono text-white text-[11px]">{node.finding_rule_id}</span>
-                              </div>
-                              <div className="text-slate-400 text-[11px] truncate max-w-[200px] mt-0.5">{node.finding_title}</div>
-                            </div>
-                          ) : (
-                            <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Clean Core Ready
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5">
-                          {node.remediation_task_id ? (
-                            <div className="flex items-center gap-1.5 font-mono text-cyan-400">
-                              <span>{node.remediation_task_id}</span>
-                              <span className="text-[10px] text-slate-500">({node.task_status})</span>
-                            </div>
-                          ) : node.finding_id ? (
-                            <button
-                              onClick={() => handleCreateTask(node.finding_id!)}
-                              disabled={creatingTask === node.finding_id}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-semibold text-[10px] border border-slate-700 transition-colors"
-                            >
-                              <PlusCircle className="w-3 h-3 text-emerald-400" />
-                              {creatingTask === node.finding_id ? 'Creating...' : 'Create ALM Task'}
-                            </button>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="p-3.5">
-                          {node.test_case_id ? (
-                            <span className="font-mono text-emerald-400">{node.test_status}</span>
-                          ) : (
-                            <span className="text-amber-400 text-[11px] flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              Untested
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 font-mono text-slate-400">
-                          {node.defect_id || 'None'}
-                        </td>
-                        <td className="p-3.5 font-mono text-slate-300">
-                          {node.transport_id || '—'}
-                        </td>
-                        <td className="p-3.5">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                            {node.release_id}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const t = useT();
+  const errText = useErrorText();
+  return (
+    <div role="alert" className="flex flex-col justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm sm:flex-row sm:items-center">
+      <div className="flex items-start gap-2 text-destructive">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <div>
+          <p className="font-semibold">{t('app.traceability.loadError')}</p>
+          <p className="opacity-90">{errText(error, t('app.traceability.unexpected'))}</p>
         </div>
       </div>
+      <Button variant="secondary" onClick={onRetry}>
+        <RefreshCw className="size-3.5" aria-hidden="true" /> {t('app.traceability.retry')}
+      </Button>
+    </div>
+  );
+}
+
+/** Cloud ALM project mapping + requirements import (pull). */
+function CloudAlmImport({ projectId }: { projectId: string }) {
+  const t = useT();
+  const rt = useRichT();
+  const errText = useErrorText();
+  const qc = useQueryClient();
+  const connectors = useQuery({ queryKey: ['integrations', 'connectors'], queryFn: fetchConnectors });
+  const calm = (connectors.data ?? []).filter((c) => c.type === 'SAP_CLOUD_ALM' && c.status === 'ACTIVE');
+  const [connectorId, setConnectorId] = React.useState('');
+  const selected = calm.find((c) => c.id === connectorId) ?? calm[0];
+  const links = useQuery({ queryKey: ['integrations', 'project-links', selected?.id], queryFn: () => fetchProjectLinks(selected!.id), enabled: Boolean(selected) });
+  const link = links.data?.find((l) => l.projectId === projectId);
+  const remoteProjects = useQuery({ queryKey: ['integrations', 'calm-projects', selected?.id], queryFn: () => fetchCloudAlmProjects(selected!.id), enabled: Boolean(selected) && !link });
+  const [remote, setRemote] = React.useState('');
+  const mapProject = useMutation({
+    mutationFn: () => linkProjectToCloudAlm(selected!.id, projectId, remote || remoteProjects.data![0].id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations', 'project-links', selected?.id] }),
+  });
+  const run = useMutation({
+    mutationFn: () => importRequirements(projectId, selected!.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects', projectId, 'traceability'] }),
+  });
+
+  if (connectors.isLoading) return <PanelLoading rows={1} label={t('app.traceability.loadingConnectors')} />;
+  if (!calm.length) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {rt('app.traceability.noCalmRich', {
+          link: (c) => (
+            <Link href="/integrations?tab=connectors" className="text-primary hover:underline">
+              {c}
+            </Link>
+          ),
+        })}
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <label htmlFor="calm-conn" className="sr-only">{t('app.traceability.connector')}</label>
+      <select id="calm-conn" value={selected?.id} onChange={(e) => setConnectorId(e.target.value)} className="rounded border border-border bg-background px-2 py-1">
+        {calm.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      {link ? (
+        <>
+          <span className="text-muted-foreground">
+            {rt('app.traceability.mappedRich', {
+              project: link.externalProjectId,
+              direction: link.syncDirection,
+              code: (c) => <code className="font-mono">{c}</code>,
+            })}
+          </span>
+          <Button onClick={() => run.mutate()} busy={run.isPending}>
+            <GitMerge className="size-3.5" aria-hidden="true" /> {t('app.traceability.import')}
+          </Button>
+        </>
+      ) : remoteProjects.isLoading ? (
+        <span className="text-muted-foreground">{t('app.traceability.loadingProjects')}</span>
+      ) : remoteProjects.isError ? (
+        <span className="text-destructive">{errText(remoteProjects.error, t('app.traceability.unexpected'))}</span>
+      ) : (
+        <>
+          <label htmlFor="calm-project" className="sr-only">{t('app.traceability.remoteProject')}</label>
+          <select id="calm-project" value={remote} onChange={(e) => setRemote(e.target.value)} className="rounded border border-border bg-background px-2 py-1">
+            {(remoteProjects.data ?? []).map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <Button variant="secondary" onClick={() => mapProject.mutate()} busy={mapProject.isPending} disabled={!remoteProjects.data?.length}>
+            {t('app.traceability.mapProject')}
+          </Button>
+        </>
+      )}
+      {run.isSuccess && (
+        <span role="status" className="text-muted-foreground">
+          {t('app.traceability.imported', { imported: run.data.imported, created: run.data.created, updated: run.data.updated })}
+        </span>
+      )}
+      {(run.isError || mapProject.isError) && (
+        <span role="alert" className="text-destructive">{errText(run.error ?? mapProject.error, t('app.traceability.unexpected'))}</span>
+      )}
+    </div>
+  );
+}
+
+export default function TraceabilityMatrixPage() {
+  const t = useT();
+  const fmt = useFmt();
+  const params = useParams();
+  const projectId = params.id as string;
+  const q = useQuery({ queryKey: ['projects', projectId, 'traceability'], queryFn: () => fetchTraceability(projectId) });
+  const data = q.data;
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
+            <Layers className="size-3.5" aria-hidden="true" /> {t('app.traceability.badge')}
+          </p>
+          <h1 className="text-2xl font-bold text-foreground">{t('app.traceability.title')}</h1>
+          <p className="text-sm text-muted-foreground max-w-3xl">{t('app.traceability.intro')}</p>
+        </div>
+        <Button
+          variant="secondary"
+          disabled={!data?.nodes?.length}
+          onClick={() =>
+            exportRawData((data?.nodes ?? []) as unknown as Record<string, unknown>[], 'csv', `traceability-matrix-${projectId}-${new Date().toISOString().slice(0, 10)}.csv`)
+          }
+        >
+          <Download className="size-3.5" aria-hidden="true" /> {t('app.traceability.exportCsv')}
+        </Button>
+      </header>
+
+      <section className="rounded-xl border border-border bg-card p-4 space-y-2">
+        <h2 className="text-sm font-semibold">{t('app.traceability.sourceTitle')}</h2>
+        <CloudAlmImport projectId={projectId} />
+      </section>
+
+      {q.isLoading ? (
+        <PanelLoading rows={4} label={t('app.traceability.loading')} />
+      ) : q.isError ? (
+        <LoadError error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Kpi
+              label={t('app.traceability.kpi.requirements')}
+              value={fmt.number(data!.summary.totalRequirements)}
+              hint={t('app.traceability.kpi.requirementsHint', { count: data!.summary.requirementsWithFindings })}
+              icon={ListChecks}
+              tone="border-border"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.criticals')}
+              value={fmt.number(data!.summary.criticalFindingsWithoutTasks)}
+              hint={t('app.traceability.kpi.criticalsHint', { count: data!.summary.criticalFindingsInLatestRun })}
+              icon={AlertTriangle}
+              tone="border-rose-500/30"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.untested')}
+              value={fmt.number(data!.summary.requirementsWithoutTests)}
+              hint={t('app.traceability.kpi.untestedHint')}
+              icon={ShieldAlert}
+              tone="border-amber-500/30"
+            />
+            <Kpi
+              label={t('app.traceability.kpi.verified')}
+              value={data!.summary.remediationVerifiedPercent === null ? '—' : fmt.percent(data!.summary.remediationVerifiedPercent / 100)}
+              hint={t('app.traceability.kpi.verifiedHint', {
+                pending: data!.summary.workItemsPendingVerification,
+                conflicts: data!.summary.workItemsInConflict,
+              })}
+              icon={ShieldCheck}
+              tone="border-emerald-500/30"
+            />
+          </div>
+
+          {!data!.nodes.length ? (
+            <PanelEmpty
+              icon={Layers}
+              title={t('app.traceability.emptyTitle')}
+              body={t('app.traceability.emptyBody')}
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border bg-card">
+              <table className="w-full min-w-[900px] text-left text-sm">
+                <caption className="sr-only">{t('app.traceability.caption')}</caption>
+                <thead className="text-xs text-muted-foreground uppercase tracking-wider">
+                  <tr>
+                    <th scope="col" className="p-3">{t('app.traceability.col.process')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.requirement')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.finding')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.workItem')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.test')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.transport')}</th>
+                    <th scope="col" className="p-3">{t('app.traceability.col.release')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data!.nodes.map((n) => {
+                    const wi = data!.workItems.find((w) => w.findingId && w.findingId === n.findingId);
+                    return (
+                      <tr key={n.id} className="border-t border-border align-top">
+                        <td className="p-3">{n.processHierarchy}</td>
+                        <td className="p-3">
+                          <p className="font-mono font-semibold">{n.requirementId}</p>
+                          <p className="text-muted-foreground max-w-[16rem]">{n.requirementTitle}</p>
+                        </td>
+                        <td className="p-3">
+                          {n.findingId ? (
+                            <div className="space-y-1">
+                              {n.findingSeverity && <SeverityBadge severity={n.findingSeverity as any} />}
+                              <p className="font-mono">{n.findingRuleId}</p>
+                              <p className="text-muted-foreground max-w-[16rem]">{n.findingTitle}</p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">{t('app.traceability.noFinding')}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {wi ? (
+                            <div className="space-y-1">
+                              {wi.externalUrl ? (
+                                <a href={wi.externalUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-primary hover:underline">
+                                  {wi.externalKey ?? wi.externalId} <ExternalLink className="size-3" aria-hidden="true" />
+                                  <span className="sr-only">{t('app.traceability.newTab')}</span>
+                                </a>
+                              ) : (
+                                <span className="font-mono">{wi.externalKey ?? wi.externalId}</span>
+                              )}
+                              <RemediationBadge state={wi.remediationState} />
+                            </div>
+                          ) : n.remediationTaskId ? (
+                            <span className="font-mono">{n.remediationTaskId} ({n.taskStatus})</span>
+                          ) : n.findingId ? (
+                            <Link href={`/projects/${projectId}/findings?id=${n.findingId}`} className="text-primary hover:underline">{t('app.traceability.createFromFinding')}</Link>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="p-3">{n.testCaseId ? `${n.testTitle ?? n.testCaseId} (${n.testStatus})` : <span className="text-muted-foreground">{t('app.traceability.noTest')}</span>}</td>
+                        <td className="p-3 font-mono">{n.transportId ?? '—'}</td>
+                        <td className="p-3 font-mono">{n.releaseId}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

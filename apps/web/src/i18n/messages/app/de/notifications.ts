@@ -1,0 +1,48 @@
+import type { notifications as En, inspector as EnInspector } from '../en/notifications';
+
+export const notifications: typeof En = {
+  title: 'Benachrichtigungen',
+  unread: '({count} ungelesen)',
+  filterLabel: 'Filter',
+  all: 'Alle',
+  unreadFilter: 'Ungelesen',
+  markAllRead: 'Alle als gelesen markieren',
+  noUnread: 'Keine ungelesenen Benachrichtigungen.',
+  none: 'Noch keine Benachrichtigungen.',
+  emptyHint: 'Sie werden über abgeschlossene oder fehlgeschlagene Analysen, kritische Befunde und Änderungen beobachteter Releases informiert.',
+  loadingMore: 'Wird geladen …',
+  loadOlder: 'Ältere Benachrichtigungen laden',
+  prefsTitle: 'Zustellungseinstellungen',
+  inApp: 'In der App: aktiv',
+  webhooks: 'Webhooks: von Inhabern der Organisation eingerichtet (signiert)',
+  emailAvailable: 'E-Mail: verfügbar',
+  emailUnavailable: 'E-Mail: auf diesem Server nicht eingerichtet',
+  prefsCaption: 'Benachrichtigungskanäle je Ereignis',
+  colEvent: 'Ereignis',
+  colInApp: 'In der App',
+  colEmail: 'E-Mail',
+  inAppLabel: 'Benachrichtigungen in der App für {event}',
+  emailLabel: 'E-Mail-Benachrichtigungen für {event}',
+  saving: 'Wird gespeichert …',
+  save: 'Einstellungen speichern',
+  saved: 'Gespeichert',
+  saveFailed: 'Die Einstellungen konnten nicht gespeichert werden.',
+  events: {
+    analysis_completed: 'Analyse abgeschlossen',
+    analysis_failed: 'Analyse fehlgeschlagen',
+    finding_critical: 'Kritische Befunde / Blocker',
+    release_watch_changed: 'Änderungen beobachteter Releases',
+  },
+};
+
+export const inspector: typeof EnInspector = {
+  title: 'Analyse-Inspektor',
+  intro: 'Befunde aller Projekte mit ihrer Nachweiskette und Hinweisen zur Clean-Core-Behebung.',
+  refresh: 'Aktualisieren',
+  refreshLabel: 'Befunde aktualisieren',
+  gridLabel: 'Befunde aller Projekte',
+  searchPlaceholder: 'Befunde nach Regel-ID, Titel, Engine oder Objekt durchsuchen …',
+  emptyTitle: 'Keine Befunde',
+  emptyDescription: 'Keine Befunde entsprechen den gewählten Kriterien, oder es wurde noch keine Analyse ausgeführt.',
+  loading: 'Inspektor wird geladen …',
+};

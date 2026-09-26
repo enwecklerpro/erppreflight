@@ -125,17 +125,23 @@ services:
     restart: unless-stopped
     expose:
       - "3310"
+    volumes:
+      # Persist signature databases so freshclam does not re-download on every restart
+      - clamav_db:/var/lib/clamav
     healthcheck:
-      test: ["CMD-SHELL", "clamdscan --version || exit 1"]
-      interval: 20s
+      # Image-provided probe: sends PING to clamd on 3310 and expects PONG
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 45s
+      start_period: 180s
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1536M
+          # clamd holds two signature DB copies in memory during reloads
+          # (ConcurrentDatabaseReload defaults to yes): ~1.5 GB each.
+          memory: 3072M
         reservations:
           cpus: '0.25'
           memory: 512M
@@ -161,6 +167,10 @@ services:
       PYTHONUNBUFFERED: 1
       SERVICE_VERSION: "1.0.0"
       CORS_ORIGINS: "http://api:3001,http://web:3000,http://localhost:3001,http://localhost:3000,https://erppreflight.com,https://www.erppreflight.com,https://api.erppreflight.com,http://erppreflight.com,http://api.erppreflight.com"
+      # Opt-in tracing (no-op when empty)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: erppreflight-analysis
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s
@@ -195,6 +205,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
       analysis-python:
         condition: service_healthy
     expose:
@@ -203,10 +215,15 @@ services:
       NODE_ENV: production
       PORT: 3001
       API_PORT: 3001
-      AUTO_MIGRATE: "true"
+      # Migrations run once in infra/docker/api-entrypoint.sh as the schema owner (DATABASE_URL)
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
       STRICT_MIGRATIONS: ${STRICT_MIGRATIONS:-true}
       MIGRATIONS_DIR: /app/packages/database/migrations
       DATABASE_URL: postgres://${POSTGRES_USER:-erppreflight}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@erppreflight-postgres:5432/${POSTGRES_DB:-erppreflight}
+      # Optional dedicated runtime login (non-superuser, member of erppreflight_app); empty = reuse DATABASE_URL
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-}
+      # Tenant-scoped transactions SET LOCAL ROLE to this NOBYPASSRLS role so RLS is enforced
+      DB_RUNTIME_ROLE: ${DB_RUNTIME_ROLE:-erppreflight_app}
       REDIS_URL: redis://erppreflight-redis:6379
       REDIS_HOST: erppreflight-redis
       REDIS_PORT: 6379
@@ -221,11 +238,56 @@ services:
       S3_BUCKET_REPORTS: ${S3_BUCKET_REPORTS:-erppreflight-reports}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
-      CORS_ORIGIN: ${CORS_ORIGIN:-https://erppreflight.com,https://www.erppreflight.com,http://erppreflight.com,http://www.erppreflight.com,http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://erppreflight.com,https://www.erppreflight.com}
       CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       CLAMAV_PORT: ${CLAMAV_PORT:-3310}
       CLAMAV_MOCK_MODE: ${CLAMAV_MOCK_MODE:-false}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?MASTER_ENCRYPTION_KEY is required}
+      # One-time SUPER_ADMIN bootstrap (created only if the email does not exist; never reset)
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+      # Prometheus scrape token for GET /api/v1/metrics (endpoint disabled when empty)
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
+      # Observability & enterprise integrations (see .env.coolify.example / docs/runbooks/observability.md)
+      ENABLE_API_REFERENCE: ${ENABLE_API_REFERENCE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-erppreflight-api}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      SSO_REDIRECT_BASE_URL: ${SSO_REDIRECT_BASE_URL:-}
+      SSO_DNS_SERVERS: ${SSO_DNS_SERVERS:-}
+      MASTER_ENCRYPTION_KEY_PREVIOUS: ${MASTER_ENCRYPTION_KEY_PREVIOUS:-}
+      CONNECTOR_ALLOW_PRIVATE_NETWORKS: ${CONNECTOR_ALLOW_PRIVATE_NETWORKS:-false}
+      WEBHOOK_ALLOW_PRIVATE_NETWORKS: ${WEBHOOK_ALLOW_PRIVATE_NETWORKS:-false}
+      SSO_ALLOW_PRIVATE_NETWORKS: ${SSO_ALLOW_PRIVATE_NETWORKS:-false}
+      AGENT_JOB_SIGNING_KEY: ${AGENT_JOB_SIGNING_KEY:-}
+      AGENT_UPDATE_MANIFEST_STABLE: ${AGENT_UPDATE_MANIFEST_STABLE:-}
+      AGENT_UPDATE_MANIFEST_BETA: ${AGENT_UPDATE_MANIFEST_BETA:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # E-mail delivery & account lifecycle (see .env.coolify.example)
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:?MAIL_TRANSPORT is required (smtp | http | dev)}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://erppreflight.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
+      SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
+      MAIL_HTTP_PROVIDER: ${MAIL_HTTP_PROVIDER:-resend}
+      MAIL_HTTP_URL: ${MAIL_HTTP_URL:-}
+      MAIL_HTTP_API_KEY: ${MAIL_HTTP_API_KEY:-}
+      MAIL_DEV_OUTBOX_TOKEN: ${MAIL_DEV_OUTBOX_TOKEN:-}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
+      KNOWLEDGE_SYNC_CRON: ${KNOWLEDGE_SYNC_CRON:-17 3 * * 1}
+      KNOWLEDGE_CR_FILES: ${KNOWLEDGE_CR_FILES:-}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health/liveness || exit 1"]
       interval: 10s
@@ -269,6 +331,9 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.erppreflight.com}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://erppreflight.com}
     container_name: erppreflight-web
     restart: unless-stopped
     depends_on:
@@ -280,6 +345,17 @@ services:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.erppreflight.com}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://erppreflight.com}
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:3001}
+      NEXT_PUBLIC_LEGAL_COMPANY_NAME: ${NEXT_PUBLIC_LEGAL_COMPANY_NAME:-}
+      NEXT_PUBLIC_LEGAL_ADDRESS: ${NEXT_PUBLIC_LEGAL_ADDRESS:-}
+      NEXT_PUBLIC_LEGAL_REPRESENTATIVE: ${NEXT_PUBLIC_LEGAL_REPRESENTATIVE:-}
+      NEXT_PUBLIC_LEGAL_REGISTER: ${NEXT_PUBLIC_LEGAL_REGISTER:-}
+      NEXT_PUBLIC_LEGAL_VAT_ID: ${NEXT_PUBLIC_LEGAL_VAT_ID:-}
+      NEXT_PUBLIC_LEGAL_EMAIL: ${NEXT_PUBLIC_LEGAL_EMAIL:-}
+      NEXT_PUBLIC_LEGAL_PHONE: ${NEXT_PUBLIC_LEGAL_PHONE:-}
+      NEXT_PUBLIC_LEGAL_RESPONSIBLE_PERSON: ${NEXT_PUBLIC_LEGAL_RESPONSIBLE_PERSON:-}
+      NEXT_PUBLIC_LEGAL_SUBPROCESSORS: ${NEXT_PUBLIC_LEGAL_SUBPROCESSORS:-}
       NEXT_TELEMETRY_DISABLED: 1
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
@@ -324,6 +400,8 @@ volumes:
     name: erppreflight_redis_data
   minio_data:
     name: erppreflight_minio_data
+  clamav_db:
+    name: erppreflight_clamav_db
 
 # ------------------------------------------------------------------------------
 # Isolated Internal Docker Network & Coolify Proxy Ingress Network

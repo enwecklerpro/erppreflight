@@ -4,6 +4,7 @@ import { CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { createFindingFingerprint } from '@erppreflight/evidence';
 import * as crypto from 'node:crypto';
+import { ProjectContextUpdateSchema } from '@erppreflight/schemas';
 
 @Injectable()
 export class ProjectsService {
@@ -26,23 +27,24 @@ export class ProjectsService {
       [id, organizationId, dto.name, `${slug}-${Date.now().toString().slice(-4)}`, dto.description || null, targetRelease, userId]
     );
 
-    return res.rows[0];
+    return toProjectResponse(res.rows[0]);
   }
 
   async findAll(organizationId: string) {
     const res = await this.db.query(
-      `SELECT p.*, COUNT(f.id)::int as total_findings
+      `SELECT p.*,
+              (SELECT COUNT(*)::int FROM findings f
+                WHERE f.project_id = p.id AND f.organization_id = p.organization_id) AS total_findings
        FROM projects p
-       LEFT JOIN findings f ON f.project_id = p.id
        WHERE p.organization_id = $1
-       GROUP BY p.id
        ORDER BY p.created_at DESC`,
       [organizationId]
     );
-    return res.rows;
+    return res.rows.map((row: any) => toProjectResponse(row));
   }
 
-  async findOne(organizationId: string, id: string) {
+  /** Raw tenant-scoped project row (snake_case) for internal use. */
+  private async getProjectRow(organizationId: string, id: string) {
     const res = await this.db.query(
       'SELECT * FROM projects WHERE organization_id = $1 AND id = $2',
       [organizationId, id]
@@ -53,8 +55,12 @@ export class ProjectsService {
     return res.rows[0];
   }
 
+  async findOne(organizationId: string, id: string) {
+    return toProjectResponse(await this.getProjectRow(organizationId, id));
+  }
+
   async update(organizationId: string, id: string, dto: UpdateProjectDto) {
-    await this.findOne(organizationId, id); // Ensure exists
+    await this.getProjectRow(organizationId, id); // Ensure exists within tenant
 
     const res = await this.db.query(
       `UPDATE projects
@@ -64,22 +70,71 @@ export class ProjectsService {
            updated_at = NOW()
        WHERE organization_id = $4 AND id = $5
        RETURNING *`,
-      [dto.name || null, dto.description || null, dto.targetRelease || null, organizationId, id]
+      [dto.name || null, dto.description ?? null, dto.targetRelease || null, organizationId, id]
     );
-    return res.rows[0];
+    if (!res.rows?.length) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
+    return toProjectResponse(res.rows[0]);
+  }
+
+  /**
+   * Updates the project mode context (Part 01 §1.5). Only keys present in the
+   * validated payload change; `null` clears a value. These values are the defaults
+   * for analysis target release, Full Project Preflight planning and the router.
+   */
+  async updateContext(organizationId: string, id: string, body: unknown) {
+    const parsed = ProjectContextUpdateSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'INVALID_PROJECT_CONTEXT',
+        message: 'Invalid project context',
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      });
+    }
+    await this.getProjectRow(organizationId, id);
+    const dto = parsed.data;
+    const columns: Array<[string, unknown]> = [];
+    if (dto.sourceErp !== undefined) columns.push(['source_erp', dto.sourceErp]);
+    if (dto.sourceVersion !== undefined) columns.push(['source_version', dto.sourceVersion || null]);
+    if (dto.targetProduct !== undefined) columns.push(['target_product', dto.targetProduct]);
+    if (dto.targetEdition !== undefined) columns.push(['target_edition', dto.targetEdition || null]);
+    if (dto.targetRelease !== undefined) columns.push(['target_release', dto.targetRelease]);
+    if (dto.deploymentType !== undefined) columns.push(['deployment_type', dto.deploymentType]);
+    if (dto.countries !== undefined) columns.push(['countries', JSON.stringify([...new Set(dto.countries)].sort())]);
+    if (dto.modules !== undefined) columns.push(['modules', JSON.stringify([...new Set(dto.modules)].sort())]);
+    if (columns.length === 0) {
+      return this.findOne(organizationId, id);
+    }
+    const sets = columns.map(([col], i) => `${col} = $${i + 1}`).join(', ');
+    const params = columns.map(([, v]) => v);
+    params.push(organizationId, id);
+    const res = await this.db.query(
+      `UPDATE projects SET ${sets}, updated_at = NOW()
+        WHERE organization_id = $${columns.length + 1} AND id = $${columns.length + 2}
+        RETURNING *`,
+      params
+    );
+    if (!res.rows?.length) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
+    return toProjectResponse(res.rows[0]);
   }
 
   async remove(organizationId: string, id: string) {
-    await this.findOne(organizationId, id);
-    await this.db.query(
+    await this.getProjectRow(organizationId, id);
+    const res = await this.db.query(
       'DELETE FROM projects WHERE organization_id = $1 AND id = $2',
       [organizationId, id]
     );
+    if (res && typeof res.rowCount === 'number' && res.rowCount === 0) {
+      throw new NotFoundException(`Project with ID '${id}' not found`);
+    }
     return { success: true, deletedId: id };
   }
 
   async setBaseline(organizationId: string, projectId: string, analysisId: string) {
-    await this.findOne(organizationId, projectId);
+    await this.getProjectRow(organizationId, projectId);
 
     const analysisRes = await this.db.query(
       `SELECT * FROM analyses WHERE organization_id = $1 AND project_id = $2 AND id = $3`,
@@ -115,12 +170,12 @@ export class ProjectsService {
       success: true,
       projectId,
       baselineAnalysisId: analysisId,
-      project: res.rows[0],
+      project: res.rows[0] ? toProjectResponse(res.rows[0]) : null,
     };
   }
 
   async getDrift(organizationId: string, projectId: string, targetAnalysisId?: string) {
-    const project = await this.findOne(organizationId, projectId);
+    const project = await this.getProjectRow(organizationId, projectId);
     const baselineAnalysisId = project.baseline_analysis_id;
 
     if (!baselineAnalysisId) {
@@ -325,7 +380,7 @@ export class ProjectsService {
     );
 
     const analysesRes = await this.db.query(
-      `SELECT a.id, a.name, a.status, a.target_release, a.created_at,
+      `SELECT a.id, a.status, a.target_release, a.created_at,
               (SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.id) as findings_count
        FROM analyses a
        WHERE a.organization_id = $1 AND a.project_id = $2
@@ -335,8 +390,9 @@ export class ProjectsService {
     );
 
     const artifactsRes = await this.db.query(
-      `SELECT id, file_name, file_size, mime_type, sha256_hash, created_at
-       FROM artifacts
+      `SELECT id, file_name, file_size, mime_type, checksum_sha256 AS sha256_hash,
+              quarantine_status, created_at
+       FROM uploaded_files
        WHERE organization_id = $1 AND project_id = $2
        ORDER BY created_at DESC
        LIMIT 20`,
@@ -406,6 +462,57 @@ export class ProjectsService {
       integritySignature,
     };
   }
+}
+
+function toIso(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/**
+ * Maps a projects row to the camelCase API contract
+ * ({ id, organizationId, name, description, targetRelease, status, createdAt, updatedAt, ... }).
+ * The projects table has no lifecycle column; every persisted project is ACTIVE.
+ */
+export function toProjectResponse(row: any) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    organizationId: row.organization_id ?? row.organizationId,
+    name: row.name,
+    slug: row.slug ?? null,
+    description: row.description ?? null,
+    targetRelease: row.target_release ?? row.targetRelease ?? 'S4H_2023',
+    status: row.status ?? 'ACTIVE',
+    baselineAnalysisId: row.baseline_analysis_id ?? row.baselineAnalysisId ?? null,
+    context: toProjectContext(row),
+    createdBy: row.created_by ?? row.createdBy ?? null,
+    totalFindings:
+      row.total_findings !== undefined && row.total_findings !== null
+        ? Number(row.total_findings)
+        : undefined,
+    createdAt: toIso(row.created_at ?? row.createdAt),
+    updatedAt: toIso(row.updated_at ?? row.updatedAt),
+  };
+}
+
+function jsonArray(value: unknown): string[] {
+  const v = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** Project mode context (Part 01 §1.5, migration 018). */
+export function toProjectContext(row: any) {
+  return {
+    sourceErp: row.source_erp ?? null,
+    sourceVersion: row.source_version ?? null,
+    targetProduct: row.target_product ?? null,
+    targetEdition: row.target_edition ?? null,
+    targetRelease: row.target_release ?? null,
+    deploymentType: row.deployment_type ?? null,
+    countries: jsonArray(row.countries),
+    modules: jsonArray(row.modules),
+  };
 }
 
 export function computeCleanCoreIndex(findings: any[]): number {

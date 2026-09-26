@@ -1,22 +1,14 @@
+import { BillingModule } from '../billing/billing.module';
 import { Module } from '@nestjs/common';
 import { TraceabilityService } from './traceability.service';
 import { TraceabilityController } from './traceability.controller';
 import { DatabaseModule } from '../database/database.module';
-import { CloudAlmConnectorService } from './connectors/cloud-alm.connector';
-import { JiraConnectorService } from './connectors/jira.connector';
+import { ConnectorsModule } from '../connectors/connectors.module';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, ConnectorsModule, BillingModule],
   controllers: [TraceabilityController],
-  providers: [
-    TraceabilityService,
-    CloudAlmConnectorService,
-    JiraConnectorService,
-  ],
-  exports: [
-    TraceabilityService,
-    CloudAlmConnectorService,
-    JiraConnectorService,
-  ],
+  providers: [TraceabilityService],
+  exports: [TraceabilityService],
 })
 export class TraceabilityModule {}

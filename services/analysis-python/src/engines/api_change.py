@@ -17,6 +17,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -31,6 +34,8 @@ from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.parsers.safe_xml import SafeXmlParser
+from src.core.exceptions import EngineInputError, SecurityViolationError
+from src.parsers.json_input import MAX_JSON_DEPTH, json_nesting_depth
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
 
@@ -83,8 +88,8 @@ class NormalizedProperty(BaseModel):
     scale: Optional[int] = None
     enums: List[str] = Field(default_factory=list)
     deprecated: bool = False
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedEntity(BaseModel):
@@ -94,8 +99,8 @@ class NormalizedEntity(BaseModel):
     properties: Dict[str, NormalizedProperty] = Field(default_factory=dict)
     keys: List[str] = Field(default_factory=list)
     navigation_properties: List[str] = Field(default_factory=list)
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedParameter(BaseModel):
@@ -107,8 +112,8 @@ class NormalizedParameter(BaseModel):
     type: str = "string"
     format: Optional[str] = None
     schema_ref: Optional[str] = None
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedOperation(BaseModel):
@@ -121,8 +126,8 @@ class NormalizedOperation(BaseModel):
     request_body_required: bool = False
     responses: Dict[str, str] = Field(default_factory=dict)
     deprecated: bool = False
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedEndpoint(BaseModel):
@@ -130,8 +135,8 @@ class NormalizedEndpoint(BaseModel):
 
     path: str
     operations: Dict[str, NormalizedOperation] = Field(default_factory=dict)
-    line_number: int = 1
-    column_number: int = 1
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
 
 
 class NormalizedApiSchema(BaseModel):
@@ -155,12 +160,12 @@ class NormalizedApiSchema(BaseModel):
 # =============================================================================
 
 
-def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tuple[int, int, str]:
+def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
-    start_idx = max(0, start_line - 1)
+    start_idx = max(0, (start_line or 1) - 1)
     # 1. Exact quoted match e.g. "token": or 'token':
     exact_patterns = [f'"{token}"', f"'{token}'", f"{token}:", token]
     for pattern in exact_patterns:
@@ -169,12 +174,14 @@ def _locate_token_in_text(raw_text: str, token: str, start_line: int = 1) -> Tup
             pos = line.find(pattern)
             if pos != -1:
                 return idx + 1, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _extract_context_snippet(raw_text: str, line_number: int, radius: int = 2) -> str:
     """Extracts a snippet of source lines centered on line_number."""
     if not raw_text:
+        return ""
+    if not line_number:
         return ""
     lines = raw_text.splitlines()
     target_idx = max(0, line_number - 1)
@@ -188,6 +195,90 @@ def _extract_context_snippet(raw_text: str, line_number: int, radius: int = 2) -
 # =============================================================================
 
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+def _api(code: str, title: str, sev: Severity, remediation: str) -> RuleSpec:
+    return RuleSpec(code, title, sev, remediation, "API Compatibility")
+
+
+RULES = rule_catalog(
+    _api("API_BREAKING_ENDPOINT_REMOVED", "Endpoint removed", Severity.CRITICAL,
+         "Restore the path or publish a new major API version; migrate every consumer in the integration "
+         "registry before retiring the old path."),
+    _api("API_BREAKING_OPERATION_REMOVED", "Operation removed", Severity.CRITICAL,
+         "Keep the HTTP operation (deprecate first) or version the API; update consumers before removal."),
+    _api("API_BREAKING_ENTITYSET_REMOVED", "OData entity set removed", Severity.CRITICAL,
+         "Re-expose the entity set in the service definition / binding or version the OData service."),
+    _api("API_BREAKING_ENTITY_REMOVED", "OData entity type removed", Severity.CRITICAL,
+         "Restore the entity type or introduce a new service version; adapt consumer mappings."),
+    _api("API_BREAKING_FIELD_REMOVED", "Property / field removed", Severity.CRITICAL,
+         "Keep the property (mark deprecated) until all consumers stop reading it, or version the API."),
+    _api("API_BREAKING_TYPE_CHANGED", "Incompatible type change", Severity.CRITICAL,
+         "Revert to the previous type or add a new property with the new type; incompatible conversions break "
+         "deserialisation in consumers."),
+    _api("API_BREAKING_REQUIRED_PARAM_ADDED", "New required parameter", Severity.MAJOR,
+         "Make the new parameter optional with a server-side default, or version the operation."),
+    _api("API_BREAKING_REQUIRED_PROPERTY_ADDED", "New required property", Severity.MAJOR,
+         "Make the property optional (nullable / default value) so existing payloads remain valid."),
+    _api("API_BREAKING_ENUM_RESTRICTED", "Enum values removed", Severity.MAJOR,
+         "Keep the removed enum values accepted (map them server-side) or version the API."),
+    _api("API_BREAKING_MAX_LENGTH_DECREASED", "Maximum length decreased", Severity.MAJOR,
+         "Keep the previous MaxLength; shorter limits reject existing consumer data."),
+    _api("API_DEPRECATION_WARNING", "Element marked deprecated", Severity.MINOR,
+         "Plan consumer migration to the successor before the announced removal date."),
+    _api("API_NON_BREAKING_ENDPOINT_ADDED", "Endpoint added", Severity.INFO,
+         "No action for existing consumers; document the new endpoint."),
+    _api("API_NON_BREAKING_OPERATION_ADDED", "Operation added", Severity.INFO,
+         "No action for existing consumers; document the new operation."),
+    _api("API_NON_BREAKING_OPTIONAL_PROPERTY_ADDED", "Optional property added", Severity.INFO,
+         "No action; consumers must tolerate unknown properties (tolerant reader)."),
+    _api("API_NON_BREAKING_ENUM_EXPANDED", "Enum values added", Severity.INFO,
+         "Verify consumers handle unknown enum values gracefully."),
+    _api("API_NON_BREAKING_MAX_LENGTH_INCREASED", "Maximum length increased", Severity.INFO,
+         "Check that consumers storing the value have sufficient field length."),
+)
+
+
+class ApiChangeInput(ContractModel):
+    """A bundle {'baseline', 'candidate', 'integrations'} or one OpenAPI document / integration registry."""
+    signal_fields = ("baseline", "candidate", "openapi", "swagger", "paths", "integrations")
+    signal_message = (
+        "API Change Guard requires a baseline AND a candidate specification ('baseline' / 'candidate' keys, or "
+        "artifacts named *baseline* / *candidate*)."
+    )
+
+
+def _api_xml_check(root: Any) -> Optional[str]:
+    local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+    if local in ("Edmx", "DataServices", "Schema", "definitions"):
+        return None
+    return f"XML root <{local[:60]}> is not an OData EDMX (or WSDL) document."
+
+
+def _api_text_check(text: str) -> Optional[str]:
+    head = text.lstrip()[:4000]
+    if re.search(r"^(openapi|swagger)\s*:", head, re.M):
+        return None
+    return "text payload is not an OpenAPI / Swagger YAML document (no 'openapi:' or 'swagger:' key)."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.XML, InputFormat.TEXT),
+    summary=(
+        "Two API specifications of the same service — baseline (current) and candidate (target release): "
+        "OpenAPI 2/3 (JSON or YAML) or OData EDMX V2/V4 XML — supplied as {'baseline': …, 'candidate': …} in "
+        "raw_content / configuration or as artifacts named *baseline* / *candidate*; optional 'integrations' "
+        "registry for consumer impact."
+    ),
+    required=("baseline specification", "candidate specification"),
+    json_model=ApiChangeInput,
+    xml_check=_api_xml_check,
+    text_check=_api_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class ApiChangeEngine(BaseEngine):
     """
@@ -197,6 +288,9 @@ class ApiChangeEngine(BaseEngine):
     """
 
     engine_type = EngineType.API_CHANGE_GUARD
+    rule_prefix = "API"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "API Change Guard"
     description = "OData, SOAP, RFC compatibility and deprecation impact scanner"
     version = "2.0.0"
@@ -337,19 +431,25 @@ class ApiChangeEngine(BaseEngine):
                         except Exception:
                             pass
 
-        # D. Check attached artifacts
-        if not baseline_raw or not candidate_raw:
+        # D. Check attached artifacts. Roles are explicit: an artifact is the baseline / candidate only when
+        #    its file name says so (no positional guessing — swapping them would invert every verdict).
+        unassigned: List[str] = []
+        if not baseline_raw or not candidate_raw or request.artifacts:
             for art in request.artifacts:
                 art_content = art.raw_content or ""
                 if not art_content:
                     continue
                 file_lower = (art.file_name or "").lower()
-                if "baseline" in file_lower or (not baseline_raw and "candidate" not in file_lower):
+                if "baseline" in file_lower and not baseline_raw:
                     baseline_raw = art_content
                     baseline_path = art.file_name
-                elif "candidate" in file_lower or (baseline_raw and not candidate_raw):
+                elif "candidate" in file_lower and not candidate_raw:
                     candidate_raw = art_content
                     candidate_path = art.file_name
+                elif "baseline" in file_lower or "candidate" in file_lower:
+                    continue
+                elif "integration" not in file_lower:
+                    unassigned.append(art.file_name)
                 elif "integration" in file_lower:
                     try:
                         p = json.loads(art_content)
@@ -359,124 +459,59 @@ class ApiChangeEngine(BaseEngine):
                     except Exception:
                         pass
 
-        # Validate that baseline was provided
-        if baseline_raw is None:
-            return Finding(
-                rule_id="API_BASELINE_MISSING",
-                severity=Severity.BLOCKER,
-                category="API Governance",
-                title="Missing Baseline API Specification",
-                description=(
-                    "API Change Guard requires both a baseline API specification and a candidate "
-                    "API specification to evaluate breaking changes. Baseline specification was not supplied."
-                ),
-                confidence=ConfidenceClass.VERIFIED,
-                confidence_score=1.0,
-                remediation=(
-                    "Provide the prior release API specification in the request payload or as an artifact "
-                    "named 'baseline' (OpenAPI JSON/YAML or OData EDMX XML)."
-                ),
-                evidence=[
-                    Evidence(
-                        artifact_path="request_payload",
-                        line_number=1,
-                        snippet="AnalysisRequest received without baseline specification",
-                        sha256=EvidenceEngine.compute_sha256(request.raw_content or ""),
-                        provenance=ConfidenceClass.VERIFIED,
-                        trust_score=1.0,
-                    )
-                ],
-                technical_details={"error": "BASELINE_SPECIFICATION_NOT_PROVIDED"},
-                affected_objects=["API_SPECIFICATION"],
+        # Both specifications are mandatory inputs (explicit contract): no verdict without them.
+        missing = [name for name, val in (("baseline", baseline_raw), ("candidate", candidate_raw)) if val is None]
+        if missing:
+            hint = (
+                f" Unassigned artifacts: {', '.join(sorted(unassigned))} — name them '*baseline*' / '*candidate*'."
+                if unassigned else ""
             )
-
-        # Validate that candidate was provided
-        if candidate_raw is None:
-            return Finding(
-                rule_id="API_CANDIDATE_MISSING",
-                severity=Severity.BLOCKER,
-                category="API Governance",
-                title="Missing Candidate API Specification",
-                description=(
-                    "API Change Guard requires a candidate API specification to compare against the baseline. "
-                    "Candidate specification was not supplied."
-                ),
-                confidence=ConfidenceClass.VERIFIED,
-                confidence_score=1.0,
-                remediation="Provide the target release API specification under the 'candidate' attribute or artifact.",
-                evidence=[
-                    Evidence(
-                        artifact_path="request_payload",
-                        line_number=1,
-                        snippet="AnalysisRequest received without candidate specification",
-                        sha256=EvidenceEngine.compute_sha256(request.raw_content or ""),
-                        provenance=ConfidenceClass.VERIFIED,
-                        trust_score=1.0,
-                    )
-                ],
-                technical_details={"error": "CANDIDATE_SPECIFICATION_NOT_PROVIDED"},
-                affected_objects=["API_SPECIFICATION"],
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "API Change Guard requires BOTH a baseline and a candidate API specification "
+                f"(missing: {', '.join(missing)}). Supply them as JSON keys 'baseline' / 'candidate' "
+                "(raw_content bundle or configuration) or as artifacts whose file names contain 'baseline' / "
+                "'candidate' (OpenAPI 2/3 JSON/YAML or OData EDMX XML)." + hint,
+                details={"missing": missing},
             )
 
         # Normalize raw inputs to string representations
         base_str = baseline_raw if isinstance(baseline_raw, str) else json.dumps(baseline_raw, indent=2)
         cand_str = candidate_raw if isinstance(candidate_raw, str) else json.dumps(candidate_raw, indent=2)
 
-        # Parse baseline schema
-        try:
-            baseline_schema = self._parse_api_schema(base_str, baseline_path)
-        except Exception as e:
-            return Finding(
-                rule_id="API_SPEC_SYNTAX_ERROR",
-                severity=Severity.BLOCKER,
-                category="API Governance",
-                title="Baseline API Specification Syntax Error",
-                description=f"Failed to parse baseline API specification: {str(e)}",
-                confidence=ConfidenceClass.VERIFIED,
-                confidence_score=1.0,
-                remediation="Ensure the baseline API specification is valid OpenAPI 2.0/3.0 JSON/YAML or well-formed OData EDMX XML.",
-                evidence=[
-                    Evidence(
-                        artifact_path=baseline_path,
-                        line_number=1,
-                        snippet=base_str[:200],
-                        sha256=EvidenceEngine.compute_sha256(base_str),
-                        provenance=ConfidenceClass.VERIFIED,
-                        trust_score=1.0,
-                    )
-                ],
-                technical_details={"error": str(e), "specification": "baseline"},
-                affected_objects=["BASELINE_SPECIFICATION"],
-            )
-
-        # Parse candidate schema
-        try:
-            candidate_schema = self._parse_api_schema(cand_str, candidate_path)
-        except Exception as e:
-            return Finding(
-                rule_id="API_SPEC_SYNTAX_ERROR",
-                severity=Severity.BLOCKER,
-                category="API Governance",
-                title="Candidate API Specification Syntax Error",
-                description=f"Failed to parse candidate API specification: {str(e)}",
-                confidence=ConfidenceClass.VERIFIED,
-                confidence_score=1.0,
-                remediation="Ensure the candidate API specification is valid OpenAPI 2.0/3.0 JSON/YAML or well-formed OData EDMX XML.",
-                evidence=[
-                    Evidence(
-                        artifact_path=candidate_path,
-                        line_number=1,
-                        snippet=cand_str[:200],
-                        sha256=EvidenceEngine.compute_sha256(cand_str),
-                        provenance=ConfidenceClass.VERIFIED,
-                        trust_score=1.0,
-                    )
-                ],
-                technical_details={"error": str(e), "specification": "candidate"},
-                affected_objects=["CANDIDATE_SPECIFICATION"],
+        # Parse both specifications; syntax / format errors are input errors, never verdicts.
+        baseline_schema = self._parse_spec_or_raise(base_str, baseline_path, "baseline")
+        candidate_schema = self._parse_spec_or_raise(cand_str, candidate_path, "candidate")
+        if not (
+            baseline_schema.endpoints or baseline_schema.entity_sets or baseline_schema.entities
+            or baseline_schema.operations_standalone
+        ):
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT",
+                f"Baseline specification ({baseline_path}) defines no paths/operations, entity types or entity "
+                "sets; there is no API surface to compare.",
             )
 
         return baseline_schema, candidate_schema, integrations
+
+    def _parse_spec_or_raise(self, text: str, path: str, role: str) -> "NormalizedApiSchema":
+        try:
+            return self._parse_api_schema(text, path)
+        except EngineInputError:
+            raise
+        except SecurityViolationError:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT",
+                f"The {role} specification ({path}) was rejected: Malicious XML (Entities/DTD forbidden).",
+            ) from None
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:
+            reason = str(exc) if isinstance(exc, ValueError) and len(str(exc)) < 300 else "unrecognised structure"
+            raise EngineInputError(
+                f"{self.rule_prefix}_PARSE_ERROR",
+                f"The {role} specification ({path}) is not a valid OpenAPI 2/3 JSON/YAML or OData EDMX document: "
+                f"{reason}",
+                details={"specification": role},
+            ) from None
 
     def _try_parse_json_or_yaml(self, text: str) -> Optional[Dict[str, Any]]:
         """Safely attempts to parse text as JSON, falling back to safe YAML."""
@@ -484,10 +519,12 @@ class ApiChangeEngine(BaseEngine):
             return None
         clean = text.strip()
         if clean.startswith("{") or clean.startswith("["):
+            if json_nesting_depth(clean) > MAX_JSON_DEPTH:
+                raise ValueError(f"JSON nesting exceeds the supported depth of {MAX_JSON_DEPTH} levels.")
             try:
                 return json.loads(clean)
-            except Exception:
-                pass
+            except (ValueError, RecursionError):
+                return None
         try:
             loaded = yaml.safe_load(clean)
             if isinstance(loaded, dict):
@@ -512,6 +549,8 @@ class ApiChangeEngine(BaseEngine):
         # Detect OpenAPI / Swagger (JSON or YAML format)
         parsed_dict = self._try_parse_json_or_yaml(clean)
         if isinstance(parsed_dict, dict):
+            if not any(k in parsed_dict for k in ("openapi", "swagger", "paths")):
+                raise ValueError("document has no 'openapi' / 'swagger' version or 'paths' section.")
             return self._parse_openapi(parsed_dict, clean, artifact_path, art_hash)
 
         raise ValueError("Unrecognized API specification format. Expected OData EDMX XML or OpenAPI JSON/YAML.")
@@ -519,6 +558,9 @@ class ApiChangeEngine(BaseEngine):
     def _parse_odata_edmx(self, xml_text: str, artifact_path: str, artifact_hash: str) -> NormalizedApiSchema:
         """Parses OData EDMX V2 or V4 XML with exact line and column numbers."""
         root = SafeXmlParser.parse_string(xml_text)
+        root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+        if root_local not in ("Edmx", "DataServices", "Schema"):
+            raise ValueError(f"XML root element <{root_local[:60]}> is not an OData EDMX document.")
 
         # Determine EDMX version
         version = root.attrib.get("Version", "1.0")

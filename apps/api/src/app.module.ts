@@ -18,6 +18,7 @@ import { ExportModule } from './modules/export/export.module';
 import { EnginesModule } from './modules/engines/engines.module';
 import { FindingsModule } from './modules/findings/findings.module';
 import { AnalysesModule } from './modules/analyses/analyses.module';
+import { ProblemRouterModule } from './modules/router/router.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -39,7 +40,20 @@ import { SapImportModule } from './modules/sap-import/sap-import.module';
 import { OutboxModule } from './modules/outbox/outbox.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { resolveRedisConnectionOptions } from './modules/jobs/redis-connection.factory';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
+import { ConnectorsModule } from './modules/connectors/connectors.module';
+import { SsoModule } from './modules/sso/sso.module';
+import { PartnersModule } from './modules/partners/partners.module';
+import { UsageModule } from './modules/usage/usage.module';
+import { RetentionModule } from './modules/retention/retention.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
+import { SupportModule } from './modules/support/support.module';
+import { AccountModule } from './modules/account/account.module';
+import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
+import { ReleaseIntelligenceModule } from './modules/release-intelligence/release-intelligence.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PublicToolsModule } from './modules/public-tools/public-tools.module';
 
 @Module({
   imports: [
@@ -49,12 +63,7 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
     }),
     BullModule.forRootAsync({
       useFactory: (config: ConfigService) => ({
-        connection: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: Number(config.get<number>('REDIS_PORT', 6379)),
-          password: config.get<string>('REDIS_PASSWORD') || undefined,
-          maxRetriesPerRequest: null,
-        },
+        connection: resolveRedisConnectionOptions(config),
       }),
       inject: [ConfigService],
     }),
@@ -73,6 +82,7 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
     EnginesModule,
     FindingsModule,
     AnalysesModule,
+    ProblemRouterModule,
     DashboardModule,
     OrganizationsModule,
     AdminModule,
@@ -95,6 +105,18 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
     AiGatewayModule,
     BillingModule,
     TelemetryModule,
+    ConnectorsModule,
+    SsoModule,
+    PartnersModule,
+    UsageModule,
+    RetentionModule,
+    FeatureFlagsModule,
+    SupportModule,
+    AccountModule,
+    KnowledgeGraphModule,
+    ReleaseIntelligenceModule,
+    NotificationsModule,
+    PublicToolsModule,
   ],
 })
 export class AppModule implements NestModule {
@@ -106,10 +128,13 @@ export class AppModule implements NestModule {
         'health',
         'auth/login',
         'auth/register',
+        'auth/logout',
         'admin/(.*)',
         'admin',
         'knowledge/(.*)',
         'knowledge',
+        'public/(.*)',
+        'public',
         'changelog/(.*)',
         'changelog',
         'billing/webhook',

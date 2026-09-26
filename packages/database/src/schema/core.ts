@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, jsonb, timestamp, integer, bigint, numeric, customType } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, jsonb, timestamp, integer, bigint, numeric, boolean, customType } from 'drizzle-orm/pg-core';
 
 const vector1536 = customType<{ data: number[]; driverData: string }>({
   dataType() {
@@ -22,6 +22,8 @@ export const organizations = pgTable('organizations', {
   planTier: varchar('plan_tier', { length: 50 }).default('FREE').notNull(),
   status: varchar('status', { length: 50 }).default('ACTIVE').notNull(),
   dataPolicy: jsonb('data_policy').default({}).notNull(),
+  // Migration 011: organization-wide "require 2FA" policy
+  require2fa: boolean('require_2fa').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -33,6 +35,16 @@ export const users = pgTable('users', {
   fullName: varchar('full_name', { length: 255 }),
   systemRole: varchar('system_role', { length: 50 }).default('USER').notNull(),
   status: varchar('status', { length: 50 }).default('ACTIVE').notNull(),
+  // Migration 011: account lifecycle (verification, session revocation, TOTP 2FA, GDPR erasure)
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  tokenVersion: integer('token_version').default(0).notNull(),
+  passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
+  totpSecretEncrypted: text('totp_secret_encrypted'),
+  totpPendingSecretEncrypted: text('totp_pending_secret_encrypted'),
+  totpPendingCreatedAt: timestamp('totp_pending_created_at', { withTimezone: true }),
+  totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
+  totpLastUsedStep: bigint('totp_last_used_step', { mode: 'number' }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -56,6 +68,14 @@ export const projects = pgTable('projects', {
   targetRelease: varchar('target_release', { length: 50 }).default('S4H_2023').notNull(),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   baselineAnalysisId: uuid('baseline_analysis_id'), // We'll manually refer as there's a circular ref if done naively
+  /** Project mode context (migration 018, Part 01 §1.5). */
+  sourceErp: varchar('source_erp', { length: 80 }),
+  sourceVersion: varchar('source_version', { length: 80 }),
+  targetProduct: varchar('target_product', { length: 80 }),
+  targetEdition: varchar('target_edition', { length: 80 }),
+  deploymentType: varchar('deployment_type', { length: 40 }),
+  countries: jsonb('countries').default([]).notNull(),
+  modules: jsonb('modules').default([]).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -87,6 +107,15 @@ export const analyses = pgTable('analyses', {
   triggeredBy: uuid('triggered_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  /** Exact knowledge snapshot used by this run (migration 014, Part 17.3). FK in SQL only (avoids a schema import cycle). */
+  knowledgeSnapshotId: uuid('knowledge_snapshot_id'),
+  /** Orchestration + stage progress (migration 018, Part 03 §3.8 / Part 05 §5.6). */
+  kind: varchar('kind', { length: 30 }).default('STANDARD').notNull(),
+  currentStage: varchar('current_stage', { length: 40 }),
+  progress: jsonb('progress').default({}).notNull(),
+  orchestration: jsonb('orchestration').default({}).notNull(),
+  problemStatement: text('problem_statement'),
+  routingId: uuid('routing_id'),
 });
 
 export const findings = pgTable('findings', {
@@ -107,6 +136,16 @@ export const findings = pgTable('findings', {
   technicalDetails: jsonb('technical_details').default({}).notNull(),
   fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  // Part 04 §4.10 reproducibility fields (migration 017). FKs live in SQL only (avoids schema import cycles).
+  engineVersion: varchar('engine_version', { length: 50 }),
+  ruleVersion: varchar('rule_version', { length: 80 }),
+  knowledgeSnapshotId: uuid('knowledge_snapshot_id'),
+  targetRelease: varchar('target_release', { length: 50 }),
+  sourceFileId: uuid('source_file_id'),
+  sourceFileName: varchar('source_file_name', { length: 500 }),
+  objectStateHash: varchar('object_state_hash', { length: 64 }),
+  aiModelVersion: varchar('ai_model_version', { length: 120 }),
+  lifecycleId: uuid('lifecycle_id'),
 });
 
 export const evidence = pgTable('evidence', {

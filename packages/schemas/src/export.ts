@@ -4,8 +4,33 @@ import { SeverityEnum } from './common';
 export const ExportFormatEnum = z.enum(['PDF', 'JSON_BUNDLE', 'XLSX', 'CSV', 'ZIP_ALL', 'HTML_OFFLINE']);
 export type ExportFormat = z.infer<typeof ExportFormatEnum>;
 
+/** Report types (spec 01 §1.9, C §19). Each selects and frames findings differently. */
+export const ReportTypeEnum = z.enum([
+  'TECHNICAL',
+  'EXECUTIVE',
+  'PROJECT_READINESS',
+  'MIGRATION_BLOCKER',
+  'CLEAN_CORE',
+  'AUDIT',
+]);
+export type ReportType = z.infer<typeof ReportTypeEnum>;
+
+/** Tenant report branding (Professional and higher plans). */
+export const ReportBrandingSchema = z
+  .object({
+    companyName: z.string().trim().min(1).max(120).optional(),
+    primaryColor: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/)
+      .optional(),
+    customDisclaimer: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+export type ReportBranding = z.infer<typeof ReportBrandingSchema>;
+
 export const TriggerExportSchema = z.object({
   format: ExportFormatEnum.default('PDF'),
+  reportType: ReportTypeEnum.default('TECHNICAL'),
   whiteLabel: z
     .object({
       companyName: z.string().optional(),

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Column } from '@tanstack/react-table';
 import { Check, PlusCircle, Search, X } from 'lucide-react';
 import { cn, FilterOption } from './types';
+import { useT } from '../../i18n/client';
 
 export interface DataTableFacetedFilterProps<TData, TValue> {
   column?: Column<TData, TValue>;
@@ -18,6 +19,7 @@ export function DataTableFacetedFilter<TData, TValue>({
   options,
   singleSelect = false,
 }: DataTableFacetedFilterProps<TData, TValue>) {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const popoverRef = React.useRef<HTMLDivElement>(null);
@@ -76,7 +78,7 @@ export function DataTableFacetedFilter<TData, TValue>({
           selectedValues.size > 0 && 'border-solid border-primary/50 bg-primary/5'
         )}
         aria-expanded={open}
-        aria-label={`Filter by ${title}`}
+        aria-label={t('app.dataTable.filterBy', { column: title })}
       >
         <PlusCircle className="size-3.5 text-muted-foreground" />
         <span>{title}</span>
@@ -98,7 +100,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                   ))
               ) : (
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  {selectedValues.size} selected
+                  {selectedValues.size} {t('app.dataTable.selected')}
                 </span>
               )}
             </div>
@@ -110,7 +112,7 @@ export function DataTableFacetedFilter<TData, TValue>({
       {open && (
         <div
           role="dialog"
-          aria-label={`${title} filter popover`}
+          aria-label={t('app.dataTable.filterPopover', { column: title })}
           className="absolute left-0 top-full z-50 mt-1.5 w-60 overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-xl animate-in fade-in zoom-in-95 duration-100"
         >
           {/* Quick Search inside popover */}
@@ -121,7 +123,7 @@ export function DataTableFacetedFilter<TData, TValue>({
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`Filter ${title.toLowerCase()}...`}
+              placeholder={t('app.dataTable.filterOptions')}
               className="w-full rounded-md border border-input bg-background pl-8 pr-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -129,7 +131,7 @@ export function DataTableFacetedFilter<TData, TValue>({
           <div className="max-h-56 overflow-y-auto space-y-0.5 p-1">
             {filteredOptions.length === 0 ? (
               <div className="p-3 text-center text-xs text-muted-foreground">
-                No matching options
+                {t('app.dataTable.noOptions')}
               </div>
             ) : (
               filteredOptions.map((option) => {
@@ -185,7 +187,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors font-medium"
               >
                 <X className="size-3.5" />
-                <span>Clear filters</span>
+                <span>{t('app.dataTable.clearFilters')}</span>
               </button>
             </>
           )}

@@ -17,54 +17,65 @@ import {
   Search,
   RefreshCw,
 } from 'lucide-react';
+import { useMessages, useT } from '../i18n/client';
 
 const STATUS_CONFIG: Record<
   EngineStatusItem['status'],
   {
     icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
     badgeClasses: string;
-    label: string;
-    ariaLabel: string;
   }
 > = {
   OPERATIONAL: {
     icon: CheckCircle2,
     badgeClasses:
       'bg-green-50 text-green-700 dark:bg-green-950/60 dark:text-green-300 border-green-200 dark:border-green-800',
-    label: 'OPERATIONAL',
-    ariaLabel: 'Engine status: Operational',
   },
   DEGRADED: {
     icon: AlertTriangle,
     badgeClasses:
       'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-    label: 'DEGRADED',
-    ariaLabel: 'Engine status: Degraded',
   },
   STANDBY: {
     icon: Clock,
     badgeClasses:
       'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-    label: 'STANDBY',
-    ariaLabel: 'Engine status: Standby',
   },
   OFFLINE: {
     icon: WifiOff,
     badgeClasses:
       'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border-red-200 dark:border-red-800',
-    label: 'OFFLINE',
-    ariaLabel: 'Engine status: Offline',
   },
   UNKNOWN: {
     icon: HelpCircle,
     badgeClasses:
       'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700',
-    label: 'UNKNOWN',
-    ariaLabel: 'Engine status: Unknown',
   },
 };
 
+/** API domain names → dictionary keys (`app.engineMatrix.domain.*`). */
+const DOMAIN_KEYS: Record<string, 'output' | 'migration' | 'integration' | 'release' | 'operations' | 'warehouse'> = {
+  'Output & Extensibility': 'output',
+  'Migration & Clean Core': 'migration',
+  Integration: 'integration',
+  'Release & Transport': 'release',
+  Operations: 'operations',
+  'Warehouse Automation': 'warehouse',
+};
+
+/** Localized engine domain label (unknown domains are shown as delivered by the API). */
+export function useEngineDomainLabel(): (domain: string) => string {
+  const t = useT();
+  return React.useCallback(
+    (domain: string) => (DOMAIN_KEYS[domain] ? t(`app.engineMatrix.domain.${DOMAIN_KEYS[domain]}`) : domain),
+    [t]
+  );
+}
+
 export function EngineMatrix() {
+  const t = useT();
+  const messages = useMessages();
+  const domainLabel = useEngineDomainLabel();
   const [selectedDomain, setSelectedDomain] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
@@ -94,22 +105,15 @@ export function EngineMatrix() {
     }));
   }, [engineData?.engines, fallbackStatus]);
 
-  const domains = [
-    'ALL',
-    'Output & Extensibility',
-    'Migration & Clean Core',
-    'Integration',
-    'Release & Transport',
-    'Operations',
-    'Warehouse Automation',
-  ];
+  const domains = ['ALL', ...Object.keys(DOMAIN_KEYS)];
+  const describe = (eng: EngineStatusItem) => messages.engines[eng.id] ?? eng.description;
 
   const filteredEngines = engines.filter((eng) => {
     const matchesDomain =
       selectedDomain === 'ALL' || eng.domain === selectedDomain;
     const matchesSearch =
       eng.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      eng.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      describe(eng).toLowerCase().includes(searchTerm.toLowerCase()) ||
       eng.id.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesDomain && matchesSearch;
   });
@@ -120,32 +124,32 @@ export function EngineMatrix() {
         <div>
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Shield className="h-5 w-5 text-primary" aria-hidden="true" />
-            18-Engine Operational Status Matrix
+            {t('app.engineMatrix.title')}
           </h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            Real-time readiness and deterministic rule inventory across SAP preflight domains
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('app.engineMatrix.intro')}
             {engineData?.summary ? (
               <span className="ml-2 font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                • {engineData.summary.operationalCount} / {engineData.summary.totalEngines} Active ({engineData.summary.totalRules} Rules)
+                • {t('app.engineMatrix.active', { active: engineData.summary.operationalCount, total: engineData.summary.totalEngines })}
               </span>
             ) : isError ? (
               <span className="ml-2 font-mono font-semibold text-red-600 dark:text-red-400">
-                • Status: Disconnected (0 / 18 Online)
+                • {t('app.engineMatrix.disconnected', { total: CANONICAL_ENGINES.length })}
               </span>
             ) : null}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" aria-hidden="true" />
             <input
               type="text"
-              placeholder="Search engines..."
+              placeholder={t('app.engineMatrix.searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              aria-label="Search engines"
-              className="pl-9 pr-3 py-1.5 text-xs bg-muted rounded-lg border border-transparent focus:border-primary focus:outline-none w-48 text-foreground placeholder:text-muted-foreground"
+              aria-label={t('app.engineMatrix.searchLabel')}
+              className="pl-9 pr-3 py-1.5 text-xs bg-muted rounded-lg border border-transparent focus:border-primary focus:outline-none w-full sm:w-48 text-foreground placeholder:text-muted-foreground"
             />
           </div>
           <button
@@ -153,8 +157,8 @@ export function EngineMatrix() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="p-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-            title="Refresh engine status"
-            aria-label="Refresh engine status"
+            title={t('app.engineMatrix.refresh')}
+            aria-label={t('app.engineMatrix.refresh')}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
           </button>
@@ -174,12 +178,12 @@ export function EngineMatrix() {
             </div>
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-red-900 dark:text-red-100">
-                Analysis Services Offline / Unavailable
+                {t('app.engineMatrix.offlineTitle')}
               </h4>
-              <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">
+              <p className="text-sm text-red-700 dark:text-red-300 mt-0.5">
                 {error instanceof Error && error.message
-                  ? `Failed to communicate with analysis microservices: ${error.message}`
-                  : 'Unable to verify engine operational status. Deterministic rules are offline or connection was refused.'}
+                  ? t('app.engineMatrix.offlineWithError', { error: error.message })
+                  : t('app.engineMatrix.offlineGeneric')}
               </p>
             </div>
           </div>
@@ -188,16 +192,16 @@ export function EngineMatrix() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-            aria-label="Retry connection to analysis services"
+            aria-label={t('app.engineMatrix.retryLabel')}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
-            <span>{isFetching ? 'Retrying...' : 'Retry Connection'}</span>
+            <span>{isFetching ? t('app.engineMatrix.retrying') : t('app.engineMatrix.retry')}</span>
           </button>
         </div>
       )}
 
       {/* Domain Filter Pills */}
-      <div className="flex flex-wrap gap-1.5 mt-4" role="tablist" aria-label="Engine domains">
+      <div className="flex flex-wrap gap-1.5 mt-4" role="group" aria-label={t('app.engineMatrix.domainsLabel')}>
         {domains.map((d) => (
           <button
             key={d}
@@ -210,7 +214,7 @@ export function EngineMatrix() {
                 : 'bg-muted text-muted-foreground hover:text-foreground'
             }`}
           >
-            {d}
+            {d === 'ALL' ? t('app.engineMatrix.domain.ALL') : domainLabel(d)}
           </button>
         ))}
       </div>
@@ -220,7 +224,7 @@ export function EngineMatrix() {
         <div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-5"
           aria-busy="true"
-          aria-label="Loading engine operational status"
+          aria-label={t('app.engineMatrix.loading')}
         >
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -250,9 +254,9 @@ export function EngineMatrix() {
       ) : filteredEngines.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-border rounded-lg mt-5">
           <Search className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-50" aria-hidden="true" />
-          <h3 className="text-sm font-semibold text-foreground">No matching engines found</h3>
-          <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-            No preflight engine matches your search criteria &quot;{searchTerm}&quot; in domain &quot;{selectedDomain}&quot;.
+          <h3 className="text-sm font-semibold text-foreground">{t('app.engineMatrix.noMatchTitle')}</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+            {t('app.engineMatrix.noMatchBody', { search: searchTerm })}
           </p>
           <button
             type="button"
@@ -262,14 +266,15 @@ export function EngineMatrix() {
             }}
             className="mt-3 text-xs text-primary font-medium hover:underline cursor-pointer"
           >
-            Reset filters
+            {t('app.engineMatrix.resetFilters')}
           </button>
         </div>
       ) : (
         /* Grid of Engine Cards with Triad Status Representation */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-5">
           {filteredEngines.map((eng) => {
-            const statusInfo = STATUS_CONFIG[eng.status] || STATUS_CONFIG.UNKNOWN;
+            const statusKey = STATUS_CONFIG[eng.status] ? eng.status : 'UNKNOWN';
+            const statusInfo = STATUS_CONFIG[statusKey];
             const StatusIcon = statusInfo.icon;
             return (
               <div
@@ -280,31 +285,29 @@ export function EngineMatrix() {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
-                        {eng.domain}
+                        {domainLabel(eng.domain)}
                       </span>
-                      <h3 className="font-bold text-sm text-foreground mt-0.5">
+                      <h3 className="font-bold text-sm text-foreground mt-0.5" translate="no">
                         {eng.name}
                       </h3>
                     </div>
                     <span
                       role="status"
-                      aria-label={statusInfo.ariaLabel}
+                      aria-label={t('app.engineMatrix.statusLabel', { status: t(`app.engineMatrix.statusName.${statusKey}`) })}
                       className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border select-none ${statusInfo.badgeClasses}`}
                     >
                       <StatusIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      <span>{statusInfo.label}</span>
+                      <span>{t(`app.engineMatrix.status.${statusKey}`)}</span>
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                    {eng.description}
+                    {describe(eng)}
                   </p>
                 </div>
 
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs">
-                  <span className="text-muted-foreground">
-                    <strong className="text-foreground">{eng.rulesCount}</strong> Rules Evaluated
-                  </span>
-                  <span className="font-mono text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  <span className="text-muted-foreground">{domainLabel(eng.domain)}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded break-all">
                     {eng.id}
                   </span>
                 </div>

@@ -7,13 +7,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { LabService } from './lab.service';
 import { GenerateScenarioDto, RunScenarioDto } from './dto/lab.dto';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller(['lab', 'projects/:id/lab'])
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard)
 export class LabController {
   constructor(private readonly labService: LabService) {}
 

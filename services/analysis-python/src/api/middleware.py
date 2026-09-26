@@ -18,3 +18,27 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         response.headers["X-Correlation-ID"] = correlation_id
         response.headers["X-Process-Time-Ms"] = str(process_time_ms)
         return response
+
+
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Rejects requests whose declared Content-Length exceeds MAX_PAYLOAD_SIZE_MB with HTTP 413.
+
+    EngineRunner additionally enforces the limit on decoded payload bytes (bodies without a length header)."""
+
+    def __init__(self, app, max_bytes: int):
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                too_large = int(declared) > self.max_bytes
+            except ValueError:
+                return Response("Invalid Content-Length header.", status_code=400)
+            if too_large:
+                return Response(
+                    f"Payload exceeds the {self.max_bytes} byte limit.",
+                    status_code=413,
+                )
+        return await call_next(request)

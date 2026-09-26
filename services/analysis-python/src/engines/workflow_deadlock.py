@@ -18,6 +18,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     EngineType,
@@ -31,6 +34,8 @@ from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.models.finding import Finding
 from src.models.evidence import Evidence
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
 
 
 # =============================================================================
@@ -108,6 +113,70 @@ class WorkflowStuckNormalizedContext(BaseModel):
 # Feature 32: Workflow Stuck & Deadlock Predictor Engine
 # =============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "WF_STUCK_NO_AGENT", "Work item READY without any possible agent", Severity.CRITICAL,
+        "Forward the work item in SWIA; then fix the agent rule (PFAC / 'Manage Workflows' responsibility "
+        "rules) and the org assignment (PPOME) so it resolves to at least one active user.", "Agent Determination",
+    ),
+    RuleSpec(
+        "WF_BACKGROUND_TASK_FAILED", "Background step ended in error", Severity.CRITICAL,
+        "Analyse the exception in SWI1 / SWWLOGHIST, correct the data or method, then restart the item via SWPR / "
+        "SWIA 'Restart after error'.", "Background Processing",
+    ),
+    RuleSpec(
+        "WF_EVENT_LINKAGE_DEACTIVATED", "Event type linkage deactivated", Severity.MAJOR,
+        "Reactivate the linkage in SWE2 (and check why it was deactivated — error feedback 'deactivate linkage').",
+        "Event Linkage",
+    ),
+    RuleSpec(
+        "WF_DEADLOCK_DETECTED", "Circular wait between work items", Severity.BLOCKER,
+        "Break the wait cycle: complete or logically delete one item (SWIA) and redesign the conditions / fork "
+        "so the steps do not wait on each other.", "Workflow Design",
+    ),
+    RuleSpec(
+        "WF_CONTAINER_BINDING_ERROR", "Container element empty or binding failed", Severity.MAJOR,
+        "Fix the binding in the workflow builder (SWDD) or the task container; correct the instance data and "
+        "restart the item.", "Data Binding",
+    ),
+    RuleSpec(
+        "WF_DEADLINE_BREACHED", "Deadline / SLA exceeded", Severity.MAJOR,
+        "Escalate per the deadline configuration, forward to a substitute and review the deadline job "
+        "(SWWDHEX / SWWDEADL).", "SLA Monitoring",
+    ),
+)
+
+
+class WorkflowInput(ContractModel):
+    signal_fields = (
+        "swwwihead", "work_items", "headers", "swwloghist", "logs", "history", "agent_trace", "agent_traces",
+        "agents", "swetypv", "event_linkages", "linkages", "container", "container_data", "containers",
+        "swwdeadl", "deadlines",
+    )
+    signal_message = (
+        "No workflow runtime data supplied: provide 'swwwihead' / 'work_items' and optionally 'swwloghist', "
+        "'agent_traces', 'swetypv', 'containers', 'deadlines'."
+    )
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV),
+    summary=(
+        "Workflow runtime extracts: JSON {'swwwihead': [{wi_id, wi_type, wi_stat, wi_rh_task}], 'swwloghist': [...], "
+        "'agent_traces': [...], 'swetypv': [...], 'containers': [...], 'deadlines': [...]} or CSV exports of "
+        "SWWWIHEAD / SWWLOGHIST / SWETYPV with their column headers."
+    ),
+    required=("SWWWIHEAD work items (or other workflow runtime tables)",),
+    json_model=WorkflowInput,
+    json_array_field="work_items",
+    csv_signal_columns=("WI_ID", "WI_STAT", "WI_TYPE", "RETCODE", "EXCEPTION", "RECTYPE", "OBJTYPE"),
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class WorkflowStuckEngine(BaseEngine):
     """
@@ -118,6 +187,9 @@ class WorkflowStuckEngine(BaseEngine):
     """
 
     engine_type = EngineType.WORKFLOW_STUCK_EXPLAINER
+    rule_prefix = "WF"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Workflow Stuck Explainer"
     description = "Deterministic diagnostic analysis of stuck, failed, or overdue SAP Business Workflows"
     version = "2.0.0"
@@ -141,6 +213,16 @@ class WorkflowStuckEngine(BaseEngine):
 
         # 1. Parse Input Artifacts
         context, source_lines, artifact_path, raw_content_str = self._parse_inputs(request)
+        if not (
+            context.headers or context.logs or context.agent_traces or context.event_linkages
+            or context.containers or context.deadlines
+        ):
+            supplied = bool((request.raw_content or "").strip()) or any(a.raw_content for a in request.artifacts)
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT" if supplied else f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No workflow runtime data recognised: supply SWWWIHEAD work item headers (wi_id, wi_type, wi_stat) "
+                "and optionally SWWLOGHIST, agent resolution traces, SWETYPV event linkages, containers or deadlines.",
+            )
         artifact_hash = EvidenceEngine.compute_sha256(raw_content_str)
 
         # 2. Execute Diagnostic Rules Pipeline
@@ -581,16 +663,13 @@ class WorkflowStuckEngine(BaseEngine):
         if request.raw_content and request.raw_content.strip():
             raw_str = request.raw_content.strip()
             if raw_str.startswith("{") or raw_str.startswith("["):
-                try:
-                    p_json = json.loads(raw_str)
-                    if isinstance(p_json, dict):
-                        self._merge_dict_into_context(p_json, context, source_lines, 1)
-                    elif isinstance(p_json, list):
-                        for idx, item in enumerate(p_json):
-                            if isinstance(item, dict):
-                                self._merge_dict_into_context(item, context, source_lines, idx + 1)
-                except Exception:
-                    pass
+                p_json = parse_json_payload(raw_str, self.rule_prefix)
+                if isinstance(p_json, dict):
+                    self._merge_dict_into_context(p_json, context, source_lines, 1)
+                elif isinstance(p_json, list):
+                    for idx, item in enumerate(p_json):
+                        if isinstance(item, dict):
+                            self._merge_dict_into_context(item, context, source_lines, idx + 1)
             elif "," in raw_str or "\t" in raw_str or ";" in raw_str or "\n" in raw_str:
                 self._parse_csv_content(raw_str, "inline_csv", context, source_lines)
 
@@ -601,12 +680,9 @@ class WorkflowStuckEngine(BaseEngine):
                 continue
             art_name = art.file_name or "artifact"
             if art.artifact_type == ArtifactType.JSON or art_name.endswith(".json"):
-                try:
-                    p_json = json.loads(content)
-                    if isinstance(p_json, dict):
-                        self._merge_dict_into_context(p_json, context, source_lines, 1)
-                except Exception:
-                    pass
+                p_json = parse_json_payload(content, self.rule_prefix)
+                if isinstance(p_json, dict):
+                    self._merge_dict_into_context(p_json, context, source_lines, 1)
             elif art.artifact_type == ArtifactType.CSV or art_name.endswith(".csv"):
                 self._parse_csv_content(content, art_name, context, source_lines)
 

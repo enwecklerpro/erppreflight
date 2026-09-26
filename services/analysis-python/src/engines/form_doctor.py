@@ -3,15 +3,18 @@ ERP Preflight — FormDoctor Engine
 SAPscript, Smart Forms to Adobe Forms (XDP) Migration & Data Path Validator
 """
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 import re
 from xml.etree.ElementTree import Element, TreeBuilder
 import defusedxml.ElementTree as DefusedET
 from defusedxml.common import DefusedXmlException, EntitiesForbidden, DTDForbidden
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
-from src.core.exceptions import SecurityViolationError
+from src.core.exceptions import EngineInputError, SecurityViolationError
 from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
@@ -20,33 +23,83 @@ from src.models.evidence import Evidence
 from src.platform.evidence import EvidenceEngine
 
 
-class LineElement(Element):
-    """Element subclass storing exact 1-indexed source line and column coordinates."""
-    __slots__ = ("sourceline", "sourcecolumn")
-
-    def __init__(self, tag, attrib):
-        super().__init__(tag, attrib)
-        self.sourceline: int = 1
-        self.sourcecolumn: int = 0
+# Shared defused, depth-bounded XML parser with line/column retention.
+from src.parsers.safe_xml import LineElement, SafeXmlParser  # noqa: E402
 
 
-class LineNumberTreeBuilder(TreeBuilder):
-    """Custom TreeBuilder that captures expat line and column positions during parsing."""
-    def __init__(self, *args, **kwargs):
-        super().__init__(element_factory=LineElement, *args, **kwargs)
-        self.parser = None
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "FORM_FIELD_HIDDEN_IN_LAYOUT", "Bound field hidden in layout", Severity.MINOR,
+        "In Adobe LiveCycle Designer set the field's Presence to 'Visible' (Object > Field) if it must print; "
+        "otherwise document the intentional suppression.", "Layout Visibility",
+    ),
+    RuleSpec(
+        "FORM_BINDING_PATH_MISMATCH", "Field binding path does not match runtime XML", Severity.MAJOR,
+        "Update the field's Binding > Data Binding (dataRef) in the XDP template to the suggested runtime XML "
+        "path, or align the form interface / CDS data provider so the element appears at the bound path.",
+        "Data Binding",
+    ),
+    RuleSpec(
+        "FORM_FIELD_MISSING_IN_XML", "Bound field absent from runtime XML", Severity.CRITICAL,
+        "Expose the element in the form's data provider (extend the CDS view / Gateway form data service used "
+        "by Output Management) or remove the unbacked binding from the XDP template.", "Data Binding",
+    ),
+    RuleSpec(
+        "FORM_LEGACY_SMARTFORM_DETECTED", "Legacy Smart Form detected", Severity.CRITICAL,
+        "Smart Forms are unsupported in S/4HANA Cloud Public Edition. Rebuild the layout as an Adobe Form "
+        "(XDP) on a released form data provider, or adopt the SAP-delivered output form template.",
+        "Clean Core Extensibility",
+    ),
+    RuleSpec(
+        "FORM_LEGACY_SAPSCRIPT_DETECTED", "Legacy SAPscript detected", Severity.CRITICAL,
+        "SAPscript is not available in ABAP Cloud / S/4HANA Cloud. Redesign the document as an Adobe Form "
+        "(XDP) using Output Management (BRFplus determination) or use the SAP-delivered form template.",
+        "Clean Core Extensibility",
+    ),
+)
 
-    def start(self, tag, attrs):
-        elem = super().start(tag, attrs)
-        if self.parser:
-            elem.sourceline = self.parser.CurrentLineNumber
-            elem.sourcecolumn = self.parser.CurrentColumnNumber
-        return elem
+
+def _form_text_check(text: str) -> Optional[str]:
+    patterns = FormDoctorEngine.SAPSCRIPT_PATTERNS + FormDoctorEngine.SMARTFORM_PATTERNS
+    if any(p.search(text) for p, _ in patterns):
+        return None
+    return "text payload is not a SAPscript / Smart Forms source (no legacy form markers found)."
+
+
+class FormConfigModel(ContractModel):
+    """Structured FormDoctor input passed through request.configuration."""
+    signal_fields = ("xdp_content", "xml_content", "bindings")
+    signal_message = "FormDoctor requires 'xdp_content' + 'xml_content' (or explicit 'bindings')."
+    xdp_content: Optional[str] = None
+    xml_content: Optional[str] = None
+    bindings: Optional[List[Dict[str, Any]]] = None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.XML, InputFormat.TEXT),
+    summary=(
+        "Adobe Form XDP template together with the form's runtime data XML (as two artifacts, or data XML in "
+        "raw_content + configuration.xdp_content), or a SAPscript / Smart Forms source (XML export or text)."
+    ),
+    required=(
+        "XDP template AND runtime data XML (binding verification)",
+        "or a SAPscript / Smart Forms source (legacy form audit)",
+    ),
+    json_model=FormConfigModel,
+    text_check=_form_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
 
 
 @register_engine
 class FormDoctorEngine(BaseEngine):
     engine_type = EngineType.FORM_DOCTOR
+    rule_prefix = "FORM"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "FormDoctor"
     description = "SAPscript, Smart Forms to Adobe Forms (XDP) migration & syntax validator"
     version = "2.0.0"
@@ -85,14 +138,43 @@ class FormDoctorEngine(BaseEngine):
         findings.extend(legacy_findings)
         rules_evaluated += 5
 
-        # 3. If no XML or XDP, but legacy forms handled, return
-        if not xml_content and not xdp_content and not raw_bindings:
+        # 3. Input contract: a binding verdict needs BOTH a template (XDP or explicit bindings) and the
+        #    runtime data XML. A legacy SAPscript / Smart Forms source is analysable on its own.
+        prefix = self.rule_prefix
+        is_legacy_source = bool(legacy_findings) and not xdp_content and not raw_bindings
+        if is_legacy_source:
             return AnalysisResponse(
                 job_id=request.job_id,
                 engine_type=self.engine_type,
                 status=AnalysisStatus.COMPLETED,
                 findings=findings,
                 metrics=AnalysisMetrics(rules_evaluated=rules_evaluated, artifacts_scanned=artifacts_scanned),
+            )
+        has_template = bool(xdp_content) or bool(raw_bindings)
+        has_data_xml = bool(xml_content) and xml_content.strip().startswith("<")
+        if not has_template and not has_data_xml:
+            if xml_content.strip():
+                raise EngineInputError(
+                    f"{prefix}_INVALID_INPUT",
+                    "Text payload is neither a SAPscript / Smart Forms source nor an XML document; "
+                    "no form artifact could be recognised.",
+                )
+            raise EngineInputError(
+                f"{prefix}_INSUFFICIENT_INPUT",
+                "No form artifact supplied: provide an Adobe Form XDP template plus its runtime data XML, "
+                "or a SAPscript / Smart Forms source.",
+            )
+        if has_template and not has_data_xml:
+            raise EngineInputError(
+                f"{prefix}_INSUFFICIENT_INPUT",
+                "An Adobe Form template was supplied without the runtime data XML; field bindings cannot be "
+                "verified. Upload the form's data XML (e.g. from the print preview / ADS trace) as well.",
+            )
+        if has_data_xml and not has_template:
+            raise EngineInputError(
+                f"{prefix}_INSUFFICIENT_INPUT",
+                "Runtime data XML was supplied without the Adobe Form XDP template (or explicit bindings); "
+                "there are no field bindings to verify against it.",
             )
 
         # 4. Parse XML Runtime Payload DOM and build path coordinate index
@@ -109,17 +191,15 @@ class FormDoctorEngine(BaseEngine):
         if should_parse_xml:
             try:
                 xml_root = self._safe_parse_xml(xml_content)
-                self._index_xml_paths(xml_root, xml_content, xml_paths, xml_snippets)
-                rules_evaluated += 5
-            except Exception as e:
-                return AnalysisResponse(
-                    job_id=request.job_id,
-                    engine_type=self.engine_type,
-                    status=AnalysisStatus.FAILED,
-                    findings=findings,
-                    metrics=AnalysisMetrics(rules_evaluated=rules_evaluated, artifacts_scanned=artifacts_scanned),
-                    error_message=f"XML_PARSE_ERROR: {str(e)}",
-                )
+            except SecurityViolationError:
+                raise EngineInputError(
+                    f"{prefix}_INVALID_INPUT",
+                    "Malicious XML rejected in runtime data XML (Entities/DTD forbidden).",
+                ) from None
+            except ValueError as e:
+                raise EngineInputError(f"{prefix}_PARSE_ERROR", f"Runtime data XML: {e}") from None
+            self._index_xml_paths(xml_root, xml_content, xml_paths, xml_snippets)
+            rules_evaluated += 5
 
         # 5. Extract Bindings from XDP Template or Explicit Bindings List
         bindings_to_check: List[Dict[str, Any]] = []
@@ -128,37 +208,31 @@ class FormDoctorEngine(BaseEngine):
         if xdp_content:
             try:
                 xdp_root = self._safe_parse_xml(xdp_content)
-                extracted_bindings = self._extract_xdp_bindings(xdp_root, xdp_content)
-                bindings_to_check.extend(extracted_bindings)
-                rules_evaluated += len(extracted_bindings)
-            except Exception as e:
-                findings.append(
-                    Finding(
-                        rule_id="FORM_XDP_PARSE_ERROR",
-                        severity=Severity.BLOCKER,
-                        category="Template Syntax",
-                        title="Corrupted or Malformed Adobe Form XDP Template",
-                        description=f"Adobe Form XDP template failed XML validation: {str(e)}",
-                        confidence=ConfidenceClass.VERIFIED,
-                        confidence_score=1.0,
-                        remediation="Verify XDP syntax and re-export from Adobe LiveCycle Designer.",
-                        evidence=[
-                            Evidence(
-                                artifact_path=xdp_path,
-                                line_number=1,
-                                snippet=xdp_content[:200] if xdp_content else "",
-                                sha256=xdp_hash,
-                                provenance=ConfidenceClass.VERIFIED,
-                                trust_score=1.0,
-                            )
-                        ],
-                    )
-                )
+            except SecurityViolationError:
+                raise EngineInputError(
+                    f"{prefix}_INVALID_INPUT",
+                    "Malicious XML rejected in Adobe Form XDP template (Entities/DTD forbidden).",
+                ) from None
+            except ValueError as e:
+                raise EngineInputError(
+                    f"{prefix}_PARSE_ERROR",
+                    f"Adobe Form XDP template is not well-formed: {e} Re-export it from Adobe LiveCycle Designer.",
+                ) from None
+            extracted_bindings = self._extract_xdp_bindings(xdp_root, xdp_content)
+            bindings_to_check.extend(extracted_bindings)
+            rules_evaluated += len(extracted_bindings)
 
         # Add explicit bindings from request options/configuration
         if raw_bindings:
             bindings_to_check.extend(raw_bindings)
             rules_evaluated += len(raw_bindings)
+
+        if not bindings_to_check:
+            raise EngineInputError(
+                f"{prefix}_INSUFFICIENT_INPUT",
+                "The Adobe Form template contains no <bind match=\"dataRef\" ref=...> field bindings; "
+                "there is nothing to verify against the runtime data XML.",
+            )
 
         # 6. Evaluate Bindings Against XML Path Tree
         binding_findings, valid_count, broken_count = self._verify_bindings(
@@ -193,23 +267,8 @@ class FormDoctorEngine(BaseEngine):
     # -------------------------------------------------------------------------
     @classmethod
     def _safe_parse_xml(cls, xml_text: str) -> LineElement:
-        builder = LineNumberTreeBuilder()
-        parser = DefusedET.DefusedXMLParser(
-            target=builder,
-            forbid_dtd=True,
-            forbid_entities=True,
-            forbid_external=True,
-        )
-        builder.parser = parser.parser
-        try:
-            parser.feed(xml_text)
-            return parser.close()
-        except (EntitiesForbidden, DTDForbidden) as e:
-            raise SecurityViolationError(f"Malicious XML detected (Entities/DTD forbidden): {str(e)}") from e
-        except DefusedXmlException as e:
-            raise SecurityViolationError(f"XML parse rejected by defusedxml: {str(e)}") from e
-        except Exception as e:
-            raise ValueError(f"Invalid XML syntax: {str(e)}") from e
+        """Raises SecurityViolationError (DTD/entities) or ValueError (syntax / depth)."""
+        return SafeXmlParser.parse_string(xml_text)
 
     # -------------------------------------------------------------------------
     # Ingestion & Extraction Helper

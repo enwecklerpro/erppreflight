@@ -1,110 +1,234 @@
-name: CI — Monorepo Build, Typecheck, Test & Compliance Gates
+name: CI — Build, Typecheck, Test, Migrations & Live E2E
+
+# Spec 12.4: install, lint, type check, unit/integration tests, Python tests, DB migration check,
+# build, E2E smoke. Every job below is a required gate (block merge on failure). Security scans
+# (gitleaks, Trivy, dependency audit) live in security.yml; image build + scan + SBOM in docker.yml.
+#
+# Third-party actions are pinned to full commit SHAs (spec 20.7 "no floating dependency");
+# the trailing comment names the release. Renovate (renovate.json) proposes updates.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  # Must match the runtime of infra/docker/Dockerfile.api / Dockerfile.web (node:22-alpine).
+  NODE_VERSION: '22'
+  # Must match infra/docker/Dockerfile.analysis (python:3.13-slim).
+  PYTHON_VERSION: '3.13'
+  TURBO_TELEMETRY_DISABLED: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+
 jobs:
   validate:
-    name: Lint, Typecheck, Facades & Dependency Compliance
-    runs-on: ubuntu-latest
+    name: Lint, typecheck, build, compliance gates & API boot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (version from package.json "packageManager")
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.20.0
-          run_install: false
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install Monorepo Dependencies
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
-
-      - name: No-Dependency-Soup Gate
+      - name: No-Dependency-Soup gate
         run: pnpm run check:deps
-
-      - name: Production Facade & Security Gate
+      - name: Production facade & security gate
         run: pnpm run check:no-production-facades
-
-      - name: Production Truth & Anti-Facade Gate
+      - name: Production truth gate
         run: pnpm run check:production-truth
-
-      - name: Monorepo Strict Typecheck
+      - name: Strict typecheck
         run: pnpm run typecheck
-
-      - name: Monorepo Lint
+      - name: Lint
         run: pnpm run lint
-
-      - name: Monorepo Build
+      - name: Build
         run: pnpm run build
+      - name: API boot smoke test (AppModule DI graph from dist/)
+        run: pnpm --filter @erppreflight/api run test:boot
 
   test-node:
-    name: TypeScript Unit & Integration Tests (NestJS, Web, Schemas)
-    runs-on: ubuntu-latest
+    name: TypeScript unit & integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.20.0
-          run_install: false
-
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run TypeScript Tests
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run tests (turbo builds dependencies first)
         run: pnpm run test
 
   test-python:
-    name: Python Analysis Engines & Golden Fixtures (18 SAP Engines + MFS)
-    runs-on: ubuntu-latest
+    name: Python engines, golden fixtures, property tests & E2E contract suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.13'
-          cache: 'pip'
-
-      - name: Install Python Dependencies
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/analysis-python/requirements*.txt
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r services/analysis-python/requirements.txt
-          pip install pytest pytest-cov defusedxml
+          if [ -f services/analysis-python/requirements-dev.txt ]; then
+            pip install -r services/analysis-python/requirements-dev.txt
+          fi
+          pip install pytest pytest-asyncio hypothesis
+      - name: Analysis service test suite (services/analysis-python/tests)
+        run: python -m pytest services/analysis-python/tests -q --durations=10
+      - name: Opaque-box E2E contract suite + redaction stress (tests/e2e)
+        run: python -m pytest tests/e2e tests/empirical_redaction_stress.py -q -p no:cacheprovider
+      - name: ENGINE_CATALOG.md matches the engine registry
+        run: python scripts/generate-engine-catalog.py --check
 
-      - name: Run Pytest Golden Fixture Test Suite
+  migration-check:
+    name: DB migrations — fresh apply, idempotency, deterministic schema, RLS coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: erppreflight
+          POSTGRES_PASSWORD: ci-migration-check-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U erppreflight -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build @erppreflight/database (production migration runner)
+        run: pnpm --filter @erppreflight/database build
+      - name: PostgreSQL 16 client (pg_dump must match the server major version)
         run: |
-          pytest services/analysis-python/tests -v --durations=10
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+      - name: Migration check
+        env:
+          PG_ADMIN_URL: postgres://erppreflight:ci-migration-check-only@localhost:5432
+          MIGCHECK_OUT: ${{ runner.temp }}/migration-check
+        run: bash scripts/ci-migration-check.sh
+      - name: Upload schema dump
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: schema-dump
+          path: ${{ runner.temp }}/migration-check
+          if-no-files-found: ignore
+          retention-days: 14
+
+  live-e2e:
+    name: Live E2E — real Postgres/Redis/MinIO/ClamAV + API (production mode) + web + Chromium
+    runs-on: ubuntu-24.04
+    # ClamAV downloads ~300 MB of signatures on first start (3-8 minutes).
+    timeout-minutes: 45
+    env:
+      POSTGRES_USER: erppreflight
+      POSTGRES_DB: erppreflight
+      # Inputs of scripts/ci-live-e2e.sh (throwaway secrets are generated in the first step)
+      E2E_START_INFRA: '1'
+      E2E_DB_NAME: erppreflight_e2e
+      E2E_REDIS_URL: redis://localhost:6379/0
+      S3_ENDPOINT: http://localhost:9000
+      CLAMAV_HOST: localhost
+      CLAMAV_PORT: '3310'
+      E2E_API_PORT: '3001'
+      E2E_WEB_PORT: '3000'
+      E2E_PY_PORT: '8000'
+      E2E_ARTIFACTS: ${{ github.workspace }}/e2e-artifacts
+      PYTHON: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/analysis-python/requirements*.txt
+      - name: Generate throwaway test secrets
+        # Random per run, masked in logs. The API rejects known defaults in NODE_ENV=production;
+        # docker-compose.coolify.yml requires these variables for interpolation.
+        run: |
+          gen() { openssl rand -hex "$1"; }
+          PGPW=$(gen 24); S3AK=ci$(gen 8); S3SK=$(gen 24); JWT=$(gen 32); MEK=$(gen 32)
+          for v in "$PGPW" "$S3SK" "$JWT" "$MEK"; do echo "::add-mask::$v"; done
+          {
+            echo "POSTGRES_PASSWORD=$PGPW"
+            echo "S3_ACCESS_KEY=$S3AK"
+            echo "S3_SECRET_KEY=$S3SK"
+            echo "JWT_SECRET=$JWT"
+            echo "MASTER_ENCRYPTION_KEY=$MEK"
+            echo "PG_ADMIN_URL=postgres://erppreflight:$PGPW@localhost:5432"
+          } >> "$GITHUB_ENV"
+      - name: Start infrastructure early (ClamAV signature download runs during the build)
+        run: |
+          docker network inspect coolify >/dev/null 2>&1 || docker network create coolify
+          docker compose -f docker-compose.coolify.yml -f tests/ci/compose.ci.yml up -d postgres redis minio clamav
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/analysis-python/requirements.txt
+      - name: Install browsers (Chromium for the UI smoke; all three engines when the Playwright live suite exists)
+        run: |
+          if [ -f playwright.live.config.ts ]; then
+            pnpm exec playwright install --with-deps chromium firefox webkit
+          else
+            pnpm exec playwright install --with-deps chromium
+          fi
+      - name: PostgreSQL 16 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+      - name: Build, start the stack and run both live smoke tests
+        run: bash scripts/ci-live-e2e.sh
+      - name: Collect container logs
+        if: failure()
+        run: |
+          mkdir -p e2e-artifacts/containers
+          for s in postgres redis minio clamav; do
+            docker logs "erppreflight-$s" > "e2e-artifacts/containers/$s.log" 2>&1 || true
+          done
+          docker compose -f docker-compose.coolify.yml -f tests/ci/compose.ci.yml ps > e2e-artifacts/containers/ps.txt 2>&1 || true
+      - name: Upload screenshots and logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-e2e-artifacts
+          path: e2e-artifacts
+          retention-days: 14
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose -f docker-compose.coolify.yml -f tests/ci/compose.ci.yml down -v --remove-orphans

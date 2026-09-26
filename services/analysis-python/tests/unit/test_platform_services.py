@@ -7,8 +7,8 @@ from src.platform.router import AIProblemRouter, EngineRecommendation
 
 class TestSecretRedactionEngine:
     def test_bearer_token_redacted_with_deterministic_hmac(self):
-        engine1 = SecretRedactionEngine(tenant_id="tenant-alpha")
-        engine2 = SecretRedactionEngine(tenant_id="tenant-beta")
+        engine1 = SecretRedactionEngine(tenant_id="tenant-alpha", master_key="unit-test-master-key")
+        engine2 = SecretRedactionEngine(tenant_id="tenant-beta", master_key="unit-test-master-key")
         text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.t-IDcnh5i_Imc"
 
         res1 = engine1.redact(text)
@@ -23,6 +23,27 @@ class TestSecretRedactionEngine:
         # Same tenant produces identical mask for referential integrity
         res1_repeat = engine1.redact(text)
         assert res1.sanitized_text == res1_repeat.sanitized_text
+
+    def test_no_hardcoded_master_key_unkeyed_mask_when_env_absent(self, monkeypatch):
+        for name in SecretRedactionEngine.MASTER_KEY_ENV_VARS:
+            monkeypatch.delenv(name, raising=False)
+        engine = SecretRedactionEngine(tenant_id="tenant-alpha")
+        assert engine.keyed is False
+        res = engine.redact("PASSWD = TopSecretRFC2026!;")
+        assert "TopSecretRFC2026!" not in res.sanitized_text
+        assert SecretRedactionEngine.UNKEYED_MASK in res.sanitized_text
+        # Idempotent: re-redacting an already masked text does not re-mask
+        assert engine.redact(res.sanitized_text).redactions_count == 0
+
+    def test_master_key_read_from_environment(self, monkeypatch):
+        for name in SecretRedactionEngine.MASTER_KEY_ENV_VARS:
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("REDACTION_HMAC_KEY", "env-provided-key")
+        engine = SecretRedactionEngine(tenant_id="tenant-alpha")
+        assert engine.keyed is True
+        explicit = SecretRedactionEngine(tenant_id="tenant-alpha", master_key="env-provided-key")
+        assert engine.get_mask("s3cr3t") == explicit.get_mask("s3cr3t")
+        assert "DEFAULT_SALT_FOR_DEV" not in open(__import__("src.platform.redaction", fromlist=["x"]).__file__).read()
 
     def test_private_key_redacted(self):
         engine = SecretRedactionEngine(tenant_id="tenant-alpha")
@@ -41,7 +62,7 @@ class TestSecretRedactionEngine:
         cfg = "RFC_DEST = S4H; USER = RFC_USER; PASSWD = TopSecretRFC2026!;"
         res = engine.redact(cfg)
         assert "TopSecretRFC2026!" not in res.sanitized_text
-        assert "[REDACTED:SECRET:" in res.sanitized_text
+        assert "[REDACTED:SECRET" in res.sanitized_text
 
     def test_shannon_entropy_detection_and_allowlist(self):
         engine = SecretRedactionEngine(tenant_id="tenant-alpha")

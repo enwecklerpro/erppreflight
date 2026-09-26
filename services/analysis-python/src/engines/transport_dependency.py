@@ -24,6 +24,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -37,6 +40,8 @@ from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.parsers.safe_xml import SafeXmlParser
+from src.core.exceptions import EngineInputError, SecurityViolationError
+from src.parsers.json_input import parse_json_payload
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
 
@@ -58,8 +63,8 @@ class E070Record(BaseModel):
     tarsystem: Optional[str] = Field(None, description="Target system (e.g. QAS, PRD)")
     strkorr: Optional[str] = Field(None, description="Parent transport request for tasks")
     timestamp: Optional[str] = Field(None, description="Combined sortable timestamp string")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -72,8 +77,8 @@ class E071Record(BaseModel):
     object: str = Field(..., description="Object Type (CLAS, TABL, PROG, FUGR, VIEW, etc.)")
     obj_name: str = Field(..., description="Repository Object Name")
     objfunc: str = Field(" ", description="Function (' '=Standard, K=Key entries, D=Delete)")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
     @property
@@ -96,8 +101,8 @@ class E071KRecord(BaseModel):
     mastertype: Optional[str] = Field(None, description="Master type")
     mastername: Optional[str] = Field(None, description="Master name")
     tabkey: str = Field("*", description="Transported table key specification")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -110,8 +115,8 @@ class CallReference(BaseModel):
     callee_tr: Optional[str] = Field(None, description="Target transport defining the referenced object")
     callee_object: str = Field(..., description="Referenced object (e.g. CLAS ZCL_ORDER_HANDLER)")
     reference_type: str = Field("CALL_METHOD", description="CALL_METHOD, CALL_FUNCTION, SELECT_TABLE, INHERITS_FROM")
-    line_number: int = Field(1, description="1-indexed line number in source artifact")
-    column_number: int = Field(1, description="1-indexed column number in source artifact")
+    line_number: Optional[int] = Field(None, description="1-indexed line number in source artifact")
+    column_number: Optional[int] = Field(None, description="1-indexed column number in source artifact")
     snippet: str = Field("", description="Raw line or record excerpt")
 
 
@@ -146,14 +151,14 @@ class CTSNormalizedData(BaseModel):
 # Helper Functions (Point 6: Coordinate & Evidence Extraction)
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically locates the 1-indexed line, column, and snippet of a token in raw text."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     # Primary exact search
     for idx, line in enumerate(lines, 1):
@@ -168,7 +173,7 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _normalize_obj_string(obj_str: str) -> Tuple[str, str, str]:
@@ -197,12 +202,79 @@ def _format_timestamp(as4date: Optional[str], as4time: Optional[str]) -> str:
 # Transport Dependency Analyzer Engine (Point 1: Metadata)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "TR_OBJECT_COLLISION", "Object locked in multiple concurrent transports", Severity.CRITICAL,
+        "Consolidate the object's changes into one transport (or use ChaRM / cross-system object lock, CSOL); "
+        "otherwise the later import silently overwrites the earlier version.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CALL_DEPENDENCY_SEQUENCE_RISK", "Caller imported before the object it references", Severity.MAJOR,
+        "Import the transport containing the referenced object first (adjust the STMS import queue / planned "
+        "sequence) or bundle caller and callee in one transport of copies.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_OVERTAKER_DOWNGRADE_RISK", "Older object version overtakes a newer one", Severity.CRITICAL,
+        "Do not import the older transport after the newer one (overtaker); re-sequence the queue or remove the "
+        "object from the older request.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CUSTOMIZING_AHEAD_OF_STRUCTURE", "Customizing imported before its DDIC structure", Severity.MAJOR,
+        "Import the workbench request that creates/changes the table structure before the customizing request "
+        "carrying its table entries (E071K).", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CIRCULAR_DEPENDENCY_DETECTED", "Circular dependency between transports", Severity.BLOCKER,
+        "Merge the mutually dependent requests into one transport of copies; circular requests have no valid "
+        "import order.", "RELEASE_AND_TRANSPORT",
+    ),
+)
+
+
+class TransportInput(ContractModel):
+    signal_fields = (
+        "transports", "e070", "E070", "e071", "E071", "e071k", "E071K", "call_references", "callReferences",
+        "dependencies",
+    )
+    signal_message = (
+        "No transport data found: provide 'transports' {TRKORR: [objects]}, 'e070' / 'e071' / 'e071k' record "
+        "lists, or 'call_references'."
+    )
+
+
+def _tr_xml_check(root: Any) -> Optional[str]:
+    if any(True for _ in root.iter("E070")) or any(True for _ in root.iter("E071")):
+        return None
+    return "XML does not contain CTS <E070> / <E071> record sections."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.XML),
+    summary=(
+        "CTS transport metadata: CSV export of E070/E071/E071K with a TRKORR header row, JSON "
+        "{'transports': {TRKORR: ['TABL ZTAB', …]}, 'e070': [...], 'e071': [...], 'call_references': [...], "
+        "'planned_sequence': [...]}, or XML with <E070>/<E071> sections."
+    ),
+    required=("At least one transport request with its object list",),
+    json_model=TransportInput,
+    csv_signal_columns=("TRKORR",),
+    xml_check=_tr_xml_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class TransportDependencyEngine(BaseEngine):
     """Authoritative preflight engine for SAP CTS transport sequence & collision auditing."""
 
     # Point 1: Metadata
     engine_type = EngineType.TRANSPORT_DEPENDENCY_ANALYZER
+    rule_prefix = "TR"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Transport Dependency Analyzer"
     description = "CTS transport sequence, cross-transport dictionary dependency validator"
     version = "2.0.0"
@@ -236,18 +308,19 @@ class TransportDependencyEngine(BaseEngine):
         if raw_text and raw_text.strip().startswith("<"):
             try:
                 self._parse_xml_content(raw_text, data)
-                return data
-            except Exception:
-                pass
+            except SecurityViolationError:
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT", "Malicious XML rejected (Entities/DTD forbidden)."
+                ) from None
+            except ValueError as exc:
+                raise EngineInputError(f"{self.rule_prefix}_PARSE_ERROR", str(exc)) from None
+            return data
 
         # 2. JSON Artifact Detection
         if raw_text and (raw_text.strip().startswith("{") or raw_text.strip().startswith("[")):
-            try:
-                parsed_json = json.loads(raw_text)
-                self._parse_json_content(parsed_json, data, raw_text)
-                return data
-            except Exception:
-                pass
+            parsed_json = parse_json_payload(raw_text, self.rule_prefix)
+            self._parse_json_content(parsed_json, data, raw_text)
+            return data
 
         # 3. CSV Artifact Detection (Lines with commas or semicolons)
         if raw_text and ("\n" in raw_text or "," in raw_text or ";" in raw_text):
@@ -1136,7 +1209,7 @@ class TransportDependencyEngine(BaseEngine):
                 "code": "TR_CIRCULAR_DEPENDENCY_DETECTED",
                 "severity": "BLOCKER",
                 "object": cycle_detected[0] if cycle_detected else "CIRCULAR_CTS",
-                "transports": list(set(cycle_detected)),
+                "transports": sorted(set(cycle_detected)),
                 "title": f"Circular Transport Dependency Detected: {cycle_str}",
                 "message": (
                     f"Circular dependency cycle detected between transports: {cycle_str}. "
@@ -1220,6 +1293,13 @@ class TransportDependencyEngine(BaseEngine):
         start_time = time.perf_counter()
 
         data = self._parse_inputs(request)
+        if not data.all_transports():
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT" if not (request.raw_content or "").strip()
+                else f"{self.rule_prefix}_INVALID_INPUT",
+                "No transport requests could be read: supply E070/E071 exports (CSV with a TRKORR header, JSON "
+                "{'transports': {TRKORR: [objects]}} / 'e070' / 'e071', or CTS XML).",
+            )
         eval_result = self._run_deterministic_rules(data)
 
         findings: List[Finding] = []
@@ -1230,24 +1310,23 @@ class TransportDependencyEngine(BaseEngine):
             obj_name = raw_f.get("object", "UNKNOWN")
             conf_str = raw_f.get("confidence", "VERIFIED")
 
-            # Determine coordinates and evidence snippet
-            line_no = 1
-            col_no = 1
+            # Determine coordinates and evidence snippet (None when the token cannot be located;
+            # the confidence classifier then demotes the finding to UNKNOWN)
+            line_no: Optional[int] = None
+            col_no: Optional[int] = None
             snip = ""
 
-            # Try locating in source text
             if data.raw_content:
-                line, c, s = _locate_line_in_text(data.raw_content, obj_name)
-                line_no = line
-                col_no = c
-                snip = s
-            elif raw_f.get("transports"):
-                # Use first transport ID to locate
-                first_tr = raw_f["transports"][0]
-                line, c, s = _locate_line_in_text(data.raw_content, first_tr)
-                line_no = line
-                col_no = c
-                snip = s
+                candidates: List[str] = [str(obj_name)]
+                parts = str(obj_name).split()
+                if len(parts) > 1:
+                    candidates.append(parts[-1])
+                candidates.extend(str(t) for t in (raw_f.get("transports") or []))
+                for token in candidates:
+                    line, c, s = _locate_line_in_text(data.raw_content, token)
+                    if line is not None:
+                        line_no, col_no, snip = line, c, s
+                        break
 
             # Epistemic Confidence Mapping
             if conf_str == "VERIFIED":

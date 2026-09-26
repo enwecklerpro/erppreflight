@@ -12,6 +12,9 @@ import zipfile
 import defusedxml.ElementTree as DefusedET
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import EngineType, ArtifactType, AnalysisStatus, Severity, ConfidenceClass
 from src.models.request import AnalysisRequest
@@ -20,11 +23,79 @@ from src.models.finding import Finding
 from src.models.evidence import Evidence
 from src.parsers.safe_xml import SafeXmlParser
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
+from src.parsers.safe_zip import ArchiveSecurityError, SafeZipReader
+
+XLSX_MAGIC = b"PK\x03\x04"
+
+
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "OPD_DETERMINATION_STEP_MISSING", "Output determination step has no matching rule", Severity.CRITICAL,
+        "In 'Output Parameter Determination' (BRFplus, app 'Output Parameter Determination'), add a decision "
+        "table row for the failing step that matches the document's condition values, or add a trailing "
+        "wildcard ('*') fallback row. Re-run the determination simulation for the document type.",
+        "Output Determination",
+    ),
+    RuleSpec(
+        "OPD_UNREACHABLE_RULE", "Decision table row shadowed by an earlier row", Severity.MINOR,
+        "Reorder the decision table so specific condition rows precede broader wildcard rows (BRFplus evaluates "
+        "first-match), or delete the redundant row.", "Configuration Integrity",
+    ),
+    RuleSpec(
+        "OPD_CHANNEL_INACTIVE", "Determined output channel is inactive or unsupported", Severity.CRITICAL,
+        "Change the Channel decision table result to a supported channel (EMAIL, PRINT, EDI, XML, IDOC, PORTAL) "
+        "and make sure the channel is active for the output type in SPRO > Output Control > Define Business Rules.",
+        "Channel Governance",
+    ),
+    RuleSpec(
+        "OPD_PRINTER_QUEUE_NOT_FOUND", "PRINT channel without a print queue", Severity.MAJOR,
+        "Maintain a Printer decision table row returning a valid print queue (app 'Maintain Print Queues' / "
+        "SAP Cloud Print Manager, or SPAD output device on-premise).", "Print Architecture",
+    ),
+    RuleSpec(
+        "OPD_RELEVANCE_SUPPRESSED", "Output generation suppressed by relevance rule", Severity.INFO,
+        "Confirm the Output Relevance table intentionally returns FALSE for this document status; otherwise "
+        "correct the relevance condition.", "Output Determination",
+    ),
+)
+
+
+class OPDInputModel(ContractModel):
+    """OPD scenario / decision-table JSON. Decision tables may also arrive as CSV, XML or XLSX artifacts."""
+    signal_fields = ("tables", "decision_tables", "scenario", "expected_determination")
+    signal_message = (
+        "OPD input requires decision tables ('tables' / 'decision_tables') and/or a document 'scenario'."
+    )
+    scenario: Optional[Dict[str, Any]] = None
+    tables: Optional[Dict[str, Any]] = None
+    decision_tables: Optional[Dict[str, Any]] = None
+    expected_determination: Optional[Dict[str, Any]] = None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.XML, InputFormat.CSV, InputFormat.XLSX),
+    summary=(
+        "BRFplus output-determination decision tables (CSV with a Step column, XML <table> export, XLSX, or "
+        "JSON {'tables': {step: [rows]}}) plus an optional document scenario JSON {'scenario': {...}}."
+    ),
+    required=("At least one decision table (CSV/XML/XLSX/JSON)",),
+    json_model=OPDInputModel,
+)
+
+
+# ==== END ENGINE CONTRACT ====
 
 
 @register_engine
 class OPDGuardEngine(BaseEngine):
     engine_type = EngineType.OPD_GUARD
+    rule_prefix = "OPD"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
+    accepts_binary_input = True
     name = "OPD Guard"
     description = "S/4HANA Output Parameter Determination & BRFplus decision table evaluation"
     version = "2.0.0"
@@ -78,7 +149,18 @@ class OPDGuardEngine(BaseEngine):
 
         # 1. Parse Input Artifacts (Tables & Scenario)
         tables, scenario, source_lines, step_lines, artifact_path, raw_content_str = self._parse_inputs(request)
-        artifact_hash = EvidenceEngine.compute_sha256(raw_content_str)
+        if not tables:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No OPD decision tables could be read from the payload (XML, JSON, CSV or XLSX); "
+                "output determination cannot be evaluated.",
+            )
+        raw_bytes = request.get_raw_bytes()
+        if request.raw_content is None and raw_bytes:
+            # Binary artifact (XLSX): hash the exact bytes received
+            artifact_hash = EvidenceEngine.compute_sha256(raw_bytes)
+        else:
+            artifact_hash = EvidenceEngine.compute_sha256(raw_content_str)
 
         # 2. Check for Shadowed / Unreachable Rules Across All Tables
         shadowed_count, shadow_findings = self._audit_shadowed_rules(tables, source_lines, artifact_path, artifact_hash)
@@ -98,9 +180,9 @@ class OPDGuardEngine(BaseEngine):
         rules_evaluated += step_rules_count + shadowed_count
 
         # 4. Formulate Response Status and Metrics
+        # A broken determination chain in the customer's configuration is a
+        # finding (OPD_DETERMINATION_STEP_MISSING), not an incomplete analysis.
         status = AnalysisStatus.COMPLETED
-        if first_failed_step and not determined_results.get("Output Type"):
-            status = AnalysisStatus.PARTIAL
 
         additional_metrics = {
             "totalStepsEvaluated": len(self.CANONICAL_STEPS),
@@ -164,8 +246,17 @@ class OPDGuardEngine(BaseEngine):
                     tables[norm_step] = rows
                     source_lines[norm_step] = {i: i + 2 for i in range(len(rows))}
 
+        # Binary XLSX payload (raw_content_encoding='base64', or artifact_type XLSX)
+        inline_bytes = request.get_raw_bytes()
+        if inline_bytes and (
+            request.artifact_type == ArtifactType.XLSX
+            or (request.raw_content is None and inline_bytes.startswith(XLSX_MAGIC))
+        ):
+            xlsx_tables, xlsx_lines = self._parse_xlsx_binary(inline_bytes, artifact_path)
+            tables.update(xlsx_tables)
+            source_lines.update(xlsx_lines)
         # Parse inline raw_content
-        if request.raw_content and request.raw_content.strip():
+        elif request.raw_content and request.raw_content.strip():
             raw_content_str = request.raw_content.strip()
             # 1. Attempt XML if starts with '<' or request.artifact_type is XML
             if raw_content_str.startswith("<") or request.artifact_type == ArtifactType.XML:
@@ -178,8 +269,14 @@ class OPDGuardEngine(BaseEngine):
 
             # 2. Attempt JSON if not populated or if starts with '{' or '['
             if not tables and (raw_content_str.startswith("{") or raw_content_str.startswith("[")):
+                # Malformed JSON is reported as OPD_PARSE_ERROR, never silently ignored
+                parsed_json = parse_json_payload(raw_content_str, self.rule_prefix)
+                if not isinstance(parsed_json, dict):
+                    raise EngineInputError(
+                        f"{self.rule_prefix}_INVALID_INPUT",
+                        f"Expected a JSON object with 'tables'/'scenario', got {type(parsed_json).__name__}.",
+                    )
                 try:
-                    parsed_json = json.loads(raw_content_str)
                     if isinstance(parsed_json, dict):
                         if "scenario" in parsed_json and isinstance(parsed_json["scenario"], dict):
                             for k, v in parsed_json["scenario"].items():
@@ -203,7 +300,7 @@ class OPDGuardEngine(BaseEngine):
         # Parse artifact attachments (XML, JSON, CSV, XLSX)
         for art in request.artifacts:
             content = art.raw_content or ""
-            if not content:
+            if not content and not art.get_raw_bytes():
                 continue
             art_path = art.file_name or "artifact"
             if art.artifact_type == ArtifactType.XML or art_path.endswith(".xml") or content.strip().startswith("<"):
@@ -237,7 +334,8 @@ class OPDGuardEngine(BaseEngine):
                 if not raw_content_str:
                     raw_content_str = content
             elif art.artifact_type == ArtifactType.XLSX or art_path.endswith(".xlsx"):
-                xlsx_tables, xlsx_lines = self._parse_xlsx_binary(content, art_path)
+                art_bytes = art.get_raw_bytes() if art.raw_content_encoding == "base64" else None
+                xlsx_tables, xlsx_lines = self._parse_xlsx_binary(art_bytes if art_bytes is not None else content, art_path)
                 tables.update(xlsx_tables)
                 source_lines.update(xlsx_lines)
                 if not raw_content_str:
@@ -259,7 +357,16 @@ class OPDGuardEngine(BaseEngine):
 
         try:
             root = SafeXmlParser.parse_string(xml_text)
-        except Exception:
+        except Exception as exc:
+            if xml_text.lstrip().startswith("<"):
+                # Malformed or hostile (DTD/entity) XML is reported, never silently treated as empty.
+                m = re.search(r"line (\d+), column (\d+)", str(exc))
+                raise EngineInputError(
+                    f"{self.rule_prefix}_PARSE_ERROR",
+                    f"OPD XML payload rejected: {type(exc).__name__}: {str(exc)[:200]}",
+                    line_number=int(m.group(1)) if m else None,
+                    column_number=int(m.group(2)) + 1 if m else None,
+                ) from exc
             return tables, scenario, source_lines, step_lines
 
         # 1. Parse Scenario
@@ -407,8 +514,8 @@ class OPDGuardEngine(BaseEngine):
 
         try:
             byte_data = content.encode("latin1") if isinstance(content, str) else content
-            stream = io.BytesIO(byte_data)
-            with zipfile.ZipFile(stream, "r") as zf:
+            # Bounded archive access: ratio, total size, entry count, path traversal, chunked reads.
+            with SafeZipReader(byte_data) as zf:
                 # 1. Read shared strings
                 shared_strings: List[str] = []
                 if "xl/sharedStrings.xml" in zf.namelist():
@@ -471,8 +578,18 @@ class OPDGuardEngine(BaseEngine):
                     if rows_data:
                         tables[norm_step] = rows_data
                         source_lines[norm_step] = lines_data
-        except Exception:
-            pass
+        except ArchiveSecurityError as exc:
+            raise EngineInputError(
+                f"{self.rule_prefix}_ARCHIVE_REJECTED",
+                f"XLSX archive '{file_name}' rejected by ingestion safety limits: {exc}",
+            ) from exc
+        except EngineInputError:
+            raise
+        except Exception as exc:
+            raise EngineInputError(
+                f"{self.rule_prefix}_PARSE_ERROR",
+                f"XLSX workbook '{file_name}' could not be parsed ({type(exc).__name__}).",
+            ) from exc
 
         return tables, source_lines
 

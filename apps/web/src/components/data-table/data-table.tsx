@@ -28,6 +28,7 @@ import {
   DataTableNoResults,
   DataTableErrorState,
 } from './data-table-empty-state';
+import { useT } from '../../i18n/client';
 
 export function DataTable<TData, TValue = unknown>({
   columns,
@@ -62,7 +63,9 @@ export function DataTable<TData, TValue = unknown>({
   onPaginationChange: controlledOnPaginationChange,
   globalFilter: controlledGlobalFilter,
   onGlobalFilterChange: controlledOnGlobalFilterChange,
+  ariaLabel,
 }: DataTableProps<TData, TValue>) {
+  const t = useT();
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [expanded, setExpanded] = React.useState<ExpandedState>({});
@@ -323,11 +326,11 @@ export function DataTable<TData, TValue = unknown>({
         style={enableVirtualization ? { height: virtualHeight } : undefined}
         className={cn(
           'relative w-full rounded-xl border border-border bg-card shadow-xs focus:outline-none',
-          enableVirtualization ? 'overflow-auto' : 'overflow-hidden'
+          enableVirtualization ? 'overflow-auto' : 'overflow-x-auto'
         )}
         tabIndex={0}
         role="region"
-        aria-label="Enterprise Data Grid"
+        aria-label={ariaLabel ?? t('app.dataTable.gridLabel')}
       >
         <table
           onKeyDown={handleKeyDown}
@@ -534,7 +537,12 @@ export function DataTable<TData, TValue = unknown>({
         ))}
 
       {/* Table Pagination Controls (for non-virtualized or server-windowed grids) */}
-      {!enableVirtualization && <DataTablePagination table={table} />}
+      {!enableVirtualization && (
+        <DataTablePagination
+          table={table}
+          pageSizeOptions={pageCount !== undefined ? [10, 25, 50, 100] : undefined}
+        />
+      )}
     </div>
   );
 }

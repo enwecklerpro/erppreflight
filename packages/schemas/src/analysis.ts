@@ -9,6 +9,10 @@ import { FindingSchema, FindingWireSchema } from './finding';
 
 // --- Analysis Job Request ---
 
+/** Transport encoding of the inline `raw_content` payload sent to the analysis service. */
+export const RawContentEncodingEnum = z.enum(['utf-8', 'base64']);
+export type RawContentEncoding = z.infer<typeof RawContentEncodingEnum>;
+
 function normalizeJobRequestInput(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
   const obj = raw as Record<string, unknown>;
@@ -22,6 +26,7 @@ function normalizeJobRequestInput(raw: unknown): unknown {
     artifactType: obj.artifactType ?? obj.artifact_type ?? 'JSON',
     configuration: obj.configuration ?? {},
     rawContent: obj.rawContent ?? obj.raw_content ?? null,
+    rawContentEncoding: obj.rawContentEncoding ?? obj.raw_content_encoding ?? 'utf-8',
   };
 }
 
@@ -35,6 +40,8 @@ export const BaseAnalysisJobRequestSchema = z.object({
   artifactType: ArtifactTypeEnum.default('JSON'),
   configuration: z.record(z.unknown()).default({}),
   rawContent: z.string().optional().nullable(),
+  /** 'base64' when rawContent carries a binary artifact (ZIP/XLSX); 'utf-8' for text formats. */
+  rawContentEncoding: RawContentEncodingEnum.default('utf-8'),
 });
 export type AnalysisJobRequest = z.infer<typeof BaseAnalysisJobRequestSchema>;
 
@@ -56,6 +63,7 @@ function normalizeJobRequestWireInput(raw: unknown): unknown {
     artifact_type: obj.artifact_type ?? obj.artifactType ?? 'JSON',
     configuration: obj.configuration ?? {},
     raw_content: obj.raw_content ?? obj.rawContent ?? null,
+    raw_content_encoding: obj.raw_content_encoding ?? obj.rawContentEncoding ?? 'utf-8',
   };
 }
 
@@ -69,6 +77,7 @@ export const BaseAnalysisJobRequestWireSchema = z.object({
   artifact_type: ArtifactTypeEnum.default('JSON'),
   configuration: z.record(z.unknown()).default({}),
   raw_content: z.string().optional().nullable(),
+  raw_content_encoding: RawContentEncodingEnum.default('utf-8'),
 });
 export type AnalysisJobRequestWire = z.infer<typeof BaseAnalysisJobRequestWireSchema>;
 

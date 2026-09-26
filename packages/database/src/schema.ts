@@ -4,6 +4,11 @@ import * as platformSchemas from './schema/platform';
 import * as templatesSchemas from './schema/templates';
 import * as catalogSchemas from './schema/catalog';
 import * as eventsSchemas from './schema/events';
+import * as accountSchemas from './schema/account';
+import * as knowledgeSchemas from './schema/knowledge';
+import * as knowledgeArticleSchemas from './schema/knowledge-articles';
+import * as orchestrationSchemas from './schema/orchestration';
+import * as findingLifecycleSchemas from './schema/finding-lifecycle';
 
 export const schema = {
   ...coreSchemas,
@@ -12,6 +17,11 @@ export const schema = {
   ...templatesSchemas,
   ...catalogSchemas,
   ...eventsSchemas,
+  ...accountSchemas,
+  ...knowledgeSchemas,
+  ...knowledgeArticleSchemas,
+  ...orchestrationSchemas,
+  ...findingLifecycleSchemas,
 };
 
 // Re-export the schemas directly
@@ -21,6 +31,11 @@ export * from './schema/platform';
 export * from './schema/templates';
 export * from './schema/catalog';
 export * from './schema/events';
+export * from './schema/account';
+export * from './schema/knowledge';
+export * from './schema/knowledge-articles';
+export * from './schema/orchestration';
+export * from './schema/finding-lifecycle';
 
 // Export types for core
 export type OrganizationRow = typeof coreSchemas.organizations.$inferSelect;

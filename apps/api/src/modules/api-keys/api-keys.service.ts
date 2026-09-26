@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CreateApiKeyDto } from './dto/api-key.dto';
+import { DEFAULT_API_KEY_SCOPES } from './api-key-scopes';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -17,12 +18,7 @@ export class ApiKeysService {
     const prefix = fullKey.slice(0, 15);
     const keyHash = crypto.createHash('sha256').update(fullKey).digest('hex');
 
-    const scopes = dto.scopes || [
-      'projects:read',
-      'analysis:run',
-      'analysis:read',
-      'reports:read',
-    ];
+    const scopes = dto.scopes?.length ? Array.from(new Set(dto.scopes)) : DEFAULT_API_KEY_SCOPES;
 
     await this.db.query(
       `INSERT INTO api_keys (

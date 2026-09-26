@@ -5,48 +5,48 @@ import { ObjectTierBadge } from './object-tier-badge';
 import { ObjectTypeBadge } from './object-type-badge';
 import { FilterDef } from '../data-table/types';
 import { CheckCircle, AlertTriangle, OctagonAlert, ChevronRight } from 'lucide-react';
+import type { AppFormat } from '../../i18n/client';
+import type { TFunction } from '../../i18n/translate';
 
-export const objectFacetedFilters: FilterDef[] = [
-  {
-    id: 'objectType',
-    title: 'Object Type',
-    options: [
-      { label: 'PROG (Program)', value: 'PROG' },
-      { label: 'CLAS (Class)', value: 'CLAS' },
-      { label: 'TABL (Table)', value: 'TABL' },
-      { label: 'CDS (CDS View)', value: 'CDS' },
-      { label: 'FUGR (Function Group)', value: 'FUGR' },
-      { label: 'INTF (Interface)', value: 'INTF' },
-      { label: 'FORM (Form Layout)', value: 'FORM' },
-      { label: 'TRAN (Transaction)', value: 'TRAN' },
-    ],
-  },
-  {
-    id: 'cleanCoreTier',
-    title: 'Clean Core Tier',
-    options: [
-      { label: 'Tier 1: Cloud Compliant', value: 'TIER_1_CLOUD' },
-      { label: 'Tier 2: Developer Extensibility', value: 'TIER_2_DEVELOPER' },
-      { label: 'Tier 3: Classic Modification', value: 'TIER_3_CLASSIC' },
-    ],
-  },
-  {
-    id: 'package',
-    title: 'Package',
-    options: [
-      { label: 'Z_SALES_ORDER', value: 'Z_SALES_ORDER' },
-      { label: 'Z_FIN_ACDOCA', value: 'Z_FIN_ACDOCA' },
-      { label: 'Z_MM_PURCHASING', value: 'Z_MM_PURCHASING' },
-      { label: 'Z_CLEAN_CORE', value: 'Z_CLEAN_CORE' },
-      { label: '$TMP (Local)', value: '$TMP' },
-    ],
-  },
-];
+const TYPE_FILTERS = ['PROG', 'CLAS', 'TABL', 'CDS', 'FUGR', 'INTF', 'FORM', 'TRAN'] as const;
+const TIERS = ['TIER_1_CLOUD', 'TIER_2_DEVELOPER', 'TIER_3_CLASSIC'] as const;
+
+/**
+ * Faceted filters for the object inventory. Package options are derived from
+ * the loaded objects (never a fixed list), so they always match the data.
+ */
+export function buildObjectFacetedFilters(objects: SapObject[], t: TFunction): FilterDef[] {
+  const packages = Array.from(new Set(objects.map((o) => o.package).filter(Boolean))).sort();
+  return [
+    {
+      id: 'objectType',
+      title: t('app.objects.filter.objectType'),
+      options: TYPE_FILTERS.map((type) => ({ value: type, label: `${type} (${t(`app.objects.typeName.${type}`)})` })),
+    },
+    {
+      id: 'cleanCoreTier',
+      title: t('app.objects.filter.cleanCoreTier'),
+      options: TIERS.map((tier) => ({ value: tier, label: t(`app.objects.tier.${tier}.label`) })),
+    },
+    {
+      id: 'package',
+      title: t('app.objects.filter.package'),
+      options: packages.map((pkg) => ({ value: pkg, label: pkg })),
+    },
+  ];
+}
+
+const inList = (row: { getValue: (id: string) => unknown }, id: string, filterValues: string[]) =>
+  !filterValues || filterValues.length === 0 || filterValues.includes(String(row.getValue(id)));
 
 export function getObjectColumns({
   onSelectObject,
+  t,
+  fmt,
 }: {
   onSelectObject: (obj: SapObject) => void;
+  t: TFunction;
+  fmt: AppFormat;
 }): ColumnDef<SapObject>[] {
   return [
     {
@@ -56,7 +56,7 @@ export function getObjectColumns({
           type="checkbox"
           checked={table.getIsAllPageRowsSelected()}
           onChange={(e) => table.toggleAllPageRowsSelected(!!e.target.checked)}
-          aria-label="Select all objects on page"
+          aria-label={t('app.objects.col.selectAll')}
           className="size-4 rounded border-border text-primary focus:ring-primary/40 cursor-pointer"
         />
       ),
@@ -65,7 +65,7 @@ export function getObjectColumns({
           type="checkbox"
           checked={row.getIsSelected()}
           onChange={(e) => row.toggleSelected(!!e.target.checked)}
-          aria-label={`Select object ${row.original.name}`}
+          aria-label={t('app.objects.col.select', { name: row.original.name })}
           className="size-4 rounded border-border text-primary focus:ring-primary/40 cursor-pointer"
         />
       ),
@@ -76,34 +76,26 @@ export function getObjectColumns({
     {
       accessorKey: 'name',
       id: 'name',
-      header: 'Object Name',
+      header: t('app.objects.col.name'),
       cell: ({ row }) => {
         const obj = row.original;
         return (
-          <div
-            className="flex flex-col cursor-pointer group text-left"
+          <button
+            type="button"
+            className="flex flex-col text-left group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             onClick={() => onSelectObject(obj)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && onSelectObject(obj)}
-            aria-label={`Inspect object ${obj.name}`}
+            aria-label={t('app.objects.col.inspect', { name: obj.name })}
           >
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-foreground group-hover:text-primary transition-colors">
-                {obj.name}
-              </span>
+            <span className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-foreground group-hover:text-primary transition-colors">{obj.name}</span>
               {obj.modificationStatus === 'SAP_MODIFIED' && (
-                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
-                  MODIFIED
+                <span className="px-1.5 rounded text-xs font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                  {t('app.objects.col.modified')}
                 </span>
               )}
-            </div>
-            {obj.description && (
-              <span className="text-[11px] text-muted-foreground line-clamp-1">
-                {obj.description}
-              </span>
-            )}
-          </div>
+            </span>
+            {obj.description && <span className="text-xs text-muted-foreground line-clamp-1">{obj.description}</span>}
+          </button>
         );
       },
       size: 220,
@@ -111,75 +103,55 @@ export function getObjectColumns({
     {
       accessorKey: 'objectType',
       id: 'objectType',
-      header: 'Type',
+      header: t('app.objects.col.type'),
       cell: ({ row }) => <ObjectTypeBadge type={row.original.objectType} />,
-      filterFn: (row, id, filterValues: string[]) => {
-        if (!filterValues || filterValues.length === 0) return true;
-        const cellVal = String(row.getValue(id));
-        return filterValues.includes(cellVal);
-      },
+      filterFn: inList,
       size: 90,
     },
     {
       accessorKey: 'package',
       id: 'package',
-      header: 'Package',
-      cell: ({ row }) => {
-        const pkg = row.original.package;
-        const swComp = row.original.softwareComponent;
-        return (
-          <div className="flex flex-col">
-            <span className="font-mono text-xs text-foreground font-medium">{pkg}</span>
-            <span className="text-[10px] text-muted-foreground">{swComp}</span>
-          </div>
-        );
-      },
-      filterFn: (row, id, filterValues: string[]) => {
-        if (!filterValues || filterValues.length === 0) return true;
-        const cellVal = String(row.getValue(id));
-        return filterValues.includes(cellVal);
-      },
+      header: t('app.objects.col.package'),
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-mono text-xs text-foreground font-medium">{row.original.package}</span>
+          <span className="text-xs text-muted-foreground">{row.original.softwareComponent}</span>
+        </div>
+      ),
+      filterFn: inList,
       size: 140,
     },
     {
       accessorKey: 'cleanCoreTier',
       id: 'cleanCoreTier',
-      header: 'Clean Core Tier',
+      header: t('app.objects.col.tier'),
       cell: ({ row }) => <ObjectTierBadge tier={row.original.cleanCoreTier} size="sm" />,
-      filterFn: (row, id, filterValues: string[]) => {
-        if (!filterValues || filterValues.length === 0) return true;
-        const cellVal = String(row.getValue(id));
-        return filterValues.includes(cellVal);
-      },
+      filterFn: inList,
       size: 150,
     },
     {
       id: 'findingsCount',
       accessorFn: (row) => row.findingSummary.totalCount,
-      header: 'Findings',
+      header: t('app.objects.col.findings'),
       cell: ({ row }) => {
         const { totalCount, blockerCount, criticalCount } = row.original.findingSummary;
-
         if (totalCount === 0) {
           return (
             <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
               <CheckCircle className="size-3.5" aria-hidden="true" />
-              <span>0 Clean</span>
+              <span>{t('app.objects.col.clean')}</span>
             </span>
           );
         }
-
         return (
-          <div
-            className="flex items-center gap-1.5 cursor-pointer"
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             onClick={() => onSelectObject(row.original)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && onSelectObject(row.original)}
-            aria-label={`View ${totalCount} findings for ${row.original.name}`}
+            aria-label={t('app.objects.col.viewFindings', { count: totalCount, name: row.original.name })}
           >
             <span
-              className={`px-2 py-0.5 rounded text-xs font-bold font-mono border flex items-center gap-1 ${
+              className={`px-2 py-0.5 rounded text-xs font-bold border flex items-center gap-1 ${
                 blockerCount > 0
                   ? 'bg-red-50 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300 dark:border-red-800'
                   : criticalCount > 0
@@ -187,49 +159,39 @@ export function getObjectColumns({
                   : 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
               }`}
             >
-              {blockerCount > 0 ? (
-                <OctagonAlert className="size-3" aria-hidden="true" />
-              ) : (
-                <AlertTriangle className="size-3" aria-hidden="true" />
-              )}
-              {totalCount} {totalCount === 1 ? 'Finding' : 'Findings'}
+              {blockerCount > 0 ? <OctagonAlert className="size-3" aria-hidden="true" /> : <AlertTriangle className="size-3" aria-hidden="true" />}
+              {t('app.objects.col.findingsCount', { count: totalCount })}
             </span>
             {blockerCount > 0 && (
-              <span className="text-[10px] font-bold text-red-600 dark:text-red-400 font-mono">
-                ({blockerCount} Blocker)
-              </span>
+              <span className="text-xs font-bold text-red-600 dark:text-red-400">{t('app.objects.col.blockers', { count: blockerCount })}</span>
             )}
-          </div>
+          </button>
         );
       },
-      size: 140,
+      size: 150,
     },
     {
       id: 'complexity',
       accessorFn: (row) => row.complexity.score,
-      header: 'Complexity',
+      header: t('app.objects.col.complexity'),
       cell: ({ row }) => {
         const { score, level, linesOfCode } = row.original.complexity;
         return (
           <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <span
-                className={`text-xs font-semibold ${
-                  level === 'VERY_HIGH'
-                    ? 'text-red-600 dark:text-red-400'
-                    : level === 'HIGH'
-                    ? 'text-orange-600 dark:text-orange-400'
-                    : level === 'MEDIUM'
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {level} ({score})
-              </span>
-            </div>
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {linesOfCode.toLocaleString()} LOC
+            <span
+              className={`text-xs font-semibold ${
+                level === 'VERY_HIGH'
+                  ? 'text-red-600 dark:text-red-400'
+                  : level === 'HIGH'
+                  ? 'text-orange-600 dark:text-orange-400'
+                  : level === 'MEDIUM'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {t(`app.objects.complexityLevel.${level}`)} ({fmt.number(score)})
             </span>
+            <span className="text-xs text-muted-foreground">{t('app.objects.col.loc', { count: fmt.number(linesOfCode) })}</span>
           </div>
         );
       },
@@ -238,21 +200,15 @@ export function getObjectColumns({
     {
       accessorKey: 'lastChangedAt',
       id: 'lastChangedAt',
-      header: 'Last Changed',
+      header: t('app.objects.col.lastChanged'),
       cell: ({ row }) => {
-        const dateStr = row.original.lastChangedAt;
-        const author = row.original.lastChangedBy;
-        const transport = row.original.transportRequest;
-        const formattedDate = new Date(dateStr).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        });
+        const { lastChangedAt, lastChangedBy, transportRequest } = row.original;
         return (
           <div className="flex flex-col">
-            <span className="text-xs text-foreground font-medium">{formattedDate}</span>
-            <span className="text-[10px] text-muted-foreground font-mono">
-              by {author} {transport && `• ${transport}`}
+            <span className="text-xs text-foreground font-medium">{fmt.date(lastChangedAt)}</span>
+            <span className="text-xs text-muted-foreground">
+              {t('app.objects.col.changedBy', { author: lastChangedBy })}
+              {transportRequest ? ` · ${transportRequest}` : ''}
             </span>
           </div>
         );
@@ -266,10 +222,10 @@ export function getObjectColumns({
         <button
           type="button"
           onClick={() => onSelectObject(row.original)}
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-          aria-label={`View details for ${row.original.name}`}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          aria-label={t('app.objects.col.details', { name: row.original.name })}
         >
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-4" aria-hidden="true" />
         </button>
       ),
       size: 40,

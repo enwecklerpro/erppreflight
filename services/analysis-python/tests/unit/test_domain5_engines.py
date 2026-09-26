@@ -697,7 +697,10 @@ async def test_decom_empty_payload():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
+    # H1: no default target user and no tables -> single UNKNOWN insufficient-input finding, never a verdict
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["DECOM_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
     critical = [f for f in resp.findings if f.severity in (Severity.CRITICAL, Severity.MAJOR, Severity.BLOCKER)]
     assert len(critical) == 0
 
@@ -802,7 +805,10 @@ async def test_fiori_empty_payload():
         raw_content="",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
+    # Empty input never yields a COMPLETED (implicitly clean) verdict.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["FIORI_403_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
     critical = [f for f in resp.findings if f.severity in (Severity.CRITICAL, Severity.BLOCKER)]
     assert len(critical) == 0
 
@@ -889,8 +895,10 @@ async def test_wf_empty_payload():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["WF_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 # =============================================================================
@@ -1004,8 +1012,10 @@ async def test_iam_empty_input():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["IAM_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 @pytest.mark.asyncio
@@ -1132,8 +1142,10 @@ async def test_acct_det_empty_input():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["ACCT_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 @pytest.mark.asyncio
@@ -1223,7 +1235,10 @@ async def test_refresh_empty_payload():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
+    # H1: no default SID -> single UNKNOWN insufficient-input finding, never REFRESH_ISOLATION_VERIFIED
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["REFRESH_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
     hazardous = [f for f in resp.findings if f.severity in (Severity.CRITICAL, Severity.MAJOR, Severity.BLOCKER)]
     assert len(hazardous) == 0
 
@@ -1257,6 +1272,7 @@ async def test_domain5_ai_demotion_invariant():
     ev = EvidenceEngine.create_evidence(
         artifact_path="test.json",
         content="test",
+        line_number=1,
         snippet="snippet",
         provenance=ConfidenceClass.VERIFIED,
     )

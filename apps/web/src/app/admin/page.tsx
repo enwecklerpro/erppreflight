@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   CheckCircle2,
-  XCircle,
   AlertTriangle,
   Lock,
   ArrowRight,
@@ -35,14 +34,56 @@ import {
   AdminUserItem,
   AdminQueueData,
 } from '../../lib/api-client';
+import { BusinessPanel, FeatureFlagsPanel, IncidentsPanel, SupportConsolePanel } from '@/components/admin/ops-panels';
+import { ErrorState } from '@/components/commercial/states';
+import { useEngineDomainLabel } from '@/components/engine-matrix';
+import { useFmt, useLabel, useMessages, useT } from '@/i18n/client';
+import { useRoleLabel } from '@/components/account/role-label';
+
+type Tab = 'overview' | 'business' | 'incidents' | 'support' | 'flags' | 'tenants' | 'users' | 'engines' | 'queues';
+
+const TABS: Array<{ id: Tab; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'overview', icon: Activity },
+  { id: 'business', icon: Layers },
+  { id: 'incidents', icon: AlertTriangle },
+  { id: 'support', icon: Search },
+  { id: 'flags', icon: CheckCircle2 },
+  { id: 'tenants', icon: Building2 },
+  { id: 'users', icon: Users },
+  { id: 'engines', icon: Cpu },
+  { id: 'queues', icon: Zap },
+];
+
+const QUEUE_COUNTS = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'] as const;
+
+/** Health badge with an icon and text (never color alone). */
+function HealthBadge({ value, good }: { value: string; good: boolean }) {
+  const label = useLabel();
+  const Icon = good ? CheckCircle2 : AlertTriangle;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded font-bold ${
+        good ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+      }`}
+    >
+      <Icon className="size-3" aria-hidden="true" />
+      {label('app.admin.overview.status', value)}
+    </span>
+  );
+}
 
 export default function SuperAdminPortal() {
+  const t = useT();
+  const fmt = useFmt();
+  const label = useLabel();
+  const messages = useMessages();
+  const roleLabel = useRoleLabel();
+  const domainLabel = useEngineDomainLabel();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'overview' | 'tenants' | 'users' | 'engines' | 'queues'>('overview');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [userSearch, setUserSearch] = useState('');
   const [tenantSearch, setTenantSearch] = useState('');
 
-  // 1. Current user check
   const { data: authData, isLoading: authLoading, isError: authError } = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: fetchCurrentUser,
@@ -51,105 +92,72 @@ export default function SuperAdminPortal() {
 
   const isSuperAdmin = authData?.user?.systemRole === 'SUPER_ADMIN';
 
-  // 2. Admin queries (only enabled if super admin)
-  const {
-    data: overview,
-    isLoading: overviewLoading,
-    isError: overviewError,
-    refetch: refetchOverview,
-  } = useQuery<AdminOverviewData>({
+  const overviewQuery = useQuery<AdminOverviewData>({
     queryKey: ['admin', 'overview'],
     queryFn: fetchAdminOverview,
     enabled: isSuperAdmin,
     staleTime: 1000 * 30,
   });
-
-  const {
-    data: tenants,
-    isLoading: tenantsLoading,
-    refetch: refetchTenants,
-  } = useQuery<AdminTenantItem[]>({
+  const tenantsQuery = useQuery<AdminTenantItem[]>({
     queryKey: ['admin', 'tenants'],
     queryFn: fetchAdminTenants,
     enabled: isSuperAdmin && activeTab === 'tenants',
   });
-
-  const {
-    data: users,
-    isLoading: usersLoading,
-    refetch: refetchUsers,
-  } = useQuery<AdminUserItem[]>({
+  const usersQuery = useQuery<AdminUserItem[]>({
     queryKey: ['admin', 'users'],
     queryFn: fetchAdminUsers,
     enabled: isSuperAdmin && activeTab === 'users',
   });
-
-  const {
-    data: queues,
-    isLoading: queuesLoading,
-    refetch: refetchQueues,
-  } = useQuery<AdminQueueData>({
+  const queuesQuery = useQuery<AdminQueueData>({
     queryKey: ['admin', 'queues'],
     queryFn: fetchAdminQueues,
     enabled: isSuperAdmin && activeTab === 'queues',
   });
-
-  const {
-    data: engineStatus,
-    isLoading: enginesLoading,
-    refetch: refetchEngines,
-  } = useQuery({
+  const enginesQuery = useQuery({
     queryKey: ['admin', 'engines'],
     queryFn: fetchEngineStatus,
     enabled: isSuperAdmin && activeTab === 'engines',
   });
 
-  // User role mutation
   const roleMutation = useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: 'USER' | 'ADMIN' | 'SUPER_ADMIN' }) =>
-      updateAdminUserRole(userId, role),
+    mutationFn: ({ userId, role }: { userId: string; role: 'USER' | 'ADMIN' | 'SUPER_ADMIN' }) => updateAdminUserRole(userId, role),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'overview'] });
     },
   });
 
-  // Unauthenticated or not Super Admin state
   if (authLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 space-y-4">
-        <RefreshCw className="h-8 w-8 text-primary animate-spin" />
-        <p className="text-sm text-muted-foreground font-medium">Verifying Super Admin Authorization...</p>
+      <div className="flex flex-col items-center justify-center py-24 space-y-4" role="status">
+        <RefreshCw className="h-8 w-8 text-primary animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground font-medium">{t('app.admin.verifying')}</p>
       </div>
     );
   }
 
   if (authError || !isSuperAdmin) {
     return (
-      <div className="max-w-xl mx-auto py-16 px-4">
-        <div className="bg-card border border-destructive/30 rounded-2xl p-8 shadow-sm text-center space-y-4">
+      <div className="max-w-xl mx-auto py-16">
+        <div className="bg-card border border-destructive/30 rounded-2xl p-6 sm:p-8 shadow-sm text-center space-y-4">
           <div className="inline-flex p-3 bg-destructive/10 rounded-full text-destructive mb-2">
-            <Lock className="h-8 w-8" />
+            <Lock className="h-8 w-8" aria-hidden="true" />
           </div>
-          <h2 className="text-2xl font-bold text-foreground">Super Admin Access Required</h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            You must be logged in as an authorized Super Admin (e.g.{' '}
-            <code className="text-primary font-semibold">contact@erppreflight.com</code>) to access the ERP
-            Preflight Trust Center, tenant directory, and global infrastructure telemetry.
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">{t('app.admin.deniedTitle')}</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">{t('app.admin.deniedBody')}</p>
           <div className="pt-4 flex flex-col sm:flex-row justify-center gap-3">
             <Link
               href="/login"
               className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
             >
-              Sign In as Super Admin
-              <ArrowRight className="h-4 w-4" />
+              {t('app.admin.signIn')}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
             <Link
-              href="/"
+              href="/dashboard"
               className="inline-flex items-center justify-center px-4 py-2 bg-muted text-foreground text-sm font-medium rounded-lg hover:bg-muted/80 transition-colors"
             >
-              Return to Dashboard
+              {t('app.admin.backToDashboard')}
             </Link>
           </div>
         </div>
@@ -157,494 +165,385 @@ export default function SuperAdminPortal() {
     );
   }
 
-  const filteredUsers = (users || []).filter((u) => {
+  const overview = overviewQuery.data;
+  const filteredUsers = (usersQuery.data || []).filter((u) => {
     if (!userSearch) return true;
     const term = userSearch.toLowerCase();
-    return (
-      u.email.toLowerCase().includes(term) ||
-      (u.fullName && u.fullName.toLowerCase().includes(term)) ||
-      u.systemRole.toLowerCase().includes(term)
-    );
+    return u.email.toLowerCase().includes(term) || (u.fullName && u.fullName.toLowerCase().includes(term)) || u.systemRole.toLowerCase().includes(term);
   });
-
-  const filteredTenants = (tenants || []).filter((t) => {
+  const filteredTenants = (tenantsQuery.data || []).filter((tn) => {
     if (!tenantSearch) return true;
     const term = tenantSearch.toLowerCase();
-    return t.name.toLowerCase().includes(term) || t.slug.toLowerCase().includes(term);
+    return tn.name.toLowerCase().includes(term) || tn.slug.toLowerCase().includes(term);
   });
+
+  const th = 'px-4 sm:px-6 py-3';
+  const td = 'px-4 sm:px-6 py-4';
 
   return (
     <div className="space-y-8">
-      {/* Super Admin Header */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white rounded-2xl p-6 sm:p-8 shadow-md border border-blue-900/50">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase font-extrabold tracking-wider px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded border border-blue-500/30">
-                Super Admin Trust Center
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase font-extrabold tracking-wider px-2 py-0.5 bg-blue-500/20 text-blue-200 rounded border border-blue-500/30">
+                {t('app.admin.badge')}
               </span>
-              <span className="text-xs text-slate-300">
-                Active Admin: <strong className="text-white">{authData?.user?.email}</strong>
-              </span>
+              <span className="text-xs text-slate-300 break-all">{t('app.admin.signedInAs', { email: authData?.user?.email ?? '' })}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight">
-              Enterprise Global Governance & System Diagnostics
-            </h1>
-            <p className="mt-2 text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Global multi-tenant administration, PostgreSQL RLS tenant bypass introspection, BullMQ Redis
-              queue monitor, and live preflight engine health.
-            </p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight">{t('app.admin.title')}</h1>
+            <p className="mt-2 text-sm text-slate-300 max-w-2xl leading-relaxed">{t('app.admin.intro')}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                refetchOverview();
-                if (activeTab === 'tenants') refetchTenants();
-                if (activeTab === 'users') refetchUsers();
-                if (activeTab === 'queues') refetchQueues();
-                if (activeTab === 'engines') refetchEngines();
-              }}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-lg transition-colors border border-white/10 shadow-sm"
-              title="Refresh all metrics"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Sync Diagnostics
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              overviewQuery.refetch();
+              if (activeTab === 'tenants') tenantsQuery.refetch();
+              if (activeTab === 'users') usersQuery.refetch();
+              if (activeTab === 'queues') queuesQuery.refetch();
+              if (activeTab === 'engines') enginesQuery.refetch();
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-sm font-semibold rounded-lg transition-colors border border-white/10 shadow-sm self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            title={t('app.admin.refreshLabel')}
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('app.admin.refresh')}
+          </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-white/10">
-          {[
-            { id: 'overview', label: 'Global Overview', icon: Activity },
-            { id: 'tenants', label: 'Tenant Directory', icon: Building2 },
-            { id: 'users', label: 'User Administration', icon: Users },
-            { id: 'engines', label: 'SAP Engine Matrix', icon: Cpu },
-            { id: 'queues', label: 'BullMQ Queues', icon: Zap },
-          ].map((tab) => {
+        <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-white/10" role="group" aria-label={t('app.admin.tabsLabel')}>
+          {TABS.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-                  active
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white'
+                type="button"
+                aria-pressed={active}
+                onClick={() => setActiveTab(tab.id)}
+                className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                  active ? 'bg-blue-600 text-white shadow-sm' : 'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <Icon className="h-4 w-4" />
-                {tab.label}
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {t(`app.admin.tabs.${tab.id}`)}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Tab: Overview */}
+      {activeTab === 'business' && <BusinessPanel />}
+      {activeTab === 'incidents' && <IncidentsPanel />}
+      {activeTab === 'support' && <SupportConsolePanel />}
+      {activeTab === 'flags' && <FeatureFlagsPanel />}
+
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {overviewLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+          {overviewQuery.isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse motion-reduce:animate-none" aria-busy="true" aria-label={t('app.ui.loading')}>
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="h-28 bg-muted rounded-xl" />
               ))}
             </div>
-          ) : overviewError ? (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-xl text-sm">
-              Failed to load global system overview. Check backend API status.
-            </div>
+          ) : overviewQuery.isError ? (
+            <ErrorState title={t('app.admin.overview.loadFailed')} error={overviewQuery.error} onRetry={() => overviewQuery.refetch()} />
           ) : overview ? (
             <>
-              {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-card border border-border p-5 rounded-xl shadow-sm">
-                  <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span>Enterprise Tenants</span>
-                    <Building2 className="h-4 w-4 text-blue-500" />
+                {[
+                  { label: t('app.admin.overview.tenants'), value: overview.totalTenants, hint: t('app.admin.overview.tenantsHint'), icon: Building2 },
+                  { label: t('app.admin.overview.users'), value: overview.totalUsers, hint: t('app.admin.overview.usersHint'), icon: Users },
+                  {
+                    label: t('app.admin.overview.analyses'),
+                    value: overview.totalAnalyses,
+                    hint: t('app.admin.overview.analysesHint', { count: overview.totalProjects }),
+                    icon: Layers,
+                  },
+                  {
+                    label: t('app.admin.overview.blockers'),
+                    value: overview.blockersAndCritical,
+                    hint: t('app.admin.overview.blockersHint', { count: fmt.number(overview.totalFindings) }),
+                    icon: ShieldCheck,
+                  },
+                ].map((kpi) => (
+                  <div key={kpi.label} className="bg-card border border-border p-5 rounded-xl shadow-sm">
+                    <div className="flex items-center justify-between text-muted-foreground text-sm font-medium">
+                      <span>{kpi.label}</span>
+                      <kpi.icon className="h-4 w-4 text-primary" aria-hidden="true" />
+                    </div>
+                    <div className="text-3xl font-extrabold text-foreground mt-2">{fmt.number(kpi.value)}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{kpi.hint}</div>
                   </div>
-                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.totalTenants}</div>
-                  <div className="text-xs text-muted-foreground mt-1">Multi-tenant isolated organizations</div>
-                </div>
-
-                <div className="bg-card border border-border p-5 rounded-xl shadow-sm">
-                  <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span>Registered Users</span>
-                    <Users className="h-4 w-4 text-indigo-500" />
-                  </div>
-                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.totalUsers}</div>
-                  <div className="text-xs text-muted-foreground mt-1">Global registered accounts</div>
-                </div>
-
-                <div className="bg-card border border-border p-5 rounded-xl shadow-sm">
-                  <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span>Preflight Analyses</span>
-                    <Layers className="h-4 w-4 text-emerald-500" />
-                  </div>
-                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.totalAnalyses}</div>
-                  <div className="text-xs text-muted-foreground mt-1">Across {overview.totalProjects} workspaces</div>
-                </div>
-
-                <div className="bg-card border border-border p-5 rounded-xl shadow-sm">
-                  <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span>Clean Core Index</span>
-                    <ShieldCheck className="h-4 w-4 text-amber-500" />
-                  </div>
-                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.cleanCoreIndex}%</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {overview.blockersAndCritical} Blockers / Critical findings
-                  </div>
-                </div>
+                ))}
               </div>
 
-              {/* Subsystem Health Cards */}
-              <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                  <Server className="h-5 w-5 text-primary" />
-                  Core SaaS Subsystem Topology Matrix
-                </h3>
+              <section aria-labelledby="core-services" className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
+                <h2 id="core-services" className="text-base font-bold text-foreground flex items-center gap-2">
+                  <Server className="h-5 w-5 text-primary" aria-hidden="true" />
+                  {t('app.admin.overview.servicesTitle')}
+                </h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="border border-border rounded-lg p-4 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <Database className="h-4 w-4 text-blue-500" />
-                        PostgreSQL 16 + pgvector
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-bold ${
-                          overview.systemHealth.database === 'HEALTHY'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {overview.systemHealth.database}
-                      </span>
+                  {[
+                    { name: t('app.admin.overview.database'), hint: t('app.admin.overview.databaseHint'), value: overview.systemHealth.database, good: overview.systemHealth.database === 'HEALTHY', icon: Database },
+                    { name: t('app.admin.overview.queue'), hint: t('app.admin.overview.queueHint'), value: overview.systemHealth.redisQueue, good: overview.systemHealth.redisQueue === 'HEALTHY', icon: Zap },
+                    { name: t('app.admin.overview.analysis'), hint: t('app.admin.overview.analysisHint'), value: overview.systemHealth.pythonEngines, good: overview.systemHealth.pythonEngines === 'ONLINE', icon: Cpu },
+                  ].map((svc) => (
+                    <div key={svc.name} className="border border-border rounded-lg p-4 bg-muted/30">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-foreground flex items-center gap-2">
+                          <svc.icon className="h-4 w-4 text-primary" aria-hidden="true" />
+                          {svc.name}
+                        </span>
+                        <HealthBadge value={svc.value} good={svc.good} />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">{svc.hint}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Multi-tenant row-level security (RLS) active across all schemas.
-                    </p>
-                  </div>
-
-                  <div className="border border-border rounded-lg p-4 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <Zap className="h-4 w-4 text-amber-500" />
-                        BullMQ Redis 7.2
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-bold ${
-                          overview.systemHealth.redisQueue === 'HEALTHY'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {overview.systemHealth.redisQueue}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Asynchronous queue broker for durable analysis execution.
-                    </p>
-                  </div>
-
-                  <div className="border border-border rounded-lg p-4 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-indigo-500" />
-                        Python Analysis Microservice
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-bold ${
-                          overview.systemHealth.pythonEngines === 'ONLINE'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {overview.systemHealth.pythonEngines}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      19 deterministic preflight engines with pure AST & XML parsers.
-                    </p>
-                  </div>
+                  ))}
                 </div>
-              </div>
+              </section>
             </>
           ) : null}
         </div>
       )}
 
-      {/* Tab: Tenants */}
       {activeTab === 'tenants' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search organizations by name or slug..."
-                value={tenantSearch}
-                onChange={(e) => setTenantSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="search"
+              placeholder={t('app.admin.tenants.search')}
+              aria-label={t('app.admin.tenants.searchLabel')}
+              value={tenantSearch}
+              onChange={(e) => setTenantSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-border rounded-lg bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
-
-          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted text-xs uppercase font-semibold text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="px-6 py-3">Organization Name</th>
-                    <th className="px-6 py-3">Slug</th>
-                    <th className="px-6 py-3">Plan Tier</th>
-                    <th className="px-6 py-3">Users</th>
-                    <th className="px-6 py-3">Projects</th>
-                    <th className="px-6 py-3">Analyses</th>
-                    <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {tenantsLoading ? (
+          {tenantsQuery.isError ? (
+            <ErrorState title={t('app.admin.tenants.loadFailed')} error={tenantsQuery.error} onRetry={() => tenantsQuery.refetch()} />
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm min-w-[760px]">
+                  <thead className="bg-muted text-xs uppercase font-semibold text-muted-foreground border-b border-border">
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
-                        Loading tenant directory...
-                      </td>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colName')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colSlug')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colPlan')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colUsers')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colProjects')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colAnalyses')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colStatus')}</th>
+                      <th scope="col" className={th}>{t('app.admin.tenants.colCreated')}</th>
                     </tr>
-                  ) : filteredTenants.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
-                        No organizations found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTenants.map((t) => (
-                      <tr key={t.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-4 font-semibold text-foreground">{t.name}</td>
-                        <td className="px-6 py-4 text-muted-foreground font-mono text-xs">{t.slug}</td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs px-2 py-0.5 rounded font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                            {t.planTier}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-foreground">{t.userCount}</td>
-                        <td className="px-6 py-4 text-foreground">{t.projectCount}</td>
-                        <td className="px-6 py-4 text-foreground">{t.analysisCount}</td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 font-medium">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {t.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-xs text-muted-foreground">
-                          {new Date(t.createdAt).toLocaleDateString()}
-                        </td>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {tenantsQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.loading')}</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : filteredTenants.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.tenants.empty')}</td>
+                      </tr>
+                    ) : (
+                      filteredTenants.map((tn) => (
+                        <tr key={tn.id} className="hover:bg-muted/30 transition-colors">
+                          <td className={`${td} font-semibold text-foreground`}>{tn.name}</td>
+                          <td className={`${td} text-muted-foreground font-mono text-xs`}>{tn.slug}</td>
+                          <td className={td}>
+                            <span className="text-xs px-2 py-0.5 rounded font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">{tn.planTier}</span>
+                          </td>
+                          <td className={td}>{fmt.number(tn.userCount)}</td>
+                          <td className={td}>{fmt.number(tn.projectCount)}</td>
+                          <td className={td}>{fmt.number(tn.analysisCount)}</td>
+                          <td className={td}>
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                              {tn.status === 'ACTIVE' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" aria-hidden="true" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />}
+                              {label('app.projects.status', tn.status)}
+                            </span>
+                          </td>
+                          <td className={`${td} text-xs text-muted-foreground`}>{fmt.date(tn.createdAt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Tab: Users */}
       {activeTab === 'users' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search users by email, name or role..."
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="search"
+              placeholder={t('app.admin.users.search')}
+              aria-label={t('app.admin.users.searchLabel')}
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-border rounded-lg bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
-
-          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted text-xs uppercase font-semibold text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="px-6 py-3">Email</th>
-                    <th className="px-6 py-3">Full Name</th>
-                    <th className="px-6 py-3">System Role</th>
-                    <th className="px-6 py-3">Tenant Membership</th>
-                    <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Role Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {usersLoading ? (
+          {roleMutation.isError && <ErrorState title={t('app.admin.users.roleFailed')} error={roleMutation.error} />}
+          {usersQuery.isError ? (
+            <ErrorState title={t('app.admin.users.loadFailed')} error={usersQuery.error} onRetry={() => usersQuery.refetch()} />
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm min-w-[760px]">
+                  <thead className="bg-muted text-xs uppercase font-semibold text-muted-foreground border-b border-border">
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
-                        Loading users directory...
-                      </td>
+                      <th scope="col" className={th}>{t('app.admin.users.colEmail')}</th>
+                      <th scope="col" className={th}>{t('app.admin.users.colName')}</th>
+                      <th scope="col" className={th}>{t('app.admin.users.colRole')}</th>
+                      <th scope="col" className={th}>{t('app.admin.users.colMemberships')}</th>
+                      <th scope="col" className={th}>{t('app.admin.users.colStatus')}</th>
+                      <th scope="col" className={th}>{t('app.admin.users.colActions')}</th>
                     </tr>
-                  ) : filteredUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
-                        No users found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-4 font-mono text-xs text-foreground font-semibold">{u.email}</td>
-                        <td className="px-6 py-4 text-muted-foreground">{u.fullName || '—'}</td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 w-max ${
-                              u.systemRole === 'SUPER_ADMIN'
-                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                                : u.systemRole === 'ADMIN'
-                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                            }`}
-                          >
-                            {u.systemRole === 'SUPER_ADMIN' ? (
-                              <ShieldAlert className="h-3 w-3" />
-                            ) : (
-                              <ShieldCheck className="h-3 w-3" />
-                            )}
-                            {u.systemRole}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-xs text-muted-foreground">
-                          {u.organizations?.length > 0 ? (
-                            <div className="space-y-1">
-                              {u.organizations.map((org, idx) => (
-                                <div key={idx}>
-                                  <span className="font-medium text-foreground">{org.organizationName}</span>{' '}
-                                  <span className="text-muted-foreground">({org.role})</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {u.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <select
-                            value={u.systemRole}
-                            disabled={roleMutation.isPending}
-                            onChange={(e) =>
-                              roleMutation.mutate({
-                                userId: u.id,
-                                role: e.target.value as any,
-                              })
-                            }
-                            className="text-xs border border-border rounded px-2 py-1 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-50"
-                          >
-                            <option value="USER">USER</option>
-                            <option value="ADMIN">ADMIN</option>
-                            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-                          </select>
-                        </td>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {usersQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.users.loading')}</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">{t('app.admin.users.empty')}</td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((u) => (
+                        <tr key={u.id} className="hover:bg-muted/30 transition-colors">
+                          <td className={`${td} font-mono text-xs text-foreground font-semibold break-all`}>{u.email}</td>
+                          <td className={`${td} text-muted-foreground`}>{u.fullName || '—'}</td>
+                          <td className={td}>
+                            <span
+                              className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 w-max ${
+                                u.systemRole === 'SUPER_ADMIN'
+                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                  : u.systemRole === 'ADMIN'
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {u.systemRole === 'SUPER_ADMIN' ? <ShieldAlert className="h-3 w-3" aria-hidden="true" /> : <ShieldCheck className="h-3 w-3" aria-hidden="true" />}
+                              {label('app.admin.users.roles', u.systemRole)}
+                            </span>
+                          </td>
+                          <td className={`${td} text-xs text-muted-foreground`}>
+                            {u.organizations?.length > 0 ? (
+                              <div className="space-y-1">
+                                {u.organizations.map((org, idx) => (
+                                  <div key={idx}>
+                                    <span className="font-medium text-foreground">{org.organizationName}</span>{' '}
+                                    <span className="text-muted-foreground">({roleLabel(org.role)})</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className={td}>
+                            <span className="inline-flex items-center gap-1 text-xs">
+                              {u.status === 'ACTIVE' ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" aria-hidden="true" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />}
+                              {label('app.projects.status', u.status)}
+                            </span>
+                          </td>
+                          <td className={td}>
+                            <label className="sr-only" htmlFor={`sysrole-${u.id}`}>
+                              {t('app.admin.users.roleLabel', { email: u.email })}
+                            </label>
+                            <select
+                              id={`sysrole-${u.id}`}
+                              value={u.systemRole}
+                              disabled={roleMutation.isPending}
+                              onChange={(e) => roleMutation.mutate({ userId: u.id, role: e.target.value as 'USER' | 'ADMIN' | 'SUPER_ADMIN' })}
+                              className="text-sm border border-border rounded px-2 py-1 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer disabled:opacity-50"
+                            >
+                              {(['USER', 'ADMIN', 'SUPER_ADMIN'] as const).map((r) => (
+                                <option key={r} value={r}>
+                                  {t(`app.admin.users.roles.${r}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Tab: Engines */}
       {activeTab === 'engines' && (
-        <div className="space-y-4">
-          <div className="bg-card border border-border p-6 rounded-xl shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-              <div>
-                <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <Cpu className="h-5 w-5 text-primary" />
-                  Canonical SAP Preflight Engine Status Matrix
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  18 specialized preflight engines + Material Flow System (MFS) BlackBox analyzer.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2.5 py-1 bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 font-bold rounded-full">
-                  {engineStatus?.summary?.operationalCount || 19} /{' '}
-                  {engineStatus?.summary?.totalEngines || 19} Operational
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  ({engineStatus?.summary?.totalRules || 312} Rules Certified)
-                </span>
-              </div>
+        <section aria-labelledby="admin-engines" className="bg-card border border-border p-6 rounded-xl shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h2 id="admin-engines" className="text-lg font-bold text-foreground flex items-center gap-2">
+                <Cpu className="h-5 w-5 text-primary" aria-hidden="true" />
+                {t('app.admin.engines.title')}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">{t('app.admin.engines.intro')}</p>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-              {(engineStatus?.engines || []).map((eng: any) => (
-                <div key={eng.id} className="border border-border p-4 rounded-lg bg-muted/20 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <span className="font-semibold text-sm text-foreground">{eng.name}</span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded font-bold ${
-                        eng.status === 'OPERATIONAL'
-                          ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {eng.status}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{eng.description}</p>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/50">
-                    <span>{eng.domain}</span>
-                    <span className="font-medium">{eng.rulesCount} Rules</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <span className="text-xs px-2.5 py-1 bg-muted text-foreground font-bold rounded-full">
+              {enginesQuery.data?.summary
+                ? t('app.admin.engines.operational', { active: enginesQuery.data.summary.operationalCount, total: enginesQuery.data.summary.totalEngines })
+                : t('app.admin.engines.unavailable')}
+            </span>
           </div>
-        </div>
+          {enginesQuery.isError && <ErrorState title={t('app.admin.engines.loadFailed')} error={enginesQuery.error} onRetry={() => enginesQuery.refetch()} />}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+            {(enginesQuery.data?.engines || []).map((eng) => (
+              <div key={eng.id} className="border border-border p-4 rounded-lg bg-muted/20 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-semibold text-sm text-foreground">{eng.name}</span>
+                  <HealthBadge value={eng.status} good={eng.status === 'OPERATIONAL'} />
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{messages.engines[eng.id] ?? eng.description}</p>
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground pt-1 border-t border-border/50">
+                  <span>{domainLabel(eng.domain)}</span>
+                  <span className="font-mono break-all">{eng.id}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* Tab: Queues */}
       {activeTab === 'queues' && (
-        <div className="space-y-4">
-          <div className="bg-card border border-border p-6 rounded-xl shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
-                <Zap className="h-5 w-5 text-amber-500" />
-                BullMQ Distributed Redis Analysis Queue
-              </h3>
-              <span className="text-xs px-2.5 py-1 bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 font-bold rounded-full">
-                Queue Status: {queues?.status || 'ACTIVE'}
-              </span>
-            </div>
-
+        <section aria-labelledby="admin-queues" className="bg-card border border-border p-6 rounded-xl shadow-sm space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="admin-queues" className="text-lg font-bold text-foreground flex items-center gap-2">
+              <Zap className="h-5 w-5 text-amber-500" aria-hidden="true" />
+              {t('app.admin.queues.title')}
+            </h2>
+            <span className="text-xs px-2.5 py-1 bg-muted text-foreground font-bold rounded-full">
+              {t('app.admin.queues.status', { status: queuesQuery.data?.status ?? '—' })}
+            </span>
+          </div>
+          {queuesQuery.isError ? (
+            <ErrorState title={t('app.admin.queues.loadFailed')} error={queuesQuery.error} onRetry={() => queuesQuery.refetch()} />
+          ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {[
-                { label: 'Waiting', value: queues?.counts?.waiting ?? 0, color: 'text-amber-500' },
-                { label: 'Active', value: queues?.counts?.active ?? 0, color: 'text-blue-500' },
-                { label: 'Completed', value: queues?.counts?.completed ?? 0, color: 'text-green-500' },
-                { label: 'Failed', value: queues?.counts?.failed ?? 0, color: 'text-red-500' },
-                { label: 'Delayed', value: queues?.counts?.delayed ?? 0, color: 'text-slate-500' },
-                { label: 'Paused', value: queues?.counts?.paused ?? 0, color: 'text-slate-500' },
-              ].map((item, idx) => (
-                <div key={idx} className="border border-border p-4 rounded-lg bg-muted/20 text-center">
-                  <div className="text-xs text-muted-foreground font-medium">{item.label}</div>
-                  <div className={`text-2xl font-black mt-1 ${item.color}`}>{item.value}</div>
+              {QUEUE_COUNTS.map((key) => (
+                <div key={key} className="border border-border p-4 rounded-lg bg-muted/20 text-center">
+                  <div className="text-xs text-muted-foreground font-medium">{t(`app.admin.queues.counts.${key}`)}</div>
+                  <div className="text-2xl font-black mt-1 text-foreground">
+                    {queuesQuery.isLoading ? '…' : fmt.number(queuesQuery.data?.counts?.[key] ?? 0)}
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+          )}
+        </section>
       )}
     </div>
   );

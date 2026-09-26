@@ -16,7 +16,7 @@ import random
 from typing import List, Dict, Any
 
 # Ensure services/analysis-python is on sys.path
-sys.path.insert(0, "H:/erppreflight/services/analysis-python")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "services", "analysis-python"))
 
 import src.engines  # Triggers registration of all 19 engines
 

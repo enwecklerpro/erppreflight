@@ -1,43 +1,65 @@
-import {
-  EngineType,
-  Finding,
-  Project,
-} from '@erppreflight/schemas';
-import { customInstance } from './api/custom-instance';
+import { Finding } from '@erppreflight/schemas';
+import { z } from 'zod';
+import { customInstance, downloadApiFile, type DownloadedFile } from './api/custom-instance';
 
-export type ProjectListItem = Project;
+/**
+ * Project record as returned by the API (camelCase contract).
+ * Validated at runtime so contract drift surfaces as a query error
+ * instead of silently rendering `undefined`.
+ */
+export const ProjectRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    organizationId: z.string().optional(),
+    name: z.string(),
+    description: z.string().nullable().optional(),
+    targetRelease: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    slug: z.string().nullable().optional(),
+    baselineAnalysisId: z.string().nullable().optional(),
+    createdAt: z.string().nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type ProjectRecord = z.infer<typeof ProjectRecordSchema>;
+export type ProjectListItem = ProjectRecord;
 
 export interface EngineStatusItem {
   id: string;
   name: string;
   domain: string;
   status: 'OPERATIONAL' | 'DEGRADED' | 'STANDBY' | 'OFFLINE' | 'UNKNOWN';
-  rulesCount: number;
+  /**
+   * Rule inventory size. Not displayed by the UI: no service currently derives
+   * it from a real rule registry (the API returns static placeholder counts).
+   */
+  rulesCount?: number;
   description: string;
   supportedArtifactTypes?: string[];
   version?: string;
 }
 
-export const CANONICAL_ENGINES: Omit<EngineStatusItem, 'status'>[] = [
-  { id: 'OPD_GUARD', name: 'OPD Guard', domain: 'Output & Extensibility', rulesCount: 8, description: 'S/4HANA Output Parameter Determination rules & BRFplus' },
-  { id: 'FORM_DOCTOR', name: 'FormDoctor', domain: 'Output & Extensibility', rulesCount: 12, description: 'SAPscript / Smart Forms to Adobe Forms migration validator' },
-  { id: 'CUSTOM_FIELD_FLOW_DOCTOR', name: 'Custom Field Flow Doctor', domain: 'Output & Extensibility', rulesCount: 10, description: 'Extension field lineage from CDS views through BAPIs to UI' },
-  { id: 'EXTENSION_IMPACT_GUARD', name: 'Extension Impact Guard', domain: 'Output & Extensibility', rulesCount: 14, description: 'Cloud BAdI & key-user extensibility upgrade stability analyzer' },
-  { id: 'SPRO2CLOUD', name: 'SPRO2Cloud', domain: 'Migration & Clean Core', rulesCount: 22, description: 'On-premise IMG/SPRO configuration to Cloud CBC mapping' },
-  { id: 'ECC2CLOUD_NAVIGATOR', name: 'ECC2Cloud Navigator', domain: 'Migration & Clean Core', rulesCount: 30, description: 'Custom code remediation & obsolete transaction migration roadmap' },
-  { id: 'SAP_GAP_RADAR', name: 'SAP Gap Radar', domain: 'Migration & Clean Core', rulesCount: 18, description: 'Fit-to-standard vs custom delta analyzer with Clean Core recommendations' },
-  { id: 'CLEAN_CORE_OBJECT_GUARD', name: 'Clean Core Object Guard', domain: 'Migration & Clean Core', rulesCount: 25, description: 'Tier 1/2/3 extensibility classification & classic modification detector' },
-  { id: 'CHANGE_POINTER_COVERAGE_AUDITOR', name: 'Change Pointer Coverage Auditor', domain: 'Integration', rulesCount: 11, description: 'BD21/BD52 change pointer config & event trigger validation' },
-  { id: 'API_CHANGE_GUARD', name: 'API Change Guard', domain: 'Integration', rulesCount: 16, description: 'OData, SOAP, RFC compatibility & deprecation impact scanner' },
-  { id: 'SOFTWARE_COLLECTION_DEPENDENCY_GUARD', name: 'Software Collection Dependency Guard', domain: 'Release & Transport', rulesCount: 9, description: 'Export software collection cross-reference & release validator' },
-  { id: 'TRANSPORT_DEPENDENCY_ANALYZER', name: 'Transport Dependency Analyzer', domain: 'Release & Transport', rulesCount: 15, description: 'CTS transport sequence & cross-transport dictionary dependency validator' },
-  { id: 'SAFE_DECOMMISSION_PREFLIGHT', name: 'Safe Decommission Preflight', domain: 'Operations', rulesCount: 12, description: 'Unused Z-program, table, and interface retirement preflight' },
-  { id: 'FIORI_403_ROOT_CAUSE_DOCTOR', name: 'Fiori 403 Root-Cause Doctor', domain: 'Operations', rulesCount: 20, description: 'PFCG role, auth objects (S_START, S_SERVICE) & ICF catalog auditor' },
-  { id: 'WORKFLOW_STUCK_EXPLAINER', name: 'Workflow Stuck Explainer', domain: 'Operations', rulesCount: 13, description: 'SWWWIHEAD / SWZAI analysis for blocked work items' },
-  { id: 'IAM_COST_OPTIMIZER', name: 'IAM Cost Optimizer', domain: 'Operations', rulesCount: 8, description: 'Fiori catalog over-licensing & authorization license tier minimizer' },
-  { id: 'ACCOUNT_DETERMINATION_PREFLIGHT', name: 'Account Determination Preflight', domain: 'Operations', rulesCount: 24, description: 'OBYC, VKOA, automatic account determination rule validator' },
-  { id: 'SYSTEM_REFRESH_DELTA_GUARD', name: 'System Refresh Delta Guard', domain: 'Operations', rulesCount: 17, description: 'Post-refresh BDLS, RFC destination, & logical system change validator' },
-  { id: 'MFS_BLACKBOX', name: 'MFS BlackBox', domain: 'Warehouse Automation', rulesCount: 28, description: 'Material Flow System telegram sequence & telegram buffer auditor' },
+export const CANONICAL_ENGINES: Omit<EngineStatusItem, 'status' | 'rulesCount'>[] = [
+  { id: 'OPD_GUARD', name: 'OPD Guard', domain: 'Output & Extensibility', description: 'S/4HANA Output Parameter Determination rules & BRFplus' },
+  { id: 'FORM_DOCTOR', name: 'FormDoctor', domain: 'Output & Extensibility', description: 'SAPscript / Smart Forms to Adobe Forms migration validator' },
+  { id: 'CUSTOM_FIELD_FLOW_DOCTOR', name: 'Custom Field Flow Doctor', domain: 'Output & Extensibility', description: 'Extension field lineage from CDS views through BAPIs to UI' },
+  { id: 'EXTENSION_IMPACT_GUARD', name: 'Extension Impact Guard', domain: 'Output & Extensibility', description: 'Cloud BAdI & key-user extensibility upgrade stability analyzer' },
+  { id: 'SPRO2CLOUD', name: 'SPRO2Cloud', domain: 'Migration & Clean Core', description: 'On-premise IMG/SPRO configuration to Cloud CBC mapping' },
+  { id: 'ECC2CLOUD_NAVIGATOR', name: 'ECC2Cloud Navigator', domain: 'Migration & Clean Core', description: 'Custom code remediation & obsolete transaction migration roadmap' },
+  { id: 'SAP_GAP_RADAR', name: 'SAP Gap Radar', domain: 'Migration & Clean Core', description: 'Fit-to-standard vs custom delta analyzer with Clean Core recommendations' },
+  { id: 'CLEAN_CORE_OBJECT_GUARD', name: 'Clean Core Object Guard', domain: 'Migration & Clean Core', description: 'Tier 1/2/3 extensibility classification & classic modification detector' },
+  { id: 'CHANGE_POINTER_COVERAGE_AUDITOR', name: 'Change Pointer Coverage Auditor', domain: 'Integration', description: 'BD21/BD52 change pointer config & event trigger validation' },
+  { id: 'API_CHANGE_GUARD', name: 'API Change Guard', domain: 'Integration', description: 'OData, SOAP, RFC compatibility & deprecation impact scanner' },
+  { id: 'SOFTWARE_COLLECTION_DEPENDENCY_GUARD', name: 'Software Collection Dependency Guard', domain: 'Release & Transport', description: 'Export software collection cross-reference & release validator' },
+  { id: 'TRANSPORT_DEPENDENCY_ANALYZER', name: 'Transport Dependency Analyzer', domain: 'Release & Transport', description: 'CTS transport sequence & cross-transport dictionary dependency validator' },
+  { id: 'SAFE_DECOMMISSION_PREFLIGHT', name: 'Safe Decommission Preflight', domain: 'Operations', description: 'Unused Z-program, table, and interface retirement preflight' },
+  { id: 'FIORI_403_ROOT_CAUSE_DOCTOR', name: 'Fiori 403 Root-Cause Doctor', domain: 'Operations', description: 'PFCG role, auth objects (S_START, S_SERVICE) & ICF catalog auditor' },
+  { id: 'WORKFLOW_STUCK_EXPLAINER', name: 'Workflow Stuck Explainer', domain: 'Operations', description: 'SWWWIHEAD / SWZAI analysis for blocked work items' },
+  { id: 'IAM_COST_OPTIMIZER', name: 'IAM Cost Optimizer', domain: 'Operations', description: 'Fiori catalog over-licensing & authorization license tier minimizer' },
+  { id: 'ACCOUNT_DETERMINATION_PREFLIGHT', name: 'Account Determination Preflight', domain: 'Operations', description: 'OBYC, VKOA, automatic account determination rule validator' },
+  { id: 'SYSTEM_REFRESH_DELTA_GUARD', name: 'System Refresh Delta Guard', domain: 'Operations', description: 'Post-refresh BDLS, RFC destination, & logical system change validator' },
+  { id: 'MFS_BLACKBOX', name: 'MFS BlackBox', domain: 'Warehouse Automation', description: 'Material Flow System telegram sequence & telegram buffer auditor' },
 ];
 
 export const ALL_18_ENGINES: EngineStatusItem[] = CANONICAL_ENGINES.map((e) => ({
@@ -49,15 +71,50 @@ export interface CreateProjectPayload {
   name: string;
   description?: string;
   targetRelease: string;
-  environments?: string[];
 }
 
 export interface TriggerAnalysisPayload {
   projectId: string;
   engineTypes: string[];
   targetRelease?: string;
-  artifactS3Key?: string;
-  rawContent?: string;
+  /** IDs of CLEAN uploaded files to analyse (min 1). */
+  fileIds: string[];
+}
+
+export type AnalysisStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PARTIAL';
+
+export const ACTIVE_ANALYSIS_STATUSES: ReadonlySet<string> = new Set(['QUEUED', 'RUNNING']);
+
+export interface TriggerAnalysisResponse {
+  analysisId: string;
+  status: AnalysisStatus;
+  engineTypes: string[];
+  targetRelease?: string;
+}
+
+export interface AnalysisRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  status: AnalysisStatus | string;
+  isBaseline?: boolean;
+  engineTypes: string[];
+  targetRelease: string;
+  findingsCount: number;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface FindingsPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface FindingsPage {
+  items: Finding[];
+  pagination: FindingsPagination;
 }
 
 export interface FindingsQueryParams {
@@ -68,10 +125,16 @@ export interface FindingsQueryParams {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** Finding lifecycle filters (comma-separated statuses; assignee me|unassigned|uuid; due overdue|due_soon|no_due_date). */
+  status?: string;
+  assignee?: string;
+  due?: string;
+  /** Only the latest detection per finding lifecycle. */
+  latest?: boolean;
 }
 
 export interface DashboardSummaryData {
-  cleanCoreIndex: number;
+  cleanCoreIndex: number | null;
   activeProjects: number;
   totalProjects: number;
   blockersAndCritical: number;
@@ -106,22 +169,30 @@ export interface DashboardSummaryData {
 // Real Project Operations
 // -----------------------------------------------------------------------------
 
-export async function fetchProjects(): Promise<Project[]> {
-  try {
-    const data = await customInstance<Project[]>('/projects');
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('Failed to fetch projects from API:', err);
-    return [];
+/**
+ * Lists the tenant's projects. Errors propagate so TanStack Query can expose
+ * `isError` and retry; a malformed payload is a contract error, not "no projects".
+ */
+export async function fetchProjects(): Promise<ProjectRecord[]> {
+  const data = await customInstance<unknown>('/projects');
+  const list = Array.isArray(data)
+    ? data
+    : data && typeof data === 'object' && Array.isArray((data as { items?: unknown }).items)
+    ? (data as { items: unknown[] }).items
+    : null;
+  if (!list) {
+    throw new Error('Unexpected response shape from GET /projects');
   }
+  return z.array(ProjectRecordSchema).parse(list);
 }
 
-export async function fetchProject(id: string): Promise<Project> {
-  return customInstance<Project>(`/projects/${id}`);
+export async function fetchProject(id: string): Promise<ProjectRecord> {
+  const data = await customInstance<unknown>(`/projects/${encodeURIComponent(id)}`);
+  return ProjectRecordSchema.parse(data);
 }
 
-export async function createProject(payload: CreateProjectPayload): Promise<Project> {
-  return customInstance<Project>('/projects', {
+export async function createProject(payload: CreateProjectPayload): Promise<ProjectRecord> {
+  return customInstance<ProjectRecord>('/projects', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -131,32 +202,61 @@ export async function createProject(payload: CreateProjectPayload): Promise<Proj
 // Real Finding Operations
 // -----------------------------------------------------------------------------
 
-export async function fetchFindings(params?: FindingsQueryParams): Promise<Finding[]> {
-  try {
-    const searchParams = new URLSearchParams();
-    if (params?.projectId) searchParams.set('projectId', params.projectId);
-    if (params?.engine) searchParams.set('engine', params.engine);
-    if (params?.severity) searchParams.set('severity', params.severity);
-    if (params?.category) searchParams.set('category', params.category);
-    if (params?.search) searchParams.set('search', params.search);
-    if (params?.page) searchParams.set('page', String(params.page));
-    if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+/**
+ * Fetches one page of findings. Returns the API envelope
+ * `{ items, pagination }`; errors propagate to the caller.
+ */
+export async function fetchFindings(params?: FindingsQueryParams): Promise<FindingsPage> {
+  const searchParams = new URLSearchParams();
+  if (params?.projectId) searchParams.set('projectId', params.projectId);
+  if (params?.engine) searchParams.set('engine', params.engine);
+  if (params?.severity) searchParams.set('severity', params.severity);
+  if (params?.category) searchParams.set('category', params.category);
+  if (params?.search) searchParams.set('search', params.search);
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.assignee) searchParams.set('assignee', params.assignee);
+  if (params?.due) searchParams.set('due', params.due);
+  if (params?.latest) searchParams.set('latest', 'true');
 
-    const qs = searchParams.toString();
-    const endpoint = `/findings${qs ? `?${qs}` : ''}`;
-    const res = await customInstance<{ items?: Finding[] } | Finding[]>(endpoint);
+  const qs = searchParams.toString();
+  const res = await customInstance<Partial<FindingsPage> | Finding[] | undefined>(
+    `/findings${qs ? `?${qs}` : ''}`
+  );
+  return normalizeFindingsPage(res, params);
+}
 
-    if (res && 'items' in res && Array.isArray(res.items)) {
-      return res.items;
-    }
-    if (Array.isArray(res)) {
-      return res;
-    }
-    return [];
-  } catch (err) {
-    console.error('Failed to fetch findings from API:', err);
-    return [];
+export function normalizeFindingsPage(
+  res: Partial<FindingsPage> | Finding[] | undefined | null,
+  params?: Pick<FindingsQueryParams, 'page' | 'pageSize'>
+): FindingsPage {
+  if (Array.isArray(res)) {
+    return {
+      items: res,
+      pagination: {
+        page: 1,
+        pageSize: res.length,
+        total: res.length,
+        totalPages: res.length > 0 ? 1 : 0,
+      },
+    };
   }
+  if (!res || !Array.isArray(res.items)) {
+    throw new Error('Unexpected response shape from GET /findings');
+  }
+  const pageSize = res.pagination?.pageSize ?? params?.pageSize ?? res.items.length;
+  const total = res.pagination?.total ?? res.items.length;
+  return {
+    items: res.items,
+    pagination: {
+      page: res.pagination?.page ?? params?.page ?? 1,
+      pageSize,
+      total,
+      totalPages:
+        res.pagination?.totalPages ?? (pageSize > 0 ? Math.ceil(total / pageSize) : 0),
+    },
+  };
 }
 
 export async function fetchFindingById(id: string): Promise<Finding> {
@@ -178,32 +278,81 @@ export async function fetchFindingsStats(projectId?: string) {
 // Real Analysis Operations
 // -----------------------------------------------------------------------------
 
-export async function triggerAnalysis(payload: TriggerAnalysisPayload) {
-  return customInstance<{
-    analysisId: string;
-    status: string;
-    findingsCount: number;
-    findings: Finding[];
-  }>('/analyses', {
+export async function triggerAnalysis(
+  payload: TriggerAnalysisPayload
+): Promise<TriggerAnalysisResponse> {
+  if (!payload.fileIds || payload.fileIds.length === 0) {
+    throw new Error('Select at least one CLEAN uploaded file before launching an analysis.');
+  }
+  return customInstance<TriggerAnalysisResponse>('/analyses', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
-export async function fetchAnalyses(projectId?: string) {
-  const qs = projectId ? `?projectId=${projectId}` : '';
-  return customInstance<Array<{
-    id: string;
-    organizationId: string;
-    projectId: string;
-    status: string;
-    isBaseline?: boolean;
-    engineTypes: string[];
-    targetRelease: string;
-    findingsCount: number;
-    createdAt: string;
-    completedAt: string | null;
-  }>>(`/analyses${qs}`);
+export async function fetchAnalysis(analysisId: string): Promise<AnalysisRecord> {
+  return customInstance<AnalysisRecord>(`/analyses/${encodeURIComponent(analysisId)}`);
+}
+
+export async function fetchAnalyses(projectId?: string): Promise<AnalysisRecord[]> {
+  const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  return customInstance<AnalysisRecord[]>(`/analyses${qs}`);
+}
+
+// -----------------------------------------------------------------------------
+// Project files (ingestion)
+// -----------------------------------------------------------------------------
+export type QuarantineStatus = 'PENDING_SCAN' | 'SCANNING' | 'CLEAN' | 'QUARANTINED' | 'REJECTED';
+
+export interface ProjectFileItem {
+  id: string;
+  name: string;
+  detectedFormat: string | null;
+  sizeBytes: number | null;
+  quarantineStatus: QuarantineStatus | string;
+  checksumSha256: string | null;
+  createdAt: string | null;
+}
+
+type RawProjectFile = Record<string, unknown>;
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+const num = (v: unknown): number | null => {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Normalizes one file record from GET /projects/:projectId/files.
+ * The contract is camelCase; legacy snake_case columns are accepted so the
+ * ledger keeps working while the API migration rolls out.
+ */
+export function normalizeProjectFile(raw: RawProjectFile): ProjectFileItem {
+  const id = str(raw.id);
+  if (!id) throw new Error('File record without id in GET /projects/:projectId/files');
+  const name = str(raw.name) ?? str(raw.fileName) ?? str(raw.file_name) ?? id;
+  const extension = name.includes('.') ? name.split('.').pop()!.toUpperCase() : null;
+  return {
+    id,
+    name,
+    detectedFormat: str(raw.detectedFormat) ?? str(raw.detected_format) ?? extension,
+    sizeBytes: num(raw.sizeBytes) ?? num(raw.fileSize) ?? num(raw.file_size),
+    quarantineStatus:
+      str(raw.quarantineStatus) ?? str(raw.quarantine_status) ?? 'PENDING_SCAN',
+    checksumSha256: str(raw.checksumSha256) ?? str(raw.checksum_sha256),
+    createdAt: str(raw.createdAt) ?? str(raw.created_at),
+  };
+}
+
+export async function fetchProjectFiles(projectId: string): Promise<ProjectFileItem[]> {
+  const res = await customInstance<unknown>(`/projects/${encodeURIComponent(projectId)}/files`);
+  const list = Array.isArray(res)
+    ? res
+    : res && typeof res === 'object' && Array.isArray((res as { items?: unknown }).items)
+    ? (res as { items: unknown[] }).items
+    : null;
+  if (!list) throw new Error('Unexpected response shape from GET /projects/:projectId/files');
+  return list.map((f) => normalizeProjectFile(f as RawProjectFile));
 }
 
 // -----------------------------------------------------------------------------
@@ -381,52 +530,7 @@ export async function approveChangeSet(projectId: string, changesetId: string, r
 }
 
 // Enterprise Traceability
-export interface TraceabilityNodeItem {
-  id: string;
-  process_hierarchy: string;
-  requirement_id: string;
-  requirement_title: string;
-  finding_id: string | null;
-  finding_title?: string;
-  finding_severity?: string;
-  finding_rule_id?: string;
-  remediation_task_id: string | null;
-  task_status: string;
-  test_case_id: string | null;
-  test_status: string;
-  defect_id: string | null;
-  transport_id: string | null;
-  release_id: string;
-  business_criticality: string;
-  external_system: string;
-}
-
-export interface TraceabilityMatrixResponse {
-  nodes: TraceabilityNodeItem[];
-  summary: {
-    totalRequirements: number;
-    requirementsWithoutTests: number;
-    criticalFindingsWithoutTasks: number;
-    transportsWithBlockers: number;
-    overallReadinessPercent: number;
-  };
-}
-
-export async function fetchTraceabilityMatrix(projectId: string): Promise<TraceabilityMatrixResponse> {
-  return customInstance<TraceabilityMatrixResponse>(`/projects/${projectId}/traceability`);
-}
-
-export async function syncTraceability(projectId: string): Promise<any> {
-  return customInstance(`/projects/${projectId}/traceability/sync`, { method: 'POST' });
-}
-
-export async function createTraceabilityTask(projectId: string, findingId: string, externalSystem = 'SAP_CLOUD_ALM'): Promise<any> {
-  return customInstance(`/projects/${projectId}/traceability/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ findingId, externalSystem }),
-  });
-}
+// Delivery traceability & work items: see lib/api/integrations.ts (connector framework)
 
 // Agentic Change Gate (Part 19)
 export interface AgentIdentityItem {
@@ -480,9 +584,13 @@ export async function registerAgent(payload: {
   });
 }
 
-export async function fetchAgentProposals(projectId?: string): Promise<AgentProposalItem[]> {
-  const qs = projectId ? `?projectId=${projectId}` : '';
-  return customInstance<AgentProposalItem[]>(`/agent-gate/proposals${qs}`);
+export async function fetchAgentProposals(projectId: string): Promise<AgentProposalItem[]> {
+  if (!projectId) {
+    throw new Error('A project must be selected to list agent change proposals.');
+  }
+  return customInstance<AgentProposalItem[]>(
+    `/agent-gate/projects/${encodeURIComponent(projectId)}/proposals`
+  );
 }
 
 export async function submitAgentProposal(payload: {
@@ -491,8 +599,9 @@ export async function submitAgentProposal(payload: {
   changeType: string;
   proposedDiff: Record<string, any>;
   targetEnvironment?: string;
+  reason?: string;
 }): Promise<AgentProposalItem> {
-  return customInstance<AgentProposalItem>('/agent-gate/proposals', {
+  return customInstance<AgentProposalItem>('/agent-gate/propose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -525,8 +634,20 @@ export interface ReleaseMatrixEntry {
   verifiedFixtures: number;
 }
 
-export async function fetchReleaseMatrix(): Promise<ReleaseMatrixEntry[]> {
-  return customInstance<ReleaseMatrixEntry[]>('/knowledge/matrix');
+export interface ReleaseMatrixResponse {
+  /** LIVE = reported by the analysis service; STATIC_FALLBACK = catalogue shipped with the API. */
+  source: string;
+  matrix: ReleaseMatrixEntry[];
+}
+
+export async function fetchReleaseMatrix(): Promise<ReleaseMatrixResponse> {
+  const data = await customInstance<unknown>('/knowledge/matrix');
+  const obj = (data && typeof data === 'object' ? data : {}) as { source?: unknown; matrix?: unknown };
+  const list = Array.isArray(data) ? data : Array.isArray(obj.matrix) ? obj.matrix : [];
+  const matrix = (list as Partial<ReleaseMatrixEntry>[]).filter(
+    (e): e is ReleaseMatrixEntry => !!e && typeof e.engineId === 'string' && typeof e.engineName === 'string'
+  ).map((e) => ({ ...e, supportedFormats: Array.isArray(e.supportedFormats) ? e.supportedFormats : [] }));
+  return { source: typeof obj.source === 'string' ? obj.source : 'LIVE', matrix };
 }
 
 // API Keys
@@ -834,16 +955,52 @@ export async function fetchProjectDrift(
 }
 
 // -----------------------------------------------------------------------------
-// Reproducibility Bundle Downloader (Part 14.11)
+// Report & Bundle Downloads (Part 14.11)
+// Downloads go through the authenticated fetch (Bearer + tenant headers) and are
+// handed to the browser as a Blob, never as a bare <a href> to the API.
 // -----------------------------------------------------------------------------
-export function getReproducibilityBundleUrl(analysisId: string): string {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.erppreflight.com/api/v1';
-  return `${base}/analyses/${analysisId}/reproducibility-bundle`;
+export function downloadReproducibilityBundle(analysisId: string): Promise<DownloadedFile> {
+  return downloadApiFile(
+    `/analyses/${encodeURIComponent(analysisId)}/reproducibility-bundle`,
+    `erppreflight-reproducibility-${analysisId}.zip`
+  );
 }
 
-export function getOfflineHtmlReportUrl(projectId: string, analysisId: string): string {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.erppreflight.com/api/v1';
-  return `${base}/projects/${projectId}/analyses/${analysisId}/offline-html`;
+export function downloadOfflineHtmlReport(
+  projectId: string,
+  analysisId: string
+): Promise<DownloadedFile> {
+  return downloadApiFile(
+    `/projects/${encodeURIComponent(projectId)}/analyses/${encodeURIComponent(analysisId)}/offline-html`,
+    `erppreflight-report-${analysisId}.html`
+  );
+}
+
+export type ExportFormat = 'PDF' | 'JSON_BUNDLE' | 'XLSX' | 'CSV' | 'ZIP_ALL' | 'HTML_OFFLINE';
+
+export interface ExportReportResponse {
+  reportId: string;
+  format: ExportFormat;
+  fileName: string;
+  downloadUrl: string;
+  expiresAt: string;
+  checksumSha256?: string;
+}
+
+/**
+ * Generates a report export for an analysis via
+ * POST /projects/:projectId/analyses/:analysisId/export. The response carries
+ * a short-lived pre-signed download URL.
+ */
+export async function exportAnalysisReport(
+  projectId: string,
+  analysisId: string,
+  format: ExportFormat
+): Promise<ExportReportResponse> {
+  return customInstance<ExportReportResponse>(
+    `/projects/${encodeURIComponent(projectId)}/analyses/${encodeURIComponent(analysisId)}/export`,
+    { method: 'POST', body: JSON.stringify({ format }) }
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -904,19 +1061,6 @@ export async function fetchSapObjectById(
   return customInstance<any>(`/projects/${projectId}/objects/${objectId}`);
 }
 
-export async function createWorkItemForFinding(
-  findingId: string,
-  payload: { system?: string; title?: string; process?: string }
-): Promise<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }> {
-  return customInstance<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }>(
-    `/findings/${findingId}/work-item`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }
-  );
-}
 
 export async function importAtcArtifact(
   projectId: string,

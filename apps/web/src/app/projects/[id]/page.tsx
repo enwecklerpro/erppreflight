@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -33,30 +33,30 @@ import {
 } from 'lucide-react';
 import {
   ALL_18_ENGINES,
+  ACTIVE_ANALYSIS_STATUSES,
   fetchProject,
   fetchFindingsStats,
   fetchAnalyses,
+  fetchAnalysis,
+  fetchProjectFiles,
   triggerAnalysis,
   fetchProjectDrift,
   setProjectBaseline,
-  getReproducibilityBundleUrl,
-  getOfflineHtmlReportUrl,
+  downloadReproducibilityBundle,
+  downloadOfflineHtmlReport,
   fetchDiagnosticBundle,
 } from '../../../lib/api-client';
-import { customInstance } from '../../../lib/api/custom-instance';
+import { customInstance, saveBlobAsFile } from '../../../lib/api/custom-instance';
+import { queryKeys } from '../../../lib/query/query-keys';
 import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
 import { WhatIfSimulationPanel } from '@/components/changesets/what-if-simulation-panel';
+import { ReportExportPanel } from '@/components/commercial/report-export-panel';
+import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress-stepper';
+import { FullPreflightPanel } from '@/components/analysis/full-preflight-panel';
+import { ProjectTabLabel, RunFullPreflightLabel, RunProgressDisclosure } from '@/components/analysis/project-workspace-extras';
+import { ProjectContextForm } from '@/components/projects/project-context-form';
 
-export interface UploadedArtifact {
-  id: string;
-  file_name: string;
-  file_size: number;
-  mime_type: string;
-  quarantine_status: 'PENDING_SCAN' | 'SCANNING' | 'CLEAN' | 'QUARANTINED' | 'REJECTED';
-  redaction_status: string;
-  checksum_sha256?: string;
-  created_at: string;
-}
+const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
 export default function ProjectWorkspacePage() {
   const params = useParams();
@@ -64,7 +64,7 @@ export default function ProjectWorkspacePage() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher'
+    'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher' | 'preflight' | 'context'
   >('overview');
   const [selectedEngines, setSelectedEngines] = useState<string[]>([
     'OPD_GUARD',
@@ -72,6 +72,11 @@ export default function ProjectWorkspacePage() {
     'FORM_DOCTOR',
   ]);
   const [launchMessage, setLaunchMessage] = useState<string | null>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+  const [exportPanelRunId, setExportPanelRunId] = useState<string | null>(null);
 
   // Artifact Dropzone state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,23 +87,35 @@ export default function ProjectWorkspacePage() {
 
   const handleExportDiagnosticBundle = async () => {
     setExportingBundle(true);
+    setDownloadError(null);
     try {
       const bundle = await fetchDiagnosticBundle(projectId);
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
-        type: 'application/json',
+      saveBlobAsFile({
+        blob: new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
+        fileName: `erppreflight-support-bundle-${project?.slug || projectId}-${new Date().toISOString().slice(0, 10)}.json`,
       });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `erppreflight-support-bundle-${project?.slug || projectId}-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to export diagnostic bundle:', err);
+      setDownloadError(
+        `Support bundle export failed: ${(err as Error)?.message || 'Server error'}`
+      );
     } finally {
       setExportingBundle(false);
+    }
+  };
+
+  const handleRunDownload = async (
+    key: string,
+    action: () => Promise<unknown>,
+    label: string
+  ) => {
+    setDownloadError(null);
+    setDownloadingKey(key);
+    try {
+      await action();
+    } catch (err) {
+      setDownloadError(`${label} download failed: ${(err as Error)?.message || 'Server error'}`);
+    } finally {
+      setDownloadingKey(null);
     }
   };
 
@@ -153,64 +170,107 @@ export default function ProjectWorkspacePage() {
     },
   });
 
-  // Real Analysis Execution Mutation
+  // Project files (uploaded artifacts) — errors propagate for retry UI
+  const {
+    data: artifacts = [],
+    isLoading: isArtifactsLoading,
+    isError: isArtifactsError,
+    error: artifactsError,
+    refetch: refetchArtifacts,
+  } = useQuery({
+    queryKey: ['projectArtifacts', projectId],
+    queryFn: () => fetchProjectFiles(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 1000 * 15,
+  });
+
+  const cleanFiles = useMemo(
+    () => artifacts.filter((f) => f.quarantineStatus === 'CLEAN'),
+    [artifacts]
+  );
+
+  // Drop selections that are no longer CLEAN / no longer present.
+  useEffect(() => {
+    setSelectedFileIds((prev) => {
+      const next = prev.filter((id) => cleanFiles.some((f) => f.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [cleanFiles]);
+
+  const toggleFile = (id: string) => {
+    setSelectedFileIds((prev) =>
+      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
+    );
+  };
+
+  // Analysis launch — the API queues the run and returns immediately.
   const launchMutation = useMutation({
     mutationFn: () =>
       triggerAnalysis({
         projectId,
         engineTypes: selectedEngines,
-        targetRelease: project?.targetRelease || 'S4H_2023',
+        targetRelease: project?.targetRelease ?? undefined,
+        fileIds: selectedFileIds,
       }),
     onSuccess: (data) => {
+      setActiveAnalysisId(data.analysisId);
       setLaunchMessage(
-        `Preflight analysis completed! ${data.findingsCount} finding(s) detected across ${selectedEngines.length} engine(s).`
+        `Analysis ${data.analysisId.slice(0, 8)} queued (${data.engineTypes?.length ?? selectedEngines.length} engine(s), ${selectedFileIds.length} file(s)). Status updates automatically.`
       );
-      queryClient.invalidateQueries({ queryKey: ['findingsStats', projectId] });
       queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['findings', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard', 'summary'] });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
+      setActiveAnalysisId(null);
       setLaunchMessage(`Launch failed: ${err?.message || 'Server error'}`);
     },
   });
 
-  // Real Artifacts Query
-  const {
-    data: artifacts = [],
-    isLoading: isArtifactsLoading,
-    refetch: refetchArtifacts,
-  } = useQuery({
-    queryKey: ['projectArtifacts', projectId],
-    queryFn: async () => {
-      try {
-        const res = await customInstance<UploadedArtifact[]>(
-          `/projects/${projectId}/artifacts`
-        );
-        return Array.isArray(res) ? res : [];
-      } catch (err) {
-        console.error('Failed to fetch artifacts:', err);
-        return [];
-      }
+  // Poll the launched analysis until it reaches a terminal state.
+  const { data: activeAnalysis, isError: isActiveAnalysisError } = useQuery({
+    queryKey: ['analysis', activeAnalysisId],
+    queryFn: () => fetchAnalysis(activeAnalysisId as string),
+    enabled: Boolean(activeAnalysisId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return !status || ACTIVE_ANALYSIS_STATUSES.has(status)
+        ? ANALYSIS_POLL_INTERVAL_MS
+        : false;
     },
-    enabled: Boolean(projectId),
-    staleTime: 1000 * 15,
   });
+
+  const activeStatus = activeAnalysis?.status;
+  const isAnalysisRunning = Boolean(
+    activeAnalysisId && (!activeStatus || ACTIVE_ANALYSIS_STATUSES.has(activeStatus))
+  );
+
+  // When the run finishes, refresh everything derived from findings.
+  useEffect(() => {
+    if (!activeStatus || ACTIVE_ANALYSIS_STATUSES.has(activeStatus)) return;
+    queryClient.invalidateQueries({ queryKey: ['findingsStats', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['analyses', projectId] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.findings.all });
+    queryClient.invalidateQueries({ queryKey: ['projectDrift', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard', 'summary'] });
+  }, [activeStatus, projectId, queryClient]);
 
   // Real Artifact Upload Mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      return await customInstance(`/projects/${projectId}/artifacts`, {
-        method: 'POST',
-        body: formData,
-      });
+      return await customInstance<{ quarantineStatus?: string; quarantine_status?: string; status?: string }>(
+        `/projects/${projectId}/files`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
     },
-    onSuccess: (data: any, file: File) => {
+    onSuccess: (data, file: File) => {
+      const status = data?.quarantineStatus ?? data?.quarantine_status ?? data?.status;
       setUploadError(null);
       setUploadSuccess(
-        `Artifact "${file.name}" uploaded and verified successfully! Status: ${data?.status || 'CLEAN'}`
+        `Artifact "${file.name}" uploaded.${status ? ` Quarantine status: ${status}.` : ' Awaiting scan result.'}`
       );
       queryClient.invalidateQueries({ queryKey: ['projectArtifacts', projectId] });
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -254,6 +314,10 @@ export default function ProjectWorkspacePage() {
 
   const handleLaunch = () => {
     setLaunchMessage(null);
+    if (selectedFileIds.length === 0) {
+      setLaunchMessage('Select at least one CLEAN uploaded file to analyse.');
+      return;
+    }
     launchMutation.mutate();
   };
 
@@ -284,7 +348,7 @@ export default function ProjectWorkspacePage() {
     );
   }
 
-  const cleanCoreScore = stats?.cleanCoreIndex ?? 100.0;
+  const cleanCoreScore = typeof stats?.cleanCoreIndex === 'number' ? stats.cleanCoreIndex : null;
   const blockersCount = stats?.bySeverity?.BLOCKER ?? 0;
   const criticalsCount = stats?.bySeverity?.CRITICAL ?? 0;
   const totalFindings = stats?.totalFindings ?? 0;
@@ -302,7 +366,7 @@ export default function ProjectWorkspacePage() {
               </h1>
             </div>
             <p className="text-xs text-muted-foreground mt-1 font-mono">
-              Workspace ID: {project.id} • Target Release: {project.targetRelease}
+              Workspace ID: {project.id} • Target Release: {project.targetRelease || 'Not set'}
             </p>
           </div>
 
@@ -343,6 +407,15 @@ export default function ProjectWorkspacePage() {
               Support Bundle
             </button>
             <button
+              type="button"
+              onClick={() => setActiveTab('preflight')}
+              data-testid="open-full-preflight"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-card border border-primary text-primary text-xs font-semibold rounded-lg hover:bg-muted transition-colors"
+            >
+              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+              <RunFullPreflightLabel />
+            </button>
+            <button
               onClick={() => setActiveTab('launcher')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
             >
@@ -363,6 +436,8 @@ export default function ProjectWorkspacePage() {
             { id: 'artifacts', label: 'Artifact Dropzone', icon: UploadCloud },
             { id: 'history', label: 'Run History', icon: History },
             { id: 'launcher', label: 'Analysis Launcher', icon: Play },
+            { id: 'preflight', label: <ProjectTabLabel tab="preflight" />, icon: FlaskConical },
+            { id: 'context', label: <ProjectTabLabel tab="context" />, icon: GitBranch },
           ].map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -370,6 +445,7 @@ export default function ProjectWorkspacePage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
+                data-testid={`tab-${tab.id}`}
                 className={`pb-3 flex items-center gap-2 font-semibold border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? 'border-primary text-primary'
@@ -384,6 +460,23 @@ export default function ProjectWorkspacePage() {
         </div>
       </div>
 
+      {downloadError && (
+        <div
+          role="alert"
+          className="p-3 rounded-lg text-xs flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200 dark:border-red-900"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span className="flex-1">{downloadError}</span>
+          <button
+            type="button"
+            onClick={() => setDownloadError(null)}
+            className="font-semibold underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Tab: Overview */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
@@ -395,17 +488,19 @@ export default function ProjectWorkspacePage() {
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="text-3xl font-bold text-foreground">
-                  {cleanCoreScore.toFixed(1)}%
+                  {isStatsLoading ? '…' : cleanCoreScore === null ? '—' : `${cleanCoreScore.toFixed(1)}%`}
                 </span>
-                <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded border ${
-                    cleanCoreScore >= 85
-                      ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                      : 'text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                  }`}
-                >
-                  {cleanCoreScore >= 85 ? 'Target Met (>85%)' : 'Needs Remediation'}
-                </span>
+                {cleanCoreScore !== null && (
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+                      cleanCoreScore >= 85
+                        ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        : 'text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    }`}
+                  >
+                    {cleanCoreScore >= 85 ? 'Target Met (>85%)' : 'Needs Remediation'}
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 Tier 1 / Tier 2 cloud extensibility compliance across workspace repository.
@@ -448,10 +543,7 @@ export default function ProjectWorkspacePage() {
                 <ArrowRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground font-mono">Verified</span>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                  Catalog Active
-                </span>
+                <span className="text-base font-semibold text-foreground">Open catalog</span>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 Browse virtualized catalog & Clean Core tier classifications &rarr;
@@ -464,13 +556,19 @@ export default function ProjectWorkspacePage() {
                 Staged Artifacts
               </h3>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">Ready</span>
-                <span className="text-xs font-semibold text-blue-700 bg-blue-50 dark:bg-blue-950 dark:text-blue-300 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                  Clean Quarantine
+                <span className="text-3xl font-bold text-foreground">
+                  {isArtifactsLoading ? '…' : isArtifactsError ? '—' : artifacts.length}
                 </span>
+                {!isArtifactsLoading && !isArtifactsError && (
+                  <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border">
+                    {cleanFiles.length} CLEAN
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                XML, JSON, CSV, and ABAP artifacts evaluated by deterministic engines.
+                {isArtifactsError
+                  ? 'File list unavailable — open the Artifact Dropzone to retry.'
+                  : 'Uploaded files; only CLEAN files can be analysed.'}
               </p>
             </div>
           </div>
@@ -679,18 +777,8 @@ export default function ProjectWorkspacePage() {
                   Staged SAP Artifacts & Verification Pipeline
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Automated ClamAV fail-closed scanning, MIME magic-bytes sniffing, secret scrubbing, and S3 promotion.
+                  Uploaded files are scanned and quarantined server-side; only files with status CLEAN can be analysed.
                 </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5">
-                  <FileCheck2 className="h-3.5 w-3.5" />
-                  ClamAV Fail-Closed Active
-                </span>
-                <span className="text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800 flex items-center gap-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Secret Redaction Ready
-                </span>
               </div>
             </div>
           </div>
@@ -822,6 +910,21 @@ export default function ProjectWorkspacePage() {
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 Loading staged artifacts...
               </div>
+            ) : isArtifactsError ? (
+              <div role="alert" className="p-8 text-center text-xs border border-destructive/30 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-destructive mx-auto mb-2" aria-hidden="true" />
+                <p className="font-semibold text-foreground">Could not load project files</p>
+                <p className="text-muted-foreground mt-1">
+                  {(artifactsError as Error)?.message || 'Network error'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => refetchArtifacts()}
+                  className="mt-3 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-lg"
+                >
+                  Retry
+                </button>
+              </div>
             ) : artifacts.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-xs border border-dashed border-border rounded-lg">
                 No artifacts staged yet. Use the dropzone above to upload SAP XML configurations, transports, or ABAP extracts.
@@ -842,35 +945,35 @@ export default function ProjectWorkspacePage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {artifacts.map((artifact) => {
-                      const status = artifact.quarantine_status;
+                      const status = artifact.quarantineStatus;
                       const isClean = status === 'CLEAN';
                       return (
                         <tr key={artifact.id} className="hover:bg-muted/30 transition-colors">
                           <td className="py-3 px-3 font-medium text-foreground flex items-center gap-2">
                             <FileText className="h-4 w-4 text-primary shrink-0" />
-                            <span className="truncate max-w-[200px]" title={artifact.file_name}>
-                              {artifact.file_name}
+                            <span className="truncate max-w-[200px]" title={artifact.name}>
+                              {artifact.name}
                             </span>
                           </td>
                           <td className="py-3 px-3 text-muted-foreground font-mono">
-                            {artifact.file_size ? `${(artifact.file_size / 1024).toFixed(1)} KB` : '—'}
+                            {artifact.sizeBytes !== null ? `${(artifact.sizeBytes / 1024).toFixed(1)} KB` : '—'}
                           </td>
                           <td className="py-3 px-3">
                             <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">
-                              {artifact.file_name.split('.').pop()?.toUpperCase() || 'FILE'}
+                              {artifact.detectedFormat || 'UNKNOWN'}
                             </span>
                           </td>
                           <td className="py-3 px-3 font-mono text-muted-foreground text-[11px]">
-                            {artifact.checksum_sha256 ? (
-                              <span title={artifact.checksum_sha256}>
-                                {artifact.checksum_sha256.slice(0, 10)}...{artifact.checksum_sha256.slice(-6)}
+                            {artifact.checksumSha256 ? (
+                              <span title={artifact.checksumSha256}>
+                                {artifact.checksumSha256.slice(0, 10)}...{artifact.checksumSha256.slice(-6)}
                               </span>
                             ) : (
-                              'Pending'
+                              '—'
                             )}
                           </td>
                           <td className="py-3 px-3 text-muted-foreground whitespace-nowrap">
-                            {artifact.created_at ? new Date(artifact.created_at).toLocaleString() : '—'}
+                            {artifact.createdAt ? new Date(artifact.createdAt).toLocaleString() : '—'}
                           </td>
                           <td className="py-3 px-3">
                             {status === 'CLEAN' ? (
@@ -920,6 +1023,9 @@ export default function ProjectWorkspacePage() {
                               <button
                                 type="button"
                                 onClick={() => {
+                                  setSelectedFileIds((prev) =>
+                                    prev.includes(artifact.id) ? prev : [...prev, artifact.id]
+                                  );
                                   setActiveTab('launcher');
                                 }}
                                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
@@ -961,7 +1067,8 @@ export default function ProjectWorkspacePage() {
           ) : (
             <div className="divide-y divide-border text-xs">
               {analyses.map((run) => (
-                <div key={run.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div key={run.id} className="py-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold font-mono text-foreground">{run.id.slice(0, 8)}...</span>
@@ -987,31 +1094,69 @@ export default function ProjectWorkspacePage() {
                       className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
                         run.status === 'COMPLETED'
                           ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                          : run.status === 'FAILED'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                          : run.status === 'PARTIAL'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                           : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
                       }`}
                     >
                       {run.status}
                     </span>
-                    {run.status === 'COMPLETED' && (
+                    {(run.status === 'COMPLETED' || run.status === 'PARTIAL') && (
                       <>
-                        <a
-                          href={getReproducibilityBundleUrl(run.id)}
-                          download
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                          title="Download Cryptographic Reproducibility Bundle (.zip)"
+                        <button
+                          type="button"
+                          onClick={() => setExportPanelRunId(exportPanelRunId === run.id ? null : run.id)}
+                          aria-expanded={exportPanelRunId === run.id}
+                          aria-controls={`export-panel-${run.id}`}
+                          data-testid={`open-exports-${run.id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded border border-primary/40 bg-card hover:bg-muted text-foreground transition-colors"
+                          title="Export reports (PDF, XLSX, CSV, JSON, HTML, ZIP)"
                         >
-                          <Download className="size-3 text-primary" />
+                          <Download className="size-3 text-primary" aria-hidden="true" />
+                          <span>Reports</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleRunDownload(
+                              `bundle-${run.id}`,
+                              () => downloadReproducibilityBundle(run.id),
+                              'Reproducibility bundle'
+                            )
+                          }
+                          disabled={downloadingKey !== null}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                          title="Download reproducibility bundle (.zip)"
+                        >
+                          {downloadingKey === `bundle-${run.id}` ? (
+                            <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
+                          ) : (
+                            <Download className="size-3 text-primary" aria-hidden="true" />
+                          )}
                           <span>Bundle (.zip)</span>
-                        </a>
-                        <a
-                          href={getOfflineHtmlReportUrl(projectId, run.id)}
-                          download
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                          title="Download Air-Gapped Offline HTML Report"
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleRunDownload(
+                              `html-${run.id}`,
+                              () => downloadOfflineHtmlReport(projectId, run.id),
+                              'Offline HTML report'
+                            )
+                          }
+                          disabled={downloadingKey !== null}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                          title="Download offline HTML report"
                         >
-                          <FileText className="size-3 text-primary" />
+                          {downloadingKey === `html-${run.id}` ? (
+                            <Loader2 className="size-3 animate-spin text-primary" aria-hidden="true" />
+                          ) : (
+                            <FileText className="size-3 text-primary" aria-hidden="true" />
+                          )}
                           <span>HTML Report</span>
-                        </a>
+                        </button>
                         {drift?.baseline?.id !== run.id && !(run as any).isBaseline && (
                           <button
                             type="button"
@@ -1028,6 +1173,13 @@ export default function ProjectWorkspacePage() {
                     )}
                   </div>
                 </div>
+                {exportPanelRunId === run.id && (
+                  <div id={`export-panel-${run.id}`}>
+                    <ReportExportPanel projectId={projectId} analysisId={run.id} />
+                  </div>
+                )}
+                <RunProgressDisclosure analysisId={run.id} />
+                </div>
               ))}
             </div>
           )}
@@ -1042,26 +1194,134 @@ export default function ProjectWorkspacePage() {
               Configure & Trigger Preflight Assessment
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Select which deterministic preflight engines to execute against {project.name}.
+              Select input files and deterministic preflight engines to execute against {project.name}
+              {project.targetRelease ? ` (target release ${project.targetRelease})` : ''}.
             </p>
           </div>
 
           {launchMessage && (
             <div
+              role={launchMutation.isError ? 'alert' : 'status'}
               className={`p-4 rounded-lg text-xs flex items-center gap-2 ${
                 launchMutation.isError
                   ? 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200'
-                  : 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/60 dark:text-green-200'
+                  : 'bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200'
               }`}
             >
               {launchMutation.isError ? (
-                <AlertCircle className="h-4 w-4 shrink-0" />
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
               ) : (
-                <CheckCircle className="h-4 w-4 shrink-0" />
+                <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
               )}
               <span>{launchMessage}</span>
             </div>
           )}
+
+          {activeAnalysisId && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`p-4 rounded-lg text-xs flex items-center gap-2 border ${
+                activeStatus === 'COMPLETED'
+                  ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-950/60 dark:text-green-200'
+                  : activeStatus === 'FAILED'
+                  ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/60 dark:text-red-200'
+                  : activeStatus === 'PARTIAL'
+                  ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200'
+                  : 'bg-muted/40 border-border text-foreground'
+              }`}
+            >
+              {isAnalysisRunning ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+              ) : activeStatus === 'COMPLETED' ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              )}
+              <span className="flex-1">
+                Analysis <span className="font-mono">{activeAnalysisId.slice(0, 8)}</span>:{' '}
+                <strong>{activeStatus ?? 'QUEUED'}</strong>
+                {activeStatus === 'COMPLETED' || activeStatus === 'PARTIAL'
+                  ? ` — ${activeAnalysis?.findingsCount ?? 0} finding(s). Findings have been refreshed.`
+                  : activeStatus === 'FAILED'
+                  ? ' — the analysis service reported a failure. Check Run History for details.'
+                  : isActiveAnalysisError
+                  ? ' — status could not be refreshed; retrying.'
+                  : ' — waiting for the analysis service…'}
+              </span>
+              {!isAnalysisRunning && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className="font-semibold underline shrink-0"
+                >
+                  Run History
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeAnalysisId && <AnalysisProgressStepper analysisId={activeAnalysisId} />}
+
+          <fieldset>
+            <legend className="text-xs font-bold text-foreground">
+              Select Input Files ({selectedFileIds.length} of {cleanFiles.length} CLEAN file(s) selected)
+            </legend>
+            {isArtifactsLoading ? (
+              <div className="mt-3 h-16 rounded-lg bg-muted animate-pulse" aria-hidden="true" />
+            ) : isArtifactsError ? (
+              <div role="alert" className="mt-3 p-3 rounded-lg border border-destructive/30 text-xs flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-destructive shrink-0" aria-hidden="true" />
+                <span className="flex-1">Could not load project files.</span>
+                <button type="button" onClick={() => refetchArtifacts()} className="font-semibold underline">
+                  Retry
+                </button>
+              </div>
+            ) : cleanFiles.length === 0 ? (
+              <div className="mt-3 p-4 rounded-lg border border-dashed border-border text-xs text-muted-foreground flex flex-col sm:flex-row sm:items-center gap-3">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
+                <span className="flex-1">
+                  No CLEAN file is available. Upload an SAP artifact and wait for it to pass the quarantine scan before launching an analysis.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('artifacts')}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-semibold shrink-0"
+                >
+                  <UploadCloud className="h-3.5 w-3.5" aria-hidden="true" />
+                  Upload files
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                {cleanFiles.map((file) => {
+                  const checked = selectedFileIds.includes(file.id);
+                  return (
+                    <label
+                      key={file.id}
+                      className={`p-3 rounded-lg border text-xs flex items-center gap-2 cursor-pointer ${
+                        checked ? 'border-primary bg-blue-50/60 dark:bg-blue-950/40' : 'border-border bg-background'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFile(file.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      <FileText className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />
+                      <span className="truncate flex-1 text-foreground font-medium" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {file.detectedFormat || 'UNKNOWN'}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </fieldset>
 
           <div>
             <div className="flex items-center justify-between">
@@ -1112,16 +1372,37 @@ export default function ProjectWorkspacePage() {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-border flex justify-end">
+          <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+            {(cleanFiles.length === 0 || selectedFileIds.length === 0 || selectedEngines.length === 0) && (
+              <p className="text-[11px] text-muted-foreground" id="launch-requirements">
+                {cleanFiles.length === 0
+                  ? 'Launch disabled: upload at least one file that passes the quarantine scan (CLEAN).'
+                  : selectedFileIds.length === 0
+                  ? 'Launch disabled: select at least one CLEAN input file.'
+                  : 'Launch disabled: select at least one engine.'}
+              </p>
+            )}
             <button
+              type="button"
               onClick={handleLaunch}
-              disabled={launchMutation.isPending || selectedEngines.length === 0}
+              aria-describedby="launch-requirements"
+              disabled={
+                launchMutation.isPending ||
+                isAnalysisRunning ||
+                selectedEngines.length === 0 ||
+                selectedFileIds.length === 0
+              }
               className="px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
             >
               {launchMutation.isPending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Dispatching to Analysis Service...
+                  Queuing analysis...
+                </>
+              ) : isAnalysisRunning ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Analysis in progress...
                 </>
               ) : (
                 <>
@@ -1133,6 +1414,11 @@ export default function ProjectWorkspacePage() {
           </div>
         </div>
       )}
+      {/* Tab: Full Project Preflight (Part 01 §1.6) */}
+      {activeTab === 'preflight' && <FullPreflightPanel projectId={projectId} />}
+
+      {/* Tab: Project mode context (Part 01 §1.5) */}
+      {activeTab === 'context' && <ProjectContextForm key={project.updatedAt ?? project.id} project={project} />}
     </div>
   );
 }

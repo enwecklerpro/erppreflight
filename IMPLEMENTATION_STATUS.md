@@ -1,3 +1,13 @@
+> **SUPERSEDED — do not use for status decisions.** The canonical per-capability status is
+> **[`docs/CURRENT_PRODUCT_STATUS.md`](docs/CURRENT_PRODUCT_STATUS.md)** (spec C §64, commit `6303f1d`, 2026-09-26).
+> This file is a historical record kept for traceability (spec 0.2). Its milestone table was written before the
+> 2026-09-25 audit and **overstates completeness** ("100% complete" rows include features that were broken or missing
+> at the time). Other current sources:
+>
+> - [`RELEASE_READINESS_REPORT.md`](RELEASE_READINESS_REPORT.md) — top-level verdict, owner actions;
+> - [`docs/E2E_TEST_REPORT.md`](docs/E2E_TEST_REPORT.md) — exact commands and test counts;
+> - [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md), [`GO_LIVE_CHECKLIST.md`](GO_LIVE_CHECKLIST.md).
+
 # ERP Preflight — Complete Implementation Status & Enterprise Verification
 
 > **Canonical Authority**: Binding reference on active product readiness, architecture, and live operational compliance.  

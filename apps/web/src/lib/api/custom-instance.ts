@@ -19,6 +19,8 @@ export interface ApiErrorResponse {
   correlationId?: string;
   timestamp?: string;
   path?: string;
+  /** Machine-readable error code, e.g. EMAIL_NOT_VERIFIED or MFA_ENROLLMENT_REQUIRED. */
+  code?: string;
 }
 
 export class ApiError extends Error {
@@ -27,6 +29,7 @@ export class ApiError extends Error {
   public readonly details?: string | string[];
   public readonly timestamp?: string;
   public readonly path?: string;
+  public readonly code?: string;
 
   constructor(status: number, data: ApiErrorResponse | string) {
     const message =
@@ -44,6 +47,7 @@ export class ApiError extends Error {
       this.details = data.message;
       this.timestamp = data.timestamp;
       this.path = data.path;
+      this.code = typeof data.code === 'string' ? data.code : undefined;
     }
   }
 }
@@ -63,6 +67,25 @@ export const getStoredAuthToken = (): string | null => {
   }
 };
 
+/**
+ * Non-sensitive marker cookie (no token inside) telling the Next.js middleware that
+ * a sign-in exists, so private routes can redirect anonymous visitors to /login
+ * before rendering. The API remains the only authority on authentication.
+ */
+export const AUTH_HINT_COOKIE = 'erp_auth';
+const AUTH_HINT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+export const setAuthHintCookie = (present: boolean): void => {
+  if (typeof document === 'undefined') return;
+  try {
+    document.cookie = present
+      ? `${AUTH_HINT_COOKIE}=1; path=/; max-age=${AUTH_HINT_MAX_AGE_SECONDS}; samesite=lax`
+      : `${AUTH_HINT_COOKIE}=; path=/; max-age=0; samesite=lax`;
+  } catch {
+    // cookies disabled
+  }
+};
+
 export const setStoredAuthToken = (token: string | null): void => {
   if (typeof window === 'undefined') return;
   try {
@@ -74,6 +97,7 @@ export const setStoredAuthToken = (token: string | null): void => {
   } catch {
     // Ignore storage quota / private browsing exceptions
   }
+  setAuthHintCookie(Boolean(token));
 };
 
 export const getStoredTenantId = (): string | null => {
@@ -166,6 +190,130 @@ export const resolveApiUrl = (path: string): string => {
 };
 
 /**
+ * Resolves a URL on the API origin *outside* the /api/v1 global prefix
+ * (e.g. /health/readiness, which the API excludes from the prefix).
+ */
+export const resolveApiRootUrl = (path: string): string => {
+  const rawBase = (
+    process.env.NEXT_PUBLIC_API_URL ||
+    (typeof window !== 'undefined' ? '' : 'http://localhost:3001')
+  ).trim();
+  const base = rawBase
+    .replace(/\/+$/, '')
+    .replace(/(\/api\/v1)+$/, '')
+    .replace(/\/+$/, '');
+  const cleanPath = `/${(path || '').trim().replace(/^\/+/, '')}`;
+  return `${base}${cleanPath}`;
+};
+
+/**
+ * Attaches Bearer JWT and X-Tenant-Id headers from browser storage.
+ */
+const applyAuthHeaders = (headers: Headers): void => {
+  if (typeof window === 'undefined') return;
+  const token = getStoredAuthToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const tenantId = getStoredTenantId();
+  if (tenantId && !headers.has('X-Tenant-Id')) {
+    headers.set('X-Tenant-Id', tenantId);
+  }
+};
+
+const toApiError = async (response: Response): Promise<ApiError> => {
+  const text = await response.text();
+  let errorData: ApiErrorResponse | string;
+  try {
+    errorData = text ? (JSON.parse(text) as ApiErrorResponse) : `HTTP ${response.status}`;
+  } catch {
+    errorData = text || `HTTP ${response.status}`;
+  }
+  return new ApiError(response.status, errorData);
+};
+
+/**
+ * Extracts the file name from a Content-Disposition header, if present.
+ */
+export const parseContentDispositionFileName = (header: string | null): string | null => {
+  if (!header) return null;
+  const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ''));
+    } catch {
+      // fall through to plain filename
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || null;
+};
+
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string;
+}
+
+/**
+ * Authenticated binary fetch for API downloads (ZIP bundles, HTML reports).
+ * Uses the same URL resolution and auth/tenant headers as customInstance but
+ * returns the raw Blob instead of parsing text/JSON.
+ */
+export const fetchApiBlob = async (
+  url: string,
+  fallbackFileName: string,
+  options?: RequestInit
+): Promise<DownloadedFile> => {
+  const headers = new Headers(options?.headers);
+  applyAuthHeaders(headers);
+  const response = await fetch(resolveApiUrl(url), {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+  const blob = await response.blob();
+  const fileName =
+    parseContentDispositionFileName(response.headers.get('Content-Disposition')) ||
+    fallbackFileName;
+  return { blob, fileName };
+};
+
+/**
+ * Hands a Blob to the browser as a file download via a temporary object URL.
+ */
+export const saveBlobAsFile = ({ blob, fileName }: DownloadedFile): void => {
+  if (typeof window === 'undefined') return;
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  } finally {
+    // Defer revocation so the browser can start the download.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+};
+
+/**
+ * Fetches an authenticated API file and triggers a browser download.
+ */
+export const downloadApiFile = async (
+  url: string,
+  fallbackFileName: string
+): Promise<DownloadedFile> => {
+  const file = await fetchApiBlob(url, fallbackFileName);
+  saveBlobAsFile(file);
+  return file;
+};
+
+/**
  * Core custom fetch mutator used by all Orval-generated query and mutation hooks.
  */
 export const customInstance = async <T>(
@@ -185,17 +333,7 @@ export const customInstance = async <T>(
   }
 
   // Multi-tenant & Auth headers in browser environment
-  if (typeof window !== 'undefined') {
-    const token = getStoredAuthToken();
-    if (token && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
-
-    const tenantId = getStoredTenantId();
-    if (tenantId && !headers.has('X-Tenant-Id')) {
-      headers.set('X-Tenant-Id', tenantId);
-    }
-  }
+  applyAuthHeaders(headers);
 
   const response = await fetch(fullUrl, {
     ...options,
@@ -204,14 +342,7 @@ export const customInstance = async <T>(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    let errorData: ApiErrorResponse | string;
-    try {
-      errorData = text ? (JSON.parse(text) as ApiErrorResponse) : `HTTP ${response.status}`;
-    } catch {
-      errorData = text || `HTTP ${response.status}`;
-    }
-    throw new ApiError(response.status, errorData);
+    throw await toApiError(response);
   }
 
   // HTTP 204 No Content

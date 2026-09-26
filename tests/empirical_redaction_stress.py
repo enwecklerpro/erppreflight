@@ -13,11 +13,12 @@ import math
 import random
 import re
 import string
+import os
 import sys
 import pytest
 
 # Ensure analysis-python is in pythonpath
-sys.path.insert(0, "H:/erppreflight/services/analysis-python")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "services", "analysis-python"))
 
 from src.platform.redaction import SecretRedactionEngine, RedactionResult
 

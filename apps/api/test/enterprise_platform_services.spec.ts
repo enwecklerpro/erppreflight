@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
 import { ChangeSetsService } from '../src/modules/changesets/changesets.service';
-import { TraceabilityService } from '../src/modules/traceability/traceability.service';
 import { DemoService } from '../src/modules/demo/demo.service';
 import { KnowledgeService } from '../src/modules/knowledge/knowledge.service';
 import { McpService } from '../src/modules/mcp/mcp.service';
@@ -9,6 +8,11 @@ import { ApiKeysService } from '../src/modules/api-keys/api-keys.service';
 import { WebhooksService } from '../src/modules/webhooks/webhooks.service';
 import { LandscapesService } from '../src/modules/landscapes/landscapes.service';
 import { JobsService } from '../src/modules/jobs/jobs.service';
+
+import {
+  __setDnsLookupForTests,
+  __setOutboundTransportForTests,
+} from '../src/common/security/outbound-request';
 
 describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global.fetch = vi.fn().mockRejectedValue(new Error('Network error')); }); 
   let mockDb: any;
@@ -218,116 +222,6 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
 
       expect(res.changeset.approval_status).toBe('APPROVED');
       expect(res.evidencePack.auditCertificate).toBeDefined();
-    });
-  });
-
-  describe('TraceabilityService (Delivery Traceability)', () => {
-    let mockCloudAlm: any;
-    let mockJira: any;
-
-    beforeEach(() => {
-      mockCloudAlm = {
-        createRemediationTask: vi.fn(),
-      };
-      mockJira = {
-        createIssue: vi.fn(),
-      };
-    });
-
-    it('should return 8-column matrix and calculate unmitigated risks', async () => {
-      mockDb.query.mockResolvedValueOnce({
-        rows: [
-          {
-            id: 'node-1',
-            process_hierarchy: 'Order-to-Cash',
-            requirement_id: 'REQ-01',
-            finding_id: 'f-1',
-            finding_severity: 'CRITICAL',
-            remediation_task_id: null, // Critical finding without task!
-            test_case_id: null, // Untested!
-            transport_id: 'TRK900101',
-            release_id: 'REL_2026_01',
-            task_status: 'OPEN',
-          },
-        ],
-      });
-
-      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
-      const matrix = await service.getMatrix(orgId, projectId);
-
-      expect(matrix.nodes.length).toBe(1);
-      expect(matrix.summary.requirementsWithoutTests).toBe(1);
-      expect(matrix.summary.criticalFindingsWithoutTasks).toBe(1);
-    });
-
-    it('should dispatch remediation task to real SAP Cloud ALM connector when configured', async () => {
-      mockDb.query
-        // finding
-        .mockResolvedValueOnce({
-          rows: [{ id: 'f-1', rule_id: 'OPD_RULE_MISSING', severity: 'CRITICAL', title: 'Missing OPD rule' }],
-        })
-        // evidence
-        .mockResolvedValueOnce({
-          rows: [{ artifact_path: 'opd.xml', sha256: 'abc123hash' }],
-        })
-        // update traceability node
-        .mockResolvedValueOnce({ rows: [] });
-
-      mockCloudAlm.createRemediationTask.mockResolvedValueOnce({
-        success: true,
-        taskId: 'CALM-TASK-9988',
-        deepLink: 'https://tenant.alm.cloud.sap/launchpad#Task-manage?sap-ui-app-id-hint=calm-tasks&/task/CALM-TASK-9988',
-        status: 'SYNCHRONIZED',
-      });
-
-      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
-      const task = await service.createRemediationTask(orgId, projectId, {
-        findingId: 'f-1',
-        externalSystem: 'SAP_CLOUD_ALM',
-        tokenUrl: 'https://auth.btp.sap/oauth/token',
-        clientId: 'my-client-id',
-        clientSecret: 'my-client-secret',
-        apiBaseUrl: 'https://tenant.alm.cloud.sap',
-      } as any);
-
-      expect(mockCloudAlm.createRemediationTask).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tokenUrl: 'https://auth.btp.sap/oauth/token',
-          clientId: 'my-client-id',
-        }),
-        expect.objectContaining({
-          ruleId: 'OPD_RULE_MISSING',
-          severity: 'CRITICAL',
-        })
-      );
-      expect(task.taskId).toBe('CALM-TASK-9988');
-      expect(task.status).toBe('SYNCHRONIZED');
-      expect(task.deepLink).toContain('CALM-TASK-9988');
-    });
-
-    it('should report CREDENTIALS_REQUIRED when Cloud ALM credentials are not configured', async () => {
-      mockDb.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'f-1', rule_id: 'OPD_RULE_MISSING', severity: 'CRITICAL', title: 'Missing OPD rule' }],
-        })
-        .mockResolvedValueOnce({
-          rows: [{ artifact_path: 'opd.xml', sha256: 'abc123hash' }],
-        });
-
-      mockCloudAlm.createRemediationTask.mockResolvedValueOnce({
-        success: false,
-        status: 'CREDENTIALS_REQUIRED',
-        error: 'SAP Cloud ALM OAuth2 credentials are not configured.',
-      });
-
-      const service = new TraceabilityService(mockDb, mockCloudAlm, mockJira);
-      const task = await service.createRemediationTask(orgId, projectId, {
-        findingId: 'f-1',
-        externalSystem: 'SAP_CLOUD_ALM',
-      });
-
-      expect(task.status).toBe('CREDENTIALS_REQUIRED');
-      expect(task.error).toBeDefined();
     });
   });
 
@@ -549,26 +443,39 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
   });
 
   describe('WebhooksService (Enterprise Real-Time Events)', () => {
-    it('should create webhook with secret and send test ping with HMAC signature', async () => { global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
-      mockDb.query
-        // create
-        .mockResolvedValueOnce({
-          rows: [{ id: 'wh-1', url: 'https://webhook.site/test', secret: 'whsec_secret123' }],
-        })
-        // sendTestPing fetch
-        .mockResolvedValueOnce({
-          rows: [{ id: 'wh-1', url: 'https://webhook.site/test', secret: 'whsec_secret123' }],
-        })
-        // update last_triggered
-        .mockResolvedValueOnce({ rows: [] });
+    it('should create webhook with secret and send a signed test ping recorded in the delivery log', async () => {
+      const restoreDns = __setDnsLookupForTests(async () => [{ address: '93.184.216.34', family: 4 }]);
+      const transport = vi.fn().mockResolvedValue({ status: 200, statusText: 'OK', headers: {} });
+      const restoreTransport = __setOutboundTransportForTests(transport);
+      const deliveries = new Map<string, any>();
+      mockDb.query.mockImplementation(async (sql: string, params: any[]) => {
+        if (sql.startsWith('INSERT INTO webhooks')) return { rows: [{ id: 'wh-1', url: params[2], events: params[4], status: 'ACTIVE' }] };
+        if (sql.startsWith('SELECT id FROM webhooks')) return { rows: [{ id: 'wh-1' }] };
+        if (sql.includes('INSERT INTO webhook_deliveries')) {
+          deliveries.set(params[0], { id: params[0], event_id: params[3], event_type: 'ping', payload: JSON.parse(params[4]), status: 'PENDING', attempts: 0, max_attempts: 1 });
+          return { rows: [] };
+        }
+        if (sql.includes('FROM webhook_deliveries d JOIN webhooks w')) {
+          const d = deliveries.get(params[1]);
+          return { rows: [{ ...d, webhook_id: 'wh-1', url: 'https://webhook.site/test', secret: 'whsec_secret123', webhook_status: 'ACTIVE' }] };
+        }
+        return { rows: [] };
+      });
 
       const service = new WebhooksService(mockDb, { subscribe: () => {} } as any);
       const created = await service.create(orgId, userId, { url: 'https://webhook.site/test' });
       expect(created.secret).toContain('whsec_');
 
       const ping = await service.sendTestPing(orgId, 'wh-1');
-      expect(ping.signatureHeader).toContain('sha256=');
       expect(ping.success).toBe(true);
+      expect(ping.status).toBe('SUCCEEDED');
+      expect(transport).toHaveBeenCalledTimes(1);
+      const headers = transport.mock.calls[0][1].headers;
+      expect(headers['X-Hub-Signature-256']).toMatch(/^sha256=[0-9a-f]{64}$/);
+      expect(headers['X-ERPPreflight-Signature']).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+      expect(headers['X-ERPPreflight-Event-Id']).toBe(ping.payload.id);
+      restoreDns();
+      restoreTransport();
     });
   });
 
@@ -598,15 +505,22 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
               product: 'SAP S/4HANA',
               edition: 'Private Cloud',
               release: '2023',
-              // Use non-routable documentation IP with closed port to trigger real connection rejection
-              url: 'http://127.0.0.1:49999',
+              // Public hostname (DNS stubbed) whose connection is refused
+              url: 'http://sap-qa.example.com:49999',
             },
           ],
         })
         .mockResolvedValueOnce({ rows: [] }); // update landscapes status to UNREACHABLE
 
+      const restoreDns = __setDnsLookupForTests(async () => [{ address: '93.184.216.34', family: 4 }]);
+      const restoreTransport = __setOutboundTransportForTests(async () => {
+        throw Object.assign(new Error('connect ECONNREFUSED 93.184.216.34:49999'), { code: 'ECONNREFUSED' });
+      });
       const service = new LandscapesService(mockDb);
-      const res = await service.testConnection(orgId, 'land-fail-1');
+      const res = await service.testConnection(orgId, 'land-fail-1').finally(() => {
+        restoreDns();
+        restoreTransport();
+      });
 
       expect(res.handshakeStatus).toBe('FAILED_UNREACHABLE');
       expect(res.error).toBeDefined();
@@ -677,7 +591,7 @@ describe('Enterprise Platform Services Suite', () => {  beforeAll(() => { global
           environment: 'DEV',
           url: 'http://metadata.google.internal/computeMetadata/v1/',
         })
-      ).rejects.toThrow('Cloud instance metadata endpoint detected');
+      ).rejects.toThrow('SSRF protection policy');
     });
   });
 

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Column } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff } from 'lucide-react';
 import { cn } from './types';
+import { useT } from '../../i18n/client';
 
 export interface DataTableColumnHeaderProps<TData, TValue>
   extends React.HTMLAttributes<HTMLDivElement> {
@@ -16,6 +17,7 @@ export function DataTableColumnHeader<TData, TValue>({
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
+  const t = useT();
   const [open, setOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
@@ -50,7 +52,7 @@ export function DataTableColumnHeader<TData, TValue>({
         onClick={() => setOpen((prev) => !prev)}
         className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
         aria-expanded={open}
-        aria-label={`Sort options for ${title}`}
+        aria-label={t('app.dataTable.sortOptions', { column: typeof title === 'string' ? title : '' })}
       >
         <span>{title}</span>
         {isSorted === 'desc' ? (
@@ -78,7 +80,7 @@ export function DataTableColumnHeader<TData, TValue>({
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-muted transition-colors text-left"
           >
             <ArrowUp className="size-3.5 text-muted-foreground" />
-            <span>Sort Ascending</span>
+            <span>{t('app.dataTable.sortAsc')}</span>
           </button>
 
           <button
@@ -91,7 +93,7 @@ export function DataTableColumnHeader<TData, TValue>({
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-muted transition-colors text-left"
           >
             <ArrowDown className="size-3.5 text-muted-foreground" />
-            <span>Sort Descending</span>
+            <span>{t('app.dataTable.sortDesc')}</span>
           </button>
 
           {isSorted && (
@@ -105,7 +107,7 @@ export function DataTableColumnHeader<TData, TValue>({
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-left"
             >
               <ChevronsUpDown className="size-3.5" />
-              <span>Clear Sort</span>
+              <span>{t('app.dataTable.clearSort')}</span>
             </button>
           )}
 
@@ -122,7 +124,7 @@ export function DataTableColumnHeader<TData, TValue>({
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-left"
               >
                 <EyeOff className="size-3.5" />
-                <span>Hide Column</span>
+                <span>{t('app.dataTable.hideColumn')}</span>
               </button>
             </>
           )}

@@ -23,6 +23,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -37,6 +40,9 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
+from pydantic import ValidationError
 
 
 # ==============================================================================
@@ -45,7 +51,7 @@ from src.platform.evidence import EvidenceEngine
 
 class OBYCRuleModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    chart_of_accounts: str = "CA01"
+    chart_of_accounts: str = ""
     transaction_key: str  # BSX, WRX, PRD, GBB, KDM, KON
     valuation_grouping: Optional[str] = None  # BWMOD
     account_modifier: Optional[str] = None    # KOMOK / General Modification
@@ -57,7 +63,7 @@ class OBYCRuleModel(BaseModel):
 
 class VKOARuleModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    chart_of_accounts: str = "CA01"
+    chart_of_accounts: str = ""
     sales_org: Optional[str] = None           # VKORG
     customer_aag: Optional[str] = None        # Customer Account Assignment Group
     material_aag: Optional[str] = None        # Material Account Assignment Group
@@ -92,8 +98,8 @@ class ValuationClassModel(BaseModel):
 
 class AccountDeterminationInputData(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    chart_of_accounts: str = "CA01"
-    company_code: str = "1000"
+    chart_of_accounts: str = ""
+    company_code: str = ""
     obyc_rules: List[OBYCRuleModel] = Field(default_factory=list)
     vkoa_rules: List[VKOARuleModel] = Field(default_factory=list)
     ska1_accounts: List[SKA1MasterModel] = Field(default_factory=list)
@@ -116,14 +122,14 @@ STANDARD_VALUATION_CLASSES: List[str] = ["3000", "3100", "7900", "7920"]
 # Helper Utilities
 # ==============================================================================
 
-def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[Optional[int], Optional[int], str]:
     """Scans raw_text for token and returns (1-based line, 1-based col, line_snippet)."""
     if not raw_text:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     token_str = str(token).strip()
     if not token_str:
-        return 1, 1, lines[0].strip() if lines else ""
+        return None, None, ""
 
     for idx, line in enumerate(lines, 1):
         pos = line.find(token_str)
@@ -137,18 +143,69 @@ def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[int, int, str]:
         if pos != -1:
             return idx, pos + 1, line.strip()
 
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 # ==============================================================================
 # Universal Account Determination Verifier Engine (Cardinal Axiom 2)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "ACCT_DET_MISSING_ACCOUNT", "No G/L account determined for a required combination", Severity.CRITICAL,
+        "Maintain the missing entry in OBYC (MM: transaction key / valuation class) or VKOA (SD: sales org / "
+        "account key) — in the cloud via the corresponding SSCUI — so postings do not fail with 'account "
+        "determination error'.", "ACCOUNT_DETERMINATION_INTEGRITY",
+    ),
+    RuleSpec(
+        "ACCT_DET_ACCOUNT_BLOCKED_POSTING", "Determined G/L account is blocked for posting", Severity.CRITICAL,
+        "Remove the posting block in FS00 (chart of accounts or company code level) or point the determination "
+        "entry to an unblocked account.", "GL_POSTING_SECURITY",
+    ),
+    RuleSpec(
+        "ACCT_DET_ACCOUNT_NOT_IN_COMPANY_CODE", "Determined account not created in the company code", Severity.CRITICAL,
+        "Extend the G/L account to the company code (FS00 / 'Manage G/L Account Master Data') before go-live.",
+        "GL_MASTER_SYNCHRONIZATION",
+    ),
+    RuleSpec(
+        "ACCT_DET_CONFLICTING_RULES", "Conflicting determination entries for the same key", Severity.MAJOR,
+        "Remove the duplicate / conflicting OBYC or VKOA entries so each condition key resolves to exactly one "
+        "account.", "DETERMINATION_AMBIGUITY",
+    ),
+)
+
+
+class AccountDeterminationInput(ContractModel):
+    signal_fields = ("obyc_rules", "vkoa_rules", "valuation_classes")
+    signal_message = "Account determination requires 'obyc_rules' and/or 'vkoa_rules' (or 'valuation_classes')."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV),
+    summary=(
+        "Automatic account determination: JSON {'chart_of_accounts', 'company_code', 'obyc_rules': [...], "
+        "'vkoa_rules': [...], 'ska1_accounts': [...], 'skb1_accounts': [...], 'valuation_classes': [...]} or CSV "
+        "exports of T030 (KTOPL, KTOSL, BKLAS, KONTS/KONTU), C001/VKOA (VKORG, KTOSL, SAKNR), SKA1, SKB1. "
+        "Company-code checks run only for an explicitly supplied company code."
+    ),
+    required=("OBYC and/or VKOA determination entries",),
+    json_model=AccountDeterminationInput,
+    csv_signal_columns=("KTOSL", "BKLAS", "VKORG", "SAKNR", "ACCOUNT_KEY", "VALUATION_CLASS"),
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class AccountDeterminationEngine(BaseEngine):
     """Production-grade Universal Account Determination Verifier."""
 
     engine_type = EngineType.ACCOUNT_DETERMINATION_PREFLIGHT
+    rule_prefix = "ACCT"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Account Determination Preflight"
     description = (
         "OBYC, VKOA, and FBKP automatic account determination rule validator, "
@@ -163,12 +220,19 @@ class AccountDeterminationEngine(BaseEngine):
             return AccountDeterminationInputData()
 
         stripped = raw_content.strip()
-        if stripped.startswith("{"):
+        if stripped.startswith("{") or stripped.startswith("["):
+            # Malformed / mis-shaped JSON is an input error — never re-read as CSV.
+            data_dict = parse_json_payload(stripped, self.rule_prefix)
+            if not isinstance(data_dict, dict):
+                raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", "Expected a JSON object at the top level.")
             try:
-                data_dict = json.loads(stripped)
                 return AccountDeterminationInputData.model_validate(data_dict)
-            except Exception:
-                pass
+            except ValidationError as exc:
+                locs = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors(include_input=False)})
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    "Account determination payload does not match the expected structure at: " + ", ".join(locs[:5]),
+                ) from None
 
         # Parse CSV format (handles OBYC export, VKOA export, or SKA1/SKB1 dump)
         obyc_rules: List[OBYCRuleModel] = []
@@ -176,8 +240,8 @@ class AccountDeterminationEngine(BaseEngine):
         ska1_accounts: List[SKA1MasterModel] = []
         skb1_accounts: List[SKB1MasterModel] = []
         val_classes: List[ValuationClassModel] = []
-        coa = "CA01"
-        cc = "1000"
+        coa = ""
+        cc = ""
 
         reader = csv.DictReader(io.StringIO(stripped))
         for row in reader:
@@ -287,7 +351,7 @@ class AccountDeterminationEngine(BaseEngine):
         if (not raw_text or not raw_text.strip()) and request.configuration and isinstance(request.configuration, dict):
             try:
                 data = AccountDeterminationInputData.model_validate(request.configuration)
-            except Exception:
+            except ValidationError:
                 data = self._parse_inputs(raw_text)
         else:
             data = self._parse_inputs(raw_text)
@@ -303,6 +367,14 @@ class AccountDeterminationEngine(BaseEngine):
                     data.ska1_accounts.extend(more_data.ska1_accounts)
                     data.skb1_accounts.extend(more_data.skb1_accounts)
                     data.valuation_classes.extend(more_data.valuation_classes)
+
+        if not (data.obyc_rules or data.vkoa_rules or data.valuation_classes):
+            supplied = bool((raw_text or "").strip())
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT" if supplied else f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No account determination rules recognised: supply OBYC (T030: KTOPL, KTOSL, BKLAS, KONTS) and/or "
+                "VKOA (C001: VKORG, KTOSL/ACCOUNT_KEY, SAKNR) entries, optionally SKA1/SKB1 master data.",
+            )
 
         # Build master account indices
         # SKA1: (chart_of_accounts, gl_account) -> SKA1MasterModel
@@ -518,7 +590,8 @@ class AccountDeterminationEngine(BaseEngine):
                 findings.append(ConfidenceClassifier.classify(f))
 
             # Rule 4: Account Defined in Chart of Accounts but Missing in Company Code (SKB1)
-            if data.skb1_accounts and effective_account:
+            # Only evaluated for an explicitly supplied company code (never a default).
+            if data.skb1_accounts and effective_account and data.company_code:
                 if (rule.chart_of_accounts, effective_account) in ska1_index and (data.company_code, effective_account) not in skb1_index:
                     line_no, col_no, snippet = _locate_line_in_text(raw_text, effective_account)
                     ev = EvidenceEngine.create_evidence(

@@ -547,7 +547,7 @@ describe('Empirical Adversarial Challenge: Milestone 2 Ingestion Security & Boun
       expect(presigned.uploadUrl).toBeDefined();
       expect(presigned.uploadUrl).toContain('erppreflight-quarantine');
       expect(presigned.uploadUrl).not.toContain('erppreflight-clean');
-      expect(presigned.storagePath).toBe('quarantine/tenant-1234/project-5678/file-9999/raw_upload.xml');
+      expect(presigned.storagePath).toBe('tenants/tenant-1234/projects/project-5678/quarantine/file-9999/raw_upload.xml');
       expect(presigned.expiresInSeconds).toBe(900);
     });
 
@@ -712,16 +712,17 @@ describe('Empirical Adversarial Challenge: Milestone 2 Ingestion Security & Boun
       expect(mockStorage.promoteQuarantineToClean).not.toHaveBeenCalled();
     });
 
-    it('3.5: Clean file promotion: Valid clean file is promoted to clean storage and issued 1800s download URL', async () => {
+    it('3.5: Clean file promotion: only the redacted buffer reaches clean storage and the quarantine original is deleted (never copied)', async () => {
       const mockDb: any = {
         query: vi.fn().mockResolvedValue({ rows: [] }),
       };
       const mockStorage: any = {
         putCleanObject: vi.fn().mockResolvedValue(undefined),
+        deleteQuarantineObject: vi.fn().mockResolvedValue(undefined),
         promoteQuarantineToClean: vi.fn().mockResolvedValue(undefined),
         createDownloadPresignedUrl: vi.fn().mockResolvedValue({
           downloadUrl: 'https://minio.test/erppreflight-clean/key?signature=valid',
-          expiresInSeconds: 1800,
+          expiresInSeconds: 900,
         }),
       };
 
@@ -755,7 +756,11 @@ describe('Empirical Adversarial Challenge: Milestone 2 Ingestion Security & Boun
         expect.anything(),
         'application/xml'
       );
-      expect(mockStorage.promoteQuarantineToClean).toHaveBeenCalled();
+      // The unredacted quarantine object must NOT be copied over the clean key
+      expect(mockStorage.promoteQuarantineToClean).not.toHaveBeenCalled();
+      expect(mockStorage.deleteQuarantineObject).toHaveBeenCalledWith(
+        'quarantine/t-corp/p-corp/f-clean/clean_sap.xml'
+      );
 
       // Verify DB updated with CLEAN status
       expect(mockDb.query).toHaveBeenCalledWith(

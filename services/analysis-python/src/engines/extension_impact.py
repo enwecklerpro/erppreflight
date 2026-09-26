@@ -16,6 +16,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -30,6 +33,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_object
 
 
 class ExtensionObjectType(str, Enum):
@@ -88,16 +93,16 @@ CATEGORY_WEIGHTS: Dict[ExtensionObjectType, float] = {
 DEPTH_ATTENUATION_FACTOR = 0.85
 
 
-def _locate_line_in_text(raw_text: str, token: str) -> Tuple[int, int, str]:
+def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Optional[int], str]:
     """Deterministically identifies the 1-indexed line, column, and snippet of a token."""
     if not raw_text or not token:
-        return 1, 1, ""
+        return None, None, ""
     lines = raw_text.splitlines()
     for idx, line in enumerate(lines, 1):
         pos = line.find(token)
         if pos != -1:
             return idx, pos + 1, line.strip()
-    return 1, 1, lines[0].strip() if lines else ""
+    return None, None, ""
 
 
 def _infer_extension_type(object_id: str) -> ExtensionObjectType:
@@ -118,11 +123,91 @@ def _infer_extension_type(object_id: str) -> ExtensionObjectType:
     return ExtensionObjectType.UNKNOWN
 
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "EXT_TARGET_OBJECT_NOT_FOUND", "Requested extension object absent from the dependency graph", Severity.MAJOR,
+        "Check the technical name of 'target_object' (case-sensitive) and re-export the extension inventory so it "
+        "contains the object and all its consumers; no impact verdict was produced.", "GRAPH_INTEGRITY",
+    ),
+    RuleSpec(
+        "EXT_CYCLIC_DEPENDENCY_DETECTED", "Cyclic extension dependency", Severity.BLOCKER,
+        "Break the cycle: move shared fields into a separate interface CDS view (or extend the released "
+        "C1 view once), let the consumers depend on it one-directionally, and transport the collection in "
+        "dependency order.", "GRAPH_INTEGRITY",
+    ),
+    RuleSpec(
+        "EXT_DELETE_BLOCKED_ACTIVE_CONSUMERS", "Deletion blocked by active consumers", Severity.CRITICAL,
+        "Remove or re-point every active consumer (form templates, CDS views, APIs, app variants) before deleting "
+        "the object in 'Custom Fields' / 'Custom CDS Views'; delete consumers first, then the object.",
+        "DELETION_SAFETY",
+    ),
+    RuleSpec(
+        "EXT_SAFE_TO_DELETE", "No active consumers in the supplied graph", Severity.INFO,
+        "Deletion is safe with respect to the supplied inventory only; confirm the inventory is complete for the "
+        "target system, then delete via Key-User Extensibility and transport the deletion.", "DELETION_SAFETY",
+    ),
+    RuleSpec(
+        "EXT_HIGH_BLAST_RADIUS_WARNING", "High change blast radius", Severity.MAJOR,
+        "Plan regression tests for every impacted form, CDS view and API; gate the transport with a test sign-off.",
+        "CHANGE_IMPACT",
+    ),
+    RuleSpec(
+        "EXT_MODIFICATION_BREAKING_CONSUMERS", "Modification impacts downstream consumers", Severity.MAJOR,
+        "Review field mappings of all downstream consumers and adapt them in the same software collection "
+        "before transporting the modification.", "CHANGE_IMPACT",
+    ),
+)
+
+
+class ExtensionGraphInput(ContractModel):
+    """Extension inventory: manifest list and/or adjacency map (node -> consumers)."""
+    extensions: Optional[List[Dict[str, Any]]] = None
+    dependencies: Optional[Dict[str, List[str]]] = None
+    graph: Optional[Dict[str, List[str]]] = None
+    target_object: Optional[str] = None
+    action: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_graph(self) -> "ExtensionGraphInput":
+        if self.extensions or self.dependencies or self.graph:
+            return self
+        extra = self.model_extra or {}
+        adjacency = [
+            k for k, v in extra.items()
+            if isinstance(v, list) and v and all(isinstance(t, str) for t in v)
+        ]
+        if adjacency:
+            return self
+        raise insufficient(
+            "No extension dependency graph supplied: provide 'extensions' (list of objects with dependencies), "
+            "'dependencies' / 'graph' (object -> list of consumers), or a top-level adjacency map."
+        )
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON,),
+    summary=(
+        "Extension inventory JSON: {'extensions': [{object_name, object_type, status, dependencies}], "
+        "'dependencies': {object: [consumers]}, 'target_object': '…', 'action': 'DELETE'|'MODIFY'}. "
+        "Deletion / blast-radius verdicts require an explicit target_object."
+    ),
+    required=("extensions or dependencies/graph adjacency map", "target_object for deletion/impact verdicts"),
+    json_model=ExtensionGraphInput,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class ExtensionImpactEngine(BaseEngine):
     """Engine calculating extension dependency blast radius, cycles, and deletion gates."""
 
     engine_type = EngineType.EXTENSION_IMPACT_GUARD
+    rule_prefix = "EXT"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Extension Impact Guard"
     description = "Cloud BAdI, key-user extensibility, and upgrade stability analyzer"
     version = "1.0.0"
@@ -138,11 +223,9 @@ class ExtensionImpactEngine(BaseEngine):
 
         # Parse payload from raw_content or configuration
         payload: Dict[str, Any] = {}
-        if raw_text:
-            try:
-                payload = json.loads(raw_text)
-            except Exception:
-                payload = request.configuration or {}
+        if raw_text.strip():
+            # Malformed JSON is reported as EXT_PARSE_ERROR — never silently replaced by configuration.
+            payload = parse_json_object(raw_text, self.rule_prefix)
         else:
             payload = request.configuration or {}
 
@@ -180,6 +263,8 @@ class ExtensionImpactEngine(BaseEngine):
             for src_node, targets in raw_graph.items():
                 if src_node in ("target_object", "action", "extensions", "project_id", "dependencies", "graph"):
                     continue
+                if not isinstance(targets, list):
+                    continue
                 forward_consumers.setdefault(src_node, set())
                 dependencies_of.setdefault(src_node, set())
                 if isinstance(targets, list):
@@ -190,18 +275,22 @@ class ExtensionImpactEngine(BaseEngine):
                         dependencies_of.setdefault(tgt, set()).add(src_node)
                         forward_consumers.setdefault(tgt, set())
 
-        # If target_object is not explicitly specified, choose the first root node or first item
         all_nodes = set(forward_consumers.keys()).union(dependencies_of.keys())
-        if not target_object and all_nodes:
-            # Prefer a node that has consumers or is a custom field
-            cf_nodes = [n for n in all_nodes if n.startswith("YY1_") or n.startswith("ZZ1_")]
-            target_object = cf_nodes[0] if cf_nodes else sorted(list(all_nodes))[0]
+        if not all_nodes:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "The dependency graph is empty: supply 'extensions' (with dependencies) or a "
+                "'dependencies' / 'graph' adjacency map.",
+            )
+        # No implicit target: deletion / blast-radius verdicts are only produced for an explicitly named
+        # object. Without one, only graph-wide rules (cycle detection) run.
+        target_object = str(target_object).strip() if target_object else None
 
         # ----------------------------------------------------------------------
         # Rule 1: Target Object Existence Validation
         # ----------------------------------------------------------------------
         rules_evaluated += 1
-        if not target_object or target_object not in all_nodes:
+        if target_object and target_object not in all_nodes:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, str(target_object))
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -231,10 +320,12 @@ class ExtensionImpactEngine(BaseEngine):
             findings.append(ConfidenceClassifier.classify(f))
 
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            # No impact analysis was possible for the requested object: not a verdict.
             return AnalysisResponse(
                 job_id=request.job_id,
                 engine_type=self.engine_type,
-                status=AnalysisStatus.COMPLETED,
+                status=AnalysisStatus.FAILED,
+                error_message=f"Target object '{target_object}' is not a node of the supplied dependency graph.",
                 findings=findings,
                 metrics=AnalysisMetrics(
                     execution_time_ms=elapsed_ms,
@@ -254,7 +345,7 @@ class ExtensionImpactEngine(BaseEngine):
         def dfs_cycle(u: str, path: List[str]):
             color[u] = 1  # GRAY
             path.append(u)
-            for v in forward_consumers.get(u, set()):
+            for v in sorted(forward_consumers.get(u, set())):
                 if color.get(v, 0) == 1:  # Cycle detected
                     cycle_start_idx = path.index(v)
                     cycle_path = path[cycle_start_idx:] + [v]
@@ -303,6 +394,24 @@ class ExtensionImpactEngine(BaseEngine):
             )
             findings.append(ConfidenceClassifier.classify(f))
 
+        if not target_object:
+            return AnalysisResponse(
+                job_id=request.job_id,
+                engine_type=self.engine_type,
+                status=AnalysisStatus.COMPLETED,
+                findings=findings,
+                metrics=AnalysisMetrics(
+                    rules_evaluated=rules_evaluated,
+                    artifacts_scanned=1,
+                    additional_metrics={
+                        "target_object": None,
+                        "targetSpecificRulesSkipped": True,
+                        "nodes_count": len(all_nodes),
+                        "cycles_count": len(cycles_detected),
+                    },
+                ),
+            )
+
         # ----------------------------------------------------------------------
         # Rule 3: Traversal of Direct and Transitive Consumers
         # ----------------------------------------------------------------------
@@ -321,7 +430,7 @@ class ExtensionImpactEngine(BaseEngine):
             visited.add(current)
             consumer_depths[current] = depth
 
-            for next_node in forward_consumers.get(current, set()):
+            for next_node in sorted(forward_consumers.get(current, set())):
                 if next_node not in visited and next_node != target_object:
                     queue.append((next_node, depth + 1))
 

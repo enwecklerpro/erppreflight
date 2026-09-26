@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build Python wheels and dependencies
-FROM python:3.13-slim AS builder
+FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS builder
 
 WORKDIR /app
 
@@ -14,11 +14,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libxml2-dev libxslt-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY services/analysis-python/requirements.txt ./
+COPY services/analysis-python/requirements.txt services/analysis-python/requirements-otel.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
+# Tracing packages are inert unless OTEL_EXPORTER_OTLP_ENDPOINT is set; build with INSTALL_OTEL=false to omit them.
+ARG INSTALL_OTEL=true
+RUN if [ "$INSTALL_OTEL" = "true" ]; then pip install --no-cache-dir --user -r requirements-otel.txt; fi
 
 # Stage 2: Hardened production runner
-FROM python:3.13-slim AS runner
+FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runner
 
 WORKDIR /app
 
@@ -30,10 +33,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd -g 1001 appgroup && \
     useradd -u 1001 -g appgroup -s /bin/bash -m appuser
 
-# Install curl for healthcheck probes and clean up apt cache
+# Install curl for healthcheck probes and clean up apt cache.
+# pip is not used at runtime (dependencies are copied from the builder stage); its vendored
+# packages (msgpack, setuptools) carry fixable HIGH CVEs that fail the blocking Trivy image
+# scan, so it is uninstalled (spec 20.8 "no build tools if unnecessary").
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    python -m pip uninstall -y pip && \
+    rm -rf /usr/local/lib/python3.13/ensurepip /root/.cache
 
 # Copy installed dependencies and service code with non-root ownership
 COPY --from=builder --chown=appuser:appgroup /root/.local /home/appuser/.local

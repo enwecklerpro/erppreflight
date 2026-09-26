@@ -4,6 +4,7 @@ Runs randomized attack payloads across SafeXmlParser, ConfidenceClassifier,
 EngineRegistry, and Pydantic validation.
 """
 
+import os
 import sys
 import time
 import random
@@ -12,7 +13,7 @@ import uuid
 from pydantic import ValidationError
 
 # Ensure services/analysis-python is in pythonpath
-sys.path.insert(0, "H:/erppreflight/services/analysis-python")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "services", "analysis-python"))
 
 from src.parsers.safe_xml import SafeXmlParser
 from src.platform.confidence import ConfidenceClassifier, CONFIDENCE_SCORE_MAP

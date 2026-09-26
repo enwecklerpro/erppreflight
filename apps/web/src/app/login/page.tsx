@@ -2,280 +2,290 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from '@tanstack/react-form';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSummaryErrors } from '@/components/form/form-inputs';
+import { AuthCard, Notice, Pending, buttonClass } from '@/components/account/ui';
 import {
-  customInstance,
-  setStoredAuthToken,
-  setStoredTenantId,
-  ApiError,
-} from '@/lib/api/custom-instance';
-import { Lock, Mail, Loader2, ArrowRight, ShieldCheck, AlertCircle, Users } from 'lucide-react';
+  completeSecondFactor,
+  login,
+  safeNextPath,
+  storeSession,
+  type MfaChallenge,
+  type SessionResponse,
+} from '@/lib/account-api';
+import { evictTenantQueryCache } from '@/lib/query/query-provider';
+import { ApiError, resolveApiUrl } from '@/lib/api/custom-instance';
+import { Lock, Mail, ArrowRight, KeyRound, Smartphone } from 'lucide-react';
+import { useErrorText, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, 'Email is required')
-    .email('Please enter a valid work email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().min(1, vmsg('app.validation.emailRequired')).email(vmsg('app.validation.emailInvalid')),
+  password: z.string().min(1, vmsg('app.validation.passwordRequired')),
 });
 
-type LoginFormData = z.infer<typeof loginSchema>;
+/** Accepts a 6-digit TOTP code or a recovery code (the API checks which one it is). */
+const secondFactorSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/, vmsg('app.validation.totpOrRecovery')),
+});
 
-interface AuthResponse {
-  accessToken: string;
-  user: {
-    id: string;
-    email: string;
-    fullName?: string;
-    organizationId: string;
-    role: string;
-    systemRole: string;
-  };
-}
-
-import { useMutation } from '@tanstack/react-query';
-
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const t = useT();
+  const errText = useErrorText();
+  const next = safeNextPath(searchParams.get('next'));
   const [serverError, setServerError] = React.useState<string | null>(null);
+  const [ssoEmail, setSsoEmail] = React.useState<string | null>(null);
+  const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
+  const [useRecovery, setUseRecovery] = React.useState(false);
+
+  const finish = async (session: SessionResponse) => {
+    // A new identity: never show cached data of a previous session/tenant.
+    await evictTenantQueryCache(queryClient);
+    storeSession(session);
+    router.push(next);
+  };
 
   const loginMutation = useMutation({
-    mutationFn: async (value: LoginFormData) => {
-      return await customInstance<AuthResponse>('/api/v1/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: value.email.trim(),
-          password: value.password,
-        }),
-      });
-    },
-    onSuccess: (res) => {
-      if (res?.accessToken) {
-        setStoredAuthToken(res.accessToken);
+    mutationFn: (value: z.infer<typeof loginSchema>) => login(value.email.trim(), value.password),
+    onSuccess: async (res) => {
+      if ('mfaRequired' in res) {
+        setChallenge(res);
+        return;
       }
-      if (res?.user?.organizationId) {
-        setStoredTenantId(res.user.organizationId);
-      }
-      router.push('/projects');
+      await finish(res);
     },
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        setServerError(err.message);
-      } else if (err instanceof Error) {
-        setServerError(err.message);
-      } else {
-        setServerError('Invalid email or password. Please verify your credentials.');
+    onError: (err, value) => {
+      // Organizations that enforce SSO reject password login; offer the IdP route instead.
+      if (err instanceof ApiError && err.code === 'SSO_REQUIRED') {
+        setSsoEmail(value.email.trim());
+        setServerError(t('app.auth.login.ssoRequired'));
+        return;
       }
+      setSsoEmail(null);
+      setServerError(errText(err, t('app.auth.login.invalidCredentials')));
     },
+  });
+
+  const secondFactorMutation = useMutation({
+    mutationFn: (code: string) =>
+      completeSecondFactor(challenge!.challengeToken, useRecovery ? { recoveryCode: code.trim() } : { code: code.trim() }),
+    onSuccess: finish,
+    onError: (err) => setServerError(errText(err, t('app.auth.login.invalidCode'))),
   });
 
   const form = useForm({
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-    validators: {
-      onChange: loginSchema,
-      onSubmit: loginSchema,
-    },
+    defaultValues: { email: '', password: '' },
+    validators: { onChange: loginSchema, onSubmit: loginSchema },
     onSubmit: async ({ value }) => {
       setServerError(null);
-      loginMutation.mutate(value);
+      await loginMutation.mutateAsync(value).catch(() => undefined);
     },
   });
 
-  return (
-    <div className="min-h-[calc(100vh-12rem)] flex flex-col justify-center py-8 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="size-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
-            <ShieldCheck className="size-7" aria-hidden="true" />
-          </div>
-        </div>
-        <h1 className="mt-4 text-center text-2xl font-bold tracking-tight text-foreground">
-          Sign in to ERP Preflight
-        </h1>
-        <p className="mt-1.5 text-center text-xs text-muted-foreground">
-          Enterprise Clean Core, SAP Preflight Analysis &amp; Migration Verification
-        </p>
-      </div>
+  const codeForm = useForm({
+    defaultValues: { code: '' },
+    validators: { onSubmit: secondFactorSchema },
+    onSubmit: async ({ value }) => {
+      setServerError(null);
+      await secondFactorMutation.mutateAsync(value.code).catch(() => undefined);
+    },
+  });
 
-      <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-xs">
-          {/* Quick Demo Credentials Box */}
-          <div className="mb-6 p-4 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/30 text-xs space-y-3">
-            <span className="font-bold text-foreground block">⚡ 1-Klick Test-Zugangsdaten (Sofort ausfüllen):</span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  form.setFieldValue('email', 'contact@erppreflight.com');
-                  form.setFieldValue('password', 'Technique/201193');
-                  setServerError(null);
-                }}
-                className="p-2.5 rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 text-left hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors shadow-2xs cursor-pointer"
+  if (challenge) {
+    return (
+      <AuthCard
+        title={t('app.auth.login.mfaTitle')}
+        subtitle={useRecovery ? t('app.auth.login.mfaRecoverySubtitle') : t('app.auth.login.mfaSubtitle')}
+        icon={Smartphone}
+      >
+        {serverError && <Notice tone="error" title={t('app.auth.login.mfaFailed')} className="mb-5">{serverError}</Notice>}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            codeForm.handleSubmit();
+          }}
+          noValidate
+          className="space-y-5"
+        >
+          <codeForm.Field
+            name="code"
+            children={(field) => (
+              <FormField
+                id="login-code"
+                name={field.name}
+                label={useRecovery ? t('app.auth.login.recoveryCode') : t('app.auth.login.authCode')}
+                required
+                error={field.state.meta.errors as any}
               >
-                <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                  <ShieldCheck className="size-3.5 text-purple-600" />
-                  Super Admin
-                </div>
-                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">contact@erppreflight.com</div>
+                <FormInput
+                  autoFocus
+                  inputMode={useRecovery ? 'text' : 'numeric'}
+                  autoComplete="one-time-code"
+                  placeholder={useRecovery ? 'abcde-12345' : '123456'}
+                  value={field.state.value}
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
+                  leftIcon={<KeyRound className="size-4" />}
+                />
+              </FormField>
+            )}
+          />
+          <codeForm.Subscribe
+            selector={(s) => s.isSubmitting}
+            children={(isSubmitting) => (
+              <button type="submit" disabled={isSubmitting || secondFactorMutation.isPending} className={`${buttonClass.primary} w-full`}>
+                <Pending busy={isSubmitting || secondFactorMutation.isPending} busyLabel={t('app.auth.login.verifying')} idle={<>{t('app.auth.login.verify')}<ArrowRight className="size-3.5" aria-hidden="true" /></>} />
               </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  form.setFieldValue('email', 'demo.client@erppreflight.com');
-                  form.setFieldValue('password', 'Technique/201193');
-                  setServerError(null);
-                }}
-                className="p-2.5 rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 text-left hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors shadow-2xs cursor-pointer"
-              >
-                <div className="font-bold flex items-center gap-1.5 text-[11px]">
-                  <Users className="size-3.5 text-blue-600" />
-                  Client Consultant
-                </div>
-                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">demo.client@erppreflight.com</div>
-              </button>
-            </div>
-            <p className="text-[10px] text-muted-foreground">Klicken Sie auf ein Konto oben, um die Felder automatisch zu füllen.</p>
-          </div>
-
-          {serverError && (
-            <div
-              role="alert"
-              aria-live="polite"
-              className="mb-6 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-destructive text-xs flex items-start gap-2.5 animate-in fade-in-50 duration-200"
-            >
-              <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" aria-hidden="true" />
-              <div>
-                <p className="font-semibold text-destructive">Authentication Error</p>
-                <p className="text-destructive/90 mt-0.5">{serverError}</p>
-              </div>
-            </div>
-          )}
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              form.handleSubmit();
+            )}
+          />
+        </form>
+        <div className="mt-5 flex flex-col sm:flex-row gap-2 justify-between text-xs">
+          <button
+            type="button"
+            className="text-primary font-semibold hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs text-left"
+            onClick={() => {
+              setUseRecovery((v) => !v);
+              setServerError(null);
+              codeForm.reset();
             }}
-            noValidate
-            className="space-y-5"
           >
-            <form.Field
-              name="email"
-              children={(field) => (
-                <FormField
-                  id="login-email"
-                  name={field.name}
-                  label="Work Email"
-                  required
-                  error={field.state.meta.errors as any}
-                >
-                  <FormInput
-                    type="email"
-                    autoComplete="email"
-                    placeholder="architect@enterprise.com"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    leftIcon={<Mail className="size-4" />}
-                  />
-                </FormField>
-              )}
-            />
-
-            <form.Field
-              name="password"
-              children={(field) => (
-                <FormField
-                  id="login-password"
-                  name={field.name}
-                  label="Password"
-                  required
-                  error={field.state.meta.errors as any}
-                >
-                  <FormInput
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="••••••••••••"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    leftIcon={<Lock className="size-4" />}
-                  />
-                </FormField>
-              )}
-            />
-
-            <form.Subscribe
-              selector={(state) => ({
-                fieldMeta: state.fieldMeta,
-                isSubmitting: state.isSubmitting,
-              })}
-              children={({ fieldMeta, isSubmitting }) => {
-                const activeErrors: Array<{ fieldId: string; label: string; error: unknown }> = [];
-                if (fieldMeta.email?.errors?.length) {
-                  activeErrors.push({
-                    fieldId: 'login-email',
-                    label: 'Work Email',
-                    error: fieldMeta.email.errors,
-                  });
-                }
-                if (fieldMeta.password?.errors?.length) {
-                  activeErrors.push({
-                    fieldId: 'login-password',
-                    label: 'Password',
-                    error: fieldMeta.password.errors,
-                  });
-                }
-
-                return (
-                  <div className="space-y-4 pt-1">
-                    {activeErrors.length > 0 && (
-                      <FormSummaryErrors errors={activeErrors} />
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || loginMutation.isPending}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
-                    >
-                      {isSubmitting || loginMutation.isPending ? (
-                        <>
-                          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          <span>Verifying credentials...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Sign In</span>
-                          <ArrowRight className="size-3.5" aria-hidden="true" />
-                        </>
-                      )}
-                    </button>
-                  </div>
-                );
-              }}
-            />
-          </form>
-
-          <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground">
-            <span>Don&apos;t have an enterprise workspace? </span>
-            <Link
-              href="/signup"
-              className="font-semibold text-primary hover:underline focus:outline-none focus:ring-1 focus:ring-primary rounded-xs"
-            >
-              Create account
-            </Link>
-          </div>
+            {useRecovery ? t('app.auth.login.useApp') : t('app.auth.login.useRecovery')}
+          </button>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs text-left"
+            onClick={() => {
+              setChallenge(null);
+              setServerError(null);
+            }}
+          >
+            {t('app.auth.backToSignIn')}
+          </button>
         </div>
+      </AuthCard>
+    );
+  }
+
+  return (
+    <AuthCard title={t('app.auth.login.title')} subtitle={t('app.auth.login.subtitle')}>
+      {serverError && (
+        <Notice tone="error" title={t('app.auth.login.errorTitle')} className="mb-6">
+          {serverError}
+          {ssoEmail && (
+            <a
+              href={resolveApiUrl(`/sso/login?email=${encodeURIComponent(ssoEmail)}`)}
+              className={`${buttonClass.primary} mt-3 w-full`}
+              data-testid="login-sso-required"
+            >
+              {t('app.auth.login.continueWithSso')}
+            </a>
+          )}
+        </Notice>
+      )}
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          form.handleSubmit();
+        }}
+        noValidate
+        className="space-y-5"
+      >
+        <form.Field
+          name="email"
+          children={(field) => (
+            <FormField id="login-email" name={field.name} label={t('app.auth.workEmail')} required error={field.state.meta.errors as any}>
+              <FormInput
+                type="email"
+                autoComplete="email"
+                placeholder={t('app.auth.emailPlaceholder')}
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                leftIcon={<Mail className="size-4" />}
+              />
+            </FormField>
+          )}
+        />
+
+        <form.Field
+          name="password"
+          children={(field) => (
+            <FormField id="login-password" name={field.name} label={t('app.auth.password')} required error={field.state.meta.errors as any}>
+              <FormInput
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••••••"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                leftIcon={<Lock className="size-4" />}
+              />
+            </FormField>
+          )}
+        />
+
+        <div className="flex justify-end -mt-2">
+          <Link
+            href="/forgot-password"
+            className="text-xs font-semibold text-primary hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded-xs"
+          >
+            {t('app.auth.login.forgot')}
+          </Link>
+        </div>
+
+        <form.Subscribe
+          selector={(state) => ({ fieldMeta: state.fieldMeta, isSubmitting: state.isSubmitting })}
+          children={({ fieldMeta, isSubmitting }) => {
+            const activeErrors: Array<{ fieldId: string; label: string; error: unknown }> = [];
+            if (fieldMeta.email?.errors?.length) {
+              activeErrors.push({ fieldId: 'login-email', label: t('app.auth.workEmail'), error: fieldMeta.email.errors });
+            }
+            if (fieldMeta.password?.errors?.length) {
+              activeErrors.push({ fieldId: 'login-password', label: t('app.auth.password'), error: fieldMeta.password.errors });
+            }
+            const busy = isSubmitting || loginMutation.isPending;
+            return (
+              <div className="space-y-4 pt-1">
+                {activeErrors.length > 0 && <FormSummaryErrors errors={activeErrors as any} />}
+                <button type="submit" disabled={busy} className={`${buttonClass.primary} w-full`}>
+                  <Pending busy={busy} busyLabel={t('app.auth.login.submitting')} idle={<><span>{t('app.auth.login.submit')}</span><ArrowRight className="size-3.5" aria-hidden="true" /></>} />
+                </button>
+              </div>
+            );
+          }}
+        />
+      </form>
+
+      <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground">
+        <span>{t('app.auth.login.noAccount')} </span>
+        <Link
+          href="/signup"
+          className="font-semibold text-primary hover:underline focus:outline-none focus:ring-1 focus:ring-primary rounded-xs"
+        >
+          {t('app.auth.login.createAccount')}
+        </Link>
       </div>
-    </div>
+    </AuthCard>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <LoginForm />
+    </React.Suspense>
   );
 }

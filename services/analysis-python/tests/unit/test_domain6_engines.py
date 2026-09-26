@@ -491,6 +491,7 @@ async def test_mfs_confidence_classifier_invariants():
     ev = EvidenceEngine.create_evidence(
         artifact_path="test.json",
         content="snippet",
+        line_number=1,
         snippet="snippet",
         provenance=ConfidenceClass.VERIFIED,
     )
@@ -596,9 +597,10 @@ async def test_mfs_empty_payload_null_safety():
     )
 
     response = await EngineRunner.execute(req)
-    assert response.status == AnalysisStatus.COMPLETED
-    assert len(response.findings) == 0
-    assert response.metrics.artifacts_scanned == 1
+    # Empty input is rejected with a single UNKNOWN insufficient-input finding (no silent COMPLETED).
+    assert response.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in response.findings] == ["MFS_INSUFFICIENT_INPUT"]
+    assert response.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,23 @@
+# Gitleaks configuration: default ruleset plus an allowlist for deliberate
+# fake secrets used by redaction / secret-scanning tests and documentation
+# placeholders. Real credentials must never match these paths.
+title = "ERP Preflight gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic secrets in test fixtures, agent notes and placeholder docs"
+paths = [
+  '''^\.agents/''',
+  '''^apps/api/test/''',
+  '''^apps/local-agent/test/''',
+  '''^services/analysis-python/tests/''',
+  '''^tests/''',
+]
+regexTarget = "match"
+regexes = [
+  '''artifactS3Key:\s*(dto|obj)\.''',
+  '''0123456789abcdef0123456789abcdef''',
+  '''GENERATE_[A-Z_]+[\s\S]*''',
+]
