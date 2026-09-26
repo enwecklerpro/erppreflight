@@ -13,9 +13,9 @@ import {
   FolderGit2,
   Clock,
 } from 'lucide-react';
-import { MetricsCard } from '../components/metrics-card';
-import { EngineMatrix } from '../components/engine-matrix';
-import { fetchDashboardSummary, fetchCurrentUser, DashboardSummaryData } from '../lib/api-client';
+import { MetricsCard } from '../../components/metrics-card';
+import { EngineMatrix } from '../../components/engine-matrix';
+import { fetchDashboardSummary, fetchCurrentUser, DashboardSummaryData } from '../../lib/api-client';
 
 export default function ExecutiveDashboard() {
   const { data: authData, isLoading: authLoading } = useQuery({

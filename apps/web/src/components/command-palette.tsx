@@ -31,6 +31,14 @@ interface PaletteItem {
 
 const STATIC_ACTIONS: PaletteItem[] = [
   {
+    id: 'nav-dashboard',
+    title: 'Executive Dashboard',
+    category: 'NAVIGATION',
+    description: 'Clean core index, blockers and engine status across your workspaces',
+    href: '/dashboard',
+    icon: Activity,
+  },
+  {
     id: 'nav-projects',
     title: 'Project Workspaces',
     category: 'NAVIGATION',

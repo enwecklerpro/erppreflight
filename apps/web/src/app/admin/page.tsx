@@ -145,7 +145,7 @@ export default function SuperAdminPortal() {
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
-              href="/"
+              href="/dashboard"
               className="inline-flex items-center justify-center px-4 py-2 bg-muted text-foreground text-sm font-medium rounded-lg hover:bg-muted/80 transition-colors"
             >
               Return to Dashboard
