@@ -23,6 +23,10 @@ import { support } from './support';
 import { admin } from './admin';
 import { agentGate } from './agentGate';
 import { matrix } from './matrix';
+import { templates } from './templates';
+import { landscapes } from './landscapes';
+import { artifacts } from './artifacts';
+import { sapNative } from './sapNative';
 
 export const appEn = {
   ui,
@@ -47,6 +51,10 @@ export const appEn = {
   admin,
   agentGate,
   matrix,
+  templates,
+  landscapes,
+  artifacts,
+  sapNative,
 };
 
 export type AppMessages = typeof appEn;

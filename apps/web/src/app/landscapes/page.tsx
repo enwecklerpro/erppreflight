@@ -2,70 +2,66 @@
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Server,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  ExternalLink,
-  ShieldAlert,
-  Layers,
-  ShieldCheck,
-  Activity,
-  Lock,
-  X,
-  Loader2,
-} from 'lucide-react';
-import {
-  fetchLandscapes,
-  createLandscape,
-  removeLandscape,
-  testLandscapeConnection,
-  LandscapeItem,
-} from '@/lib/api-client';
+import { Server, Plus, Trash2, ShieldCheck, Activity, Lock, X, Loader2, AlertTriangle } from 'lucide-react';
+import { fetchLandscapes, createLandscape, removeLandscape, testLandscapeConnection } from '@/lib/api-client';
+import { Dialog } from '@/components/dialog';
+import { ErrorState } from '@/components/commercial/states';
+import { useErrorText, useFmt, useLabel, useT } from '@/i18n/client';
+
+const ENVS = ['DEV', 'QA', 'PROD'] as const;
+const input = 'w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30';
+
+interface HandshakeResult {
+  handshakeStatus?: string;
+  systemId?: string;
+  environment?: string;
+  protocol?: string;
+  latencyMs?: number;
+  handshakeTimestamp?: string;
+  writeSafety?: { policyStatement?: string; productionWriteLocked?: boolean; requiresDualApproval?: boolean };
+  discoveredApis?: Array<{ name: string; version: string; path: string; status: string }>;
+  supportedEngines?: string[];
+}
 
 export default function LandscapesPage() {
+  const t = useT();
+  const fmt = useFmt();
+  const label = useLabel();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
-  const { data: landscapes = [], isLoading: loading } = useQuery({
-    queryKey: ['landscapes'],
-    queryFn: fetchLandscapes,
-  });
+  const query = useQuery({ queryKey: ['landscapes'], queryFn: fetchLandscapes });
+  const landscapes = query.data ?? [];
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [handshakeResult, setHandshakeResult] = useState<any | null>(null);
+  const [handshakeResult, setHandshakeResult] = useState<HandshakeResult | null>(null);
 
   const [systemId, setSystemId] = useState('');
-  const [product, setProduct] = useState('SAP S/4HANA');
-  const [edition, setEdition] = useState('Private Cloud');
   const [release, setRelease] = useState('2023');
-  const [environment, setEnvironment] = useState('DEV');
-  const [criticality, setCriticality] = useState('HIGH');
+  const [environment, setEnvironment] = useState<string>('DEV');
   const [url, setUrl] = useState('');
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => createLandscape(data),
+    mutationFn: (data: Parameters<typeof createLandscape>[0]) => createLandscape(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['landscapes'] });
       setShowAddModal(false);
       setSystemId('');
       setUrl('');
-    }
+    },
   });
-
   const testMutation = useMutation({
     mutationFn: (id: string) => testLandscapeConnection(id),
     onMutate: (id) => setTestingId(id),
     onSuccess: (res) => {
-      setHandshakeResult(res);
+      setHandshakeResult(res as HandshakeResult);
       queryClient.invalidateQueries({ queryKey: ['landscapes'] });
     },
-    onSettled: () => setTestingId(null)
+    onSettled: () => setTestingId(null),
   });
-
   const removeMutation = useMutation({
     mutationFn: (id: string) => removeLandscape(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['landscapes'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['landscapes'] }),
   });
 
   function handleCreate(e: React.FormEvent) {
@@ -73,314 +69,266 @@ export default function LandscapesPage() {
     if (!systemId.trim()) return;
     createMutation.mutate({
       systemId: systemId.trim(),
-      product,
-      edition,
+      product: 'SAP S/4HANA',
+      edition: 'Private Cloud',
       release,
       environment,
-      criticality,
+      criticality: 'HIGH',
       url: url.trim() || undefined,
-    });
+    } as Parameters<typeof createLandscape>[0]);
   }
 
-  function handleTest(id: string) {
-    testMutation.mutate(id);
-  }
-
-  function handleRemove(id: string) {
-    removeMutation.mutate(id);
-  }
+  const actionError = testMutation.error ?? removeMutation.error;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2 border border-cyan-500/20">
-              <Server className="w-3.5 h-3.5" />
-              Part 16 Landscape Registry
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-              Enterprise System Landscape Model
-            </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Register and govern development, staging, and production SAP systems for automated preflight environment routing.
-            </p>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-2 border border-primary/20">
+            <Server className="w-3.5 h-3.5" aria-hidden="true" />
+            {t('app.landscapes.eyebrow')}
           </div>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Register SAP System
-          </button>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground">{t('app.landscapes.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('app.landscapes.intro')}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAddModal(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow-sm hover:bg-primary/90 self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          {t('app.landscapes.register')}
+        </button>
+      </div>
 
-        {/* Systems Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {['DEV', 'QA', 'PROD'].map((env) => {
+      {actionError && <ErrorState title={t('app.landscapes.actionFailed')} error={actionError} />}
+
+      {query.isError ? (
+        <ErrorState title={t('app.landscapes.loadFailed')} error={query.error} onRetry={() => query.refetch()} />
+      ) : query.isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-busy="true" aria-label={t('app.landscapes.loading')}>
+          {ENVS.map((e) => (
+            <div key={e} className="h-48 rounded-xl border border-border bg-card animate-pulse motion-reduce:animate-none" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {ENVS.map((env) => {
             const envSystems = landscapes.filter((l) => l.environment === env);
-            const isProd = env === 'PROD';
             return (
-              <div key={env} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
-                    <span className="font-bold text-sm text-white flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${isProd ? 'bg-rose-500' : env === 'QA' ? 'bg-amber-400' : 'bg-cyan-400'}`} />
-                      {env} Environment Tier
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">{envSystems.length} systems</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {envSystems.length === 0 ? (
-                      <div className="text-center py-6 text-xs text-slate-500">No systems registered in {env}</div>
-                    ) : (
-                      envSystems.map((sys) => (
-                        <div key={sys.id} className="p-3.5 bg-slate-950 rounded-lg border border-slate-800/80">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-mono font-bold text-white text-xs">{sys.system_id}</span>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase ${
-                                sys.criticality === 'CRITICAL'
-                                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                                  : 'bg-slate-800 text-slate-300 border-slate-700'
-                              }`}
-                            >
-                              {sys.criticality}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-400">
-                            {sys.product} ({sys.release}) • {sys.edition}
-                          </div>
-                          {sys.url && (
-                            <div className="text-[10px] text-cyan-400 font-mono mt-1 truncate">
-                              {sys.url}
-                            </div>
-                          )}
-                          <div className="mt-2 pt-2 border-t border-slate-900 flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={() => handleTest(sys.id)}
-                              disabled={testingId === sys.id}
-                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-slate-900 hover:bg-slate-800 text-cyan-400 text-[10px] font-semibold rounded border border-slate-800 transition-colors disabled:opacity-50"
-                            >
-                              {testingId === sys.id ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  Probing...
-                                </>
-                              ) : (
-                                <>
-                                  <Activity className="w-3 h-3" />
-                                  Test Handshake
-                                </>
-                              )}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRemove(sys.id)}
-                              className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+              <section key={env} aria-labelledby={`env-${env}`} className="bg-card border border-border rounded-xl p-5 min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-4 pb-2 border-b border-border">
+                  <h2 id={`env-${env}`} className="font-bold text-sm text-foreground flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${env === 'PROD' ? 'bg-rose-500' : env === 'QA' ? 'bg-amber-400' : 'bg-cyan-500'}`} aria-hidden="true" />
+                    {t('app.landscapes.envTitle', { env })}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">{t('app.landscapes.systems', { count: envSystems.length })}</span>
                 </div>
-              </div>
+                {envSystems.length === 0 ? (
+                  <p className="text-center py-6 text-sm text-muted-foreground">{t('app.landscapes.noSystems', { env })}</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {envSystems.map((sys) => (
+                      <li key={sys.id} className="p-3.5 bg-background rounded-lg border border-border">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="font-mono font-bold text-foreground text-sm break-all">{sys.system_id}</span>
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded border ${
+                              sys.criticality === 'CRITICAL' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30' : 'bg-muted text-muted-foreground border-border'
+                            }`}
+                          >
+                            {sys.criticality === 'CRITICAL' && <AlertTriangle className="size-3" aria-hidden="true" />}
+                            {label('app.landscapes.criticality', sys.criticality)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {sys.product} ({sys.release}) • {sys.edition}
+                        </div>
+                        {sys.url && <div className="text-xs text-primary font-mono mt-1 truncate">{sys.url}</div>}
+                        <div className="mt-2 pt-2 border-t border-border flex flex-wrap items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => testMutation.mutate(sys.id)}
+                            disabled={testingId === sys.id}
+                            aria-label={t('app.landscapes.testLabel', { system: sys.system_id })}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 bg-muted hover:bg-muted/70 text-primary text-xs font-semibold rounded border border-border disabled:opacity-50"
+                          >
+                            {testingId === sys.id ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                                {t('app.landscapes.testing')}
+                              </>
+                            ) : (
+                              <>
+                                <Activity className="w-3 h-3" aria-hidden="true" />
+                                {t('app.landscapes.test')}
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(t('app.landscapes.removeConfirm', { system: sys.system_id }))) removeMutation.mutate(sys.id);
+                            }}
+                            aria-label={t('app.landscapes.removeLabel', { system: sys.system_id })}
+                            className="text-rose-700 hover:text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" aria-hidden="true" />
+                            {t('app.landscapes.remove')}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             );
           })}
         </div>
+      )}
 
-        {/* Add Modal */}
-        {showAddModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
-              <h2 className="text-lg font-bold text-white mb-4">Register SAP System in Landscape</h2>
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">System ID (e.g. S4H_PRD)</label>
-                  <input
-                    type="text"
-                    required
-                    value={systemId}
-                    onChange={(e) => setSystemId(e.target.value)}
-                    placeholder="S4H_DEV_100"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Environment Tier</label>
-                    <select
-                      value={environment}
-                      onChange={(e) => setEnvironment(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="DEV">DEV (Development)</option>
-                      <option value="QA">QA (Quality Assurance)</option>
-                      <option value="PROD">PROD (Production)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Release Scope</label>
-                    <input
-                      type="text"
-                      value={release}
-                      onChange={(e) => setRelease(e.target.value)}
-                      placeholder="2023"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Internal Hostname / Gateway URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://s4h-dev.internal:44300"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="px-4 py-2 rounded-lg text-xs text-slate-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs"
-                  >
-                    Save System
-                  </button>
-                </div>
-              </form>
+      {showAddModal && (
+        <Dialog labelledBy="add-system-title" onClose={() => setShowAddModal(false)} className="max-w-md">
+          <h2 id="add-system-title" className="text-lg font-bold text-foreground">
+            {t('app.landscapes.dialogTitle')}
+          </h2>
+          {createMutation.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {errText(createMutation.error, t('app.landscapes.createFailed'))}
+            </p>
+          )}
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div>
+              <label htmlFor="ls-system" className="block text-sm font-semibold text-foreground mb-1">{t('app.landscapes.systemId')}</label>
+              <input id="ls-system" type="text" required value={systemId} onChange={(e) => setSystemId(e.target.value)} placeholder="S4H_DEV_100" className={`${input} font-mono`} />
             </div>
-          </div>
-        )}
-
-        {/* Handshake Capability & Write-Safety Modal (Part 18.1 - 18.4) */}
-        {handshakeResult && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                    <ShieldCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      Connector Handshake Verified
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                        {handshakeResult.handshakeStatus}
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      System {handshakeResult.systemId} ({handshakeResult.environment}) • {handshakeResult.protocol} • Latency {handshakeResult.latencyMs} ms
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setHandshakeResult(null)}
-                  className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="ls-env" className="block text-sm font-semibold text-foreground mb-1">{t('app.landscapes.environment')}</label>
+                <select id="ls-env" value={environment} onChange={(e) => setEnvironment(e.target.value)} className={input}>
+                  {ENVS.map((e) => (
+                    <option key={e} value={e}>
+                      {t(`app.landscapes.env.${e}`)}
+                    </option>
+                  ))}
+                </select>
               </div>
+              <div>
+                <label htmlFor="ls-release" className="block text-sm font-semibold text-foreground mb-1">{t('app.landscapes.release')}</label>
+                <input id="ls-release" type="text" value={release} onChange={(e) => setRelease(e.target.value)} placeholder="2023" className={input} />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="ls-url" className="block text-sm font-semibold text-foreground mb-1">{t('app.landscapes.url')}</label>
+              <input id="ls-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://s4h-dev.example.com:44300" className={input} />
+            </div>
+            <div className="flex justify-end gap-3 pt-3 border-t border-border">
+              <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground">
+                {t('app.landscapes.cancel')}
+              </button>
+              <button type="submit" disabled={createMutation.isPending} className="px-5 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50">
+                {createMutation.isPending ? t('app.landscapes.saving') : t('app.landscapes.save')}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
 
-              {/* Write Safety Verification Banner */}
-              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-                  <Lock className="w-4 h-4 text-cyan-400" />
-                  Write Safety & Isolation Policy
-                </div>
-                <p className="text-xs text-slate-300">
-                  {handshakeResult.writeSafety?.policyStatement}
+      {handshakeResult && (
+        <Dialog labelledBy="handshake-title" onClose={() => setHandshakeResult(null)} className="max-w-2xl">
+          <div className="flex items-start justify-between gap-3 pb-3 border-b border-border">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 shrink-0">
+                <ShieldCheck className="w-5 h-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 id="handshake-title" className="text-base font-bold text-foreground flex flex-wrap items-center gap-2">
+                  {t('app.landscapes.handshakeTitle')}
+                  {handshakeResult.handshakeStatus && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-mono">
+                      {handshakeResult.handshakeStatus}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {t('app.landscapes.handshakeSummary', {
+                    system: handshakeResult.systemId ?? '—',
+                    env: handshakeResult.environment ?? '—',
+                    protocol: handshakeResult.protocol ?? '—',
+                    ms: handshakeResult.latencyMs ?? 0,
+                  })}
                 </p>
-                <div className="grid grid-cols-3 gap-2 pt-1">
-                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
-                    <span className="text-slate-400 block text-[10px]">Read-Only Engine</span>
-                    <span className="text-emerald-400 font-semibold">Active & Enforced</span>
-                  </div>
-                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
-                    <span className="text-slate-400 block text-[10px]">Production Write Lock</span>
-                    <span className="text-emerald-400 font-semibold">
-                      {handshakeResult.writeSafety?.productionWriteLocked ? 'Permanently Locked' : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800/80 text-[11px]">
-                    <span className="text-slate-400 block text-[10px]">Dual Approval Gate</span>
-                    <span className={handshakeResult.writeSafety?.requiresDualApproval ? 'text-amber-400 font-semibold' : 'text-slate-400'}>
-                      {handshakeResult.writeSafety?.requiresDualApproval ? 'Mandatory' : 'Optional'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Discovered APIs */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-                  <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                  Discovered APIs & Catalog Services
-                </h4>
-                <div className="divide-y divide-slate-800/60 border border-slate-800 rounded-xl overflow-hidden">
-                  {handshakeResult.discoveredApis?.map((api: any, idx: number) => (
-                    <div key={idx} className="p-2.5 bg-slate-950/60 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="text-white font-medium">{api.name}</span>
-                        <span className="text-slate-400 font-mono text-[10px] ml-2">v{api.version}</span>
-                        <div className="text-[10px] font-mono text-slate-400 truncate max-w-md">{api.path}</div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
-                        {api.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Supported Engines */}
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-semibold text-slate-300">
-                  Target Preflight Engines Enabled
-                </h4>
-                <div className="flex flex-wrap gap-1.5">
-                  {handshakeResult.supportedEngines?.map((eng: string) => (
-                    <span key={eng} className="px-2 py-0.5 bg-slate-950 text-slate-300 border border-slate-800 rounded text-[10px] font-mono">
-                      {eng}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center pt-3 border-t border-slate-800 text-[11px] text-slate-400">
-                <span>Handshake logged at {new Date(handshakeResult.handshakeTimestamp).toLocaleTimeString()}</span>
-                <button
-                  type="button"
-                  onClick={() => setHandshakeResult(null)}
-                  className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-semibold transition-colors"
-                >
-                  Close
-                </button>
               </div>
             </div>
+            <button type="button" onClick={() => setHandshakeResult(null)} aria-label={t('app.landscapes.close')} className="p-1 text-muted-foreground hover:text-foreground rounded-lg">
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
           </div>
-        )}
-      </div>
+
+          <div className="p-3.5 bg-muted/40 rounded-xl border border-border space-y-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Lock className="w-4 h-4 text-primary" aria-hidden="true" />
+              {t('app.landscapes.writeSafety')}
+            </div>
+            {handshakeResult.writeSafety?.policyStatement && <p className="text-sm text-muted-foreground">{handshakeResult.writeSafety.policyStatement}</p>}
+            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-sm">
+              <div className="bg-card p-2 rounded border border-border">
+                <dt className="text-muted-foreground text-xs">{t('app.landscapes.readOnly')}</dt>
+                <dd className="font-semibold">{t('app.landscapes.readOnlyValue')}</dd>
+              </div>
+              <div className="bg-card p-2 rounded border border-border">
+                <dt className="text-muted-foreground text-xs">{t('app.landscapes.prodLock')}</dt>
+                <dd className="font-semibold">{handshakeResult.writeSafety?.productionWriteLocked ? t('app.landscapes.locked') : t('app.landscapes.notApplicable')}</dd>
+              </div>
+              <div className="bg-card p-2 rounded border border-border">
+                <dt className="text-muted-foreground text-xs">{t('app.landscapes.dualApproval')}</dt>
+                <dd className="font-semibold">{handshakeResult.writeSafety?.requiresDualApproval ? t('app.landscapes.mandatory') : t('app.landscapes.optional')}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {!!handshakeResult.discoveredApis?.length && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Activity className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                {t('app.landscapes.apis')}
+              </h3>
+              <ul className="divide-y divide-border border border-border rounded-xl overflow-hidden">
+                {handshakeResult.discoveredApis.map((a, idx) => (
+                  <li key={idx} className="p-2.5 flex items-center justify-between gap-2 text-sm">
+                    <div className="min-w-0">
+                      <span className="text-foreground font-medium">{a.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs ml-2">v{a.version}</span>
+                      <div className="text-xs font-mono text-muted-foreground truncate">{a.path}</div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-xs bg-muted border border-border font-semibold shrink-0">{a.status}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!!handshakeResult.supportedEngines?.length && (
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-semibold text-foreground">{t('app.landscapes.engines')}</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {handshakeResult.supportedEngines.map((eng) => (
+                  <span key={eng} className="px-2 py-0.5 bg-muted border border-border rounded text-xs font-mono break-all">
+                    {eng}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-between items-center gap-2 pt-3 border-t border-border text-xs text-muted-foreground">
+            <span>{t('app.landscapes.loggedAt', { time: fmt.time(handshakeResult.handshakeTimestamp) })}</span>
+            <button type="button" onClick={() => setHandshakeResult(null)} className="px-4 py-1.5 rounded-lg bg-muted hover:bg-muted/70 text-foreground font-semibold text-sm">
+              {t('app.landscapes.close')}
+            </button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -22,6 +22,10 @@ import { support } from './support';
 import { admin } from './admin';
 import { agentGate } from './agentGate';
 import { matrix } from './matrix';
+import { templates } from './templates';
+import { landscapes } from './landscapes';
+import { artifacts } from './artifacts';
+import { sapNative } from './sapNative';
 
 export const appDe: AppMessages = {
   ui,
@@ -46,4 +50,8 @@ export const appDe: AppMessages = {
   admin,
   agentGate,
   matrix,
+  templates,
+  landscapes,
+  artifacts,
+  sapNative,
 };
