@@ -52,6 +52,8 @@ export const PRIVATE_ROUTE_PREFIXES = [
   '/landscapes',
   '/agent-gate',
   '/settings',
+  '/integrations',
+  '/sso',
   '/admin',
   '/onboarding',
   '/feedback',

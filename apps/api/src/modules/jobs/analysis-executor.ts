@@ -213,7 +213,9 @@ export class AnalysisExecutor {
     private readonly storage: S3StorageService | undefined,
     private readonly analysisUrl: string,
     private readonly logger: Logger,
-    private readonly releasedObjects?: ReleasedObjectsSource
+    private readonly releasedObjects?: ReleasedObjectsSource,
+    /** Observability hook: engine call latency + outcome (C §57). */
+    private readonly onEngineCall?: (engine: string, outcome: EngineRunOutcome, durationMs: number) => void
   ) {}
 
   /**
@@ -640,6 +642,11 @@ export class AnalysisExecutor {
       call.error = String(err?.message ?? err).slice(0, 300);
     } finally {
       call.durationMs = Date.now() - started;
+      try {
+        this.onEngineCall?.(engine, call.outcome, call.durationMs);
+      } catch {
+        /* metrics must never break analysis */
+      }
     }
     return { call, persisted };
   }

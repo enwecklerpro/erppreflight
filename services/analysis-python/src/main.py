@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from src.config import get_settings
 from src.api.router import api_router
 from src.api.middleware import CorrelationIdMiddleware, PayloadSizeLimitMiddleware
+from src.observability import setup_tracing, shutdown_tracing
 import src.engines  # noqa: F401 — triggers auto-registration of all 19 engines
 
 
@@ -11,7 +12,7 @@ import src.engines  # noqa: F401 — triggers auto-registration of all 19 engine
 async def lifespan(app: FastAPI):
     # Startup: ensure engines are loaded
     yield
-    # Shutdown logic if any
+    shutdown_tracing()
 
 
 def create_app() -> FastAPI:
@@ -41,6 +42,9 @@ def create_app() -> FastAPI:
 
     # Mount routes
     app.include_router(api_router)
+
+    # Opt-in OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT + the 'otel' extra); no-op otherwise.
+    setup_tracing(app, settings.SERVICE_NAME, settings.SERVICE_VERSION, settings.ENVIRONMENT)
 
     return app
 
