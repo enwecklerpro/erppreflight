@@ -245,6 +245,17 @@ export class IngestionService {
     options: { actorId?: string | null; source?: string }
   ): Promise<void> {
     if (!this.usage || (result?.status !== 'CLEAN' && result?.status !== 'QUARANTINED')) return;
+    // Exactly-once guard independent of the scan claim: a stale SCANNING claim can be re-taken while the
+    // original (slow, not crashed) scan still finishes, so both would reach this point. Only the caller
+    // that flips the per-file `usageMetered` marker records usage.
+    const marker = await this.db.query(
+      `UPDATE uploaded_files
+          SET metadata = metadata || jsonb_build_object('usageMetered', true)
+        WHERE id = $1 AND organization_id = $2 AND NOT (metadata ? 'usageMetered')
+        RETURNING id`,
+      [fileId, tenantId]
+    );
+    if (!marker.rows?.length) return;
     const meta = { status: result.status, source: options.source ?? 'upload' };
     const common = { resourceType: 'ARTIFACT', resourceId: fileId, actorId: options.actorId ?? null, metadata: meta };
     await this.usage.recordSafe(tenantId, 'ARTIFACT_UPLOAD', 1, common);

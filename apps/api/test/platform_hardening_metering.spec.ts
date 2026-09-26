@@ -37,6 +37,11 @@ function fakeDb(initialStatus: string, extra: Record<string, unknown> = {}) {
       }
       return { rows: [] };
     }
+    if (/SET metadata = metadata \|\| jsonb_build_object\('usageMetered', true\)/.test(sql)) {
+      if (row.metadata.usageMetered) return { rows: [] };
+      row.metadata = { ...row.metadata, usageMetered: true };
+      return { rows: [{ id: row.id }] };
+    }
     if (/^SELECT \* FROM uploaded_files/.test(sql)) return { rows: [{ ...row }] };
     return { rows: [] };
   });
@@ -88,6 +93,28 @@ describe('P3: artifact metering on the presigned confirm path (exactly once)', (
     vi.spyOn(svc, 'processFile').mockRejectedValueOnce(new Error('magic bytes mismatch'));
     await expect(svc.confirmUpload(ORG, PROJECT, FILE)).rejects.toThrow(/magic bytes/);
     expect(usage.recordSafe).not.toHaveBeenCalled();
+  });
+
+  it('a stale claim re-taken while the original scan still completes meters only once', async () => {
+    const { row, query } = fakeDb('PENDING_SCAN');
+    const usage = { recordSafe: vi.fn(async () => true) };
+    const svc = new IngestionService({ query } as any, {} as any, {} as any, {} as any, {} as any, {} as any, usage as any);
+    let releaseFirst!: () => void;
+    const firstScan = new Promise<void>((resolve) => (releaseFirst = resolve));
+    vi.spyOn(svc, 'processFile')
+      .mockImplementationOnce(async () => {
+        await firstScan; // slow scan outlives the stale window
+        return { fileId: FILE, status: 'CLEAN', sizeBytes: 10 } as any;
+      })
+      .mockImplementationOnce(async () => ({ fileId: FILE, status: 'CLEAN', sizeBytes: 10 }) as any);
+    const first = svc.confirmUpload(ORG, PROJECT, FILE);
+    await new Promise((r) => setImmediate(r));
+    // The claim went stale (fake: SCANNING without scanStartedAt) and a second confirm re-claims it.
+    row.metadata = { ...row.metadata, scanStartedAt: undefined };
+    await svc.confirmUpload(ORG, PROJECT, FILE);
+    releaseFirst();
+    await first;
+    expect(usage.recordSafe).toHaveBeenCalledTimes(2); // ARTIFACT_UPLOAD + ARTIFACT_BYTES, once
   });
 
   it('answers 409 while another confirm is scanning and 404 for a foreign file', async () => {
