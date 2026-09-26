@@ -39,6 +39,7 @@ import { SapImportModule } from './modules/sap-import/sap-import.module';
 import { OutboxModule } from './modules/outbox/outbox.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { resolveRedisConnectionOptions } from './modules/jobs/redis-connection.factory';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { UsageModule } from './modules/usage/usage.module';
 import { RetentionModule } from './modules/retention/retention.module';
@@ -53,13 +54,7 @@ import { SupportModule } from './modules/support/support.module';
     }),
     BullModule.forRootAsync({
       useFactory: (config: ConfigService) => ({
-        connection: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: Number(config.get<number>('REDIS_PORT', 6379)),
-          password: config.get<string>('REDIS_PASSWORD') || undefined,
-          db: Number(config.get<number>('REDIS_DB', 0)) || 0,
-          maxRetriesPerRequest: null,
-        },
+        connection: resolveRedisConnectionOptions(config),
       }),
       inject: [ConfigService],
     }),
