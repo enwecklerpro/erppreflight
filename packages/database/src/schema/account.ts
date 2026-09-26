@@ -25,11 +25,18 @@ export const userRecoveryCodes = pgTable('user_recovery_codes', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const revokedSessions = pgTable('revoked_sessions', {
-  jti: uuid('jti').primaryKey(),
+/** Server-side session registry; the access token's jti is the session id. */
+export const userSessions = pgTable('user_sessions', {
+  id: uuid('id').primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }).defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  revokedReason: varchar('revoked_reason', { length: 40 }),
+  ip: varchar('ip', { length: 64 }),
+  userAgent: varchar('user_agent', { length: 512 }),
+  authMethod: varchar('auth_method', { length: 20 }).default('PASSWORD').notNull(),
 });
 
 export const mailOutbox = pgTable('mail_outbox', {

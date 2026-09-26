@@ -41,6 +41,12 @@ export class AcceptInvitationNewAccountDto extends InvitationTokenDto {
   fullName?: string;
 }
 
+export class TransferOwnershipDto {
+  @IsString()
+  @Matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  memberId: string;
+}
+
 export class OrganizationSecurityDto {
   @IsBoolean()
   require2fa: boolean;

@@ -13,6 +13,8 @@ import { LoginDto, RegisterDto } from './dto/auth.dto';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { hash, verify } from '@node-rs/argon2';
 import { EmailVerificationService } from './email-verification.service';
+import { SessionAuthMethod, SessionService } from './session.service';
+import type { RequestMeta } from './security-audit.service';
 
 const ARGON2ID_ALGORITHM = 2; // Algorithm.Argon2id (RFC 9106 recommended)
 const ARGON2_OPTIONS = {
@@ -21,6 +23,24 @@ const ARGON2_OPTIONS = {
   timeCost: 2,
   parallelism: 1,
 } as const;
+
+/**
+ * True when a stored hash is not Argon2id with the current parameters (spec §8.1
+ * rehash-on-login). Legacy non-Argon2 hashes never authenticate at all.
+ */
+export function passwordHashNeedsRehash(stored: string): boolean {
+  const match = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$/.exec(String(stored || ''));
+  if (!match) return true;
+  return (
+    Number(match[1]) !== 19 ||
+    Number(match[2]) !== ARGON2_OPTIONS.memoryCost ||
+    Number(match[3]) !== ARGON2_OPTIONS.timeCost ||
+    Number(match[4]) !== ARGON2_OPTIONS.parallelism
+  );
+}
+
+/** Fallback session lifetime when the token expiry cannot be decoded. */
+const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_BOOTSTRAP_PASSWORD_LENGTH = 12;
 const BOOTSTRAP_ORG_SLUG = 'erppreflight-global';
 const BOOTSTRAP_ORG_NAME = 'ERP Preflight Global';
@@ -74,7 +94,8 @@ export class AuthService implements OnApplicationBootstrap {
   constructor(
     private readonly db: DatabaseService,
     private readonly jwt: JwtService,
-    private readonly verification: EmailVerificationService
+    private readonly verification: EmailVerificationService,
+    private readonly sessions: SessionService
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -195,7 +216,7 @@ export class AuthService implements OnApplicationBootstrap {
     await this.verifyPassword(plain, this.dummyHash);
   }
 
-  async register(dto: RegisterDto, meta: { ip?: string | null } = {}): Promise<SessionResult> {
+  async register(dto: RegisterDto, meta: RequestMeta = {}): Promise<SessionResult> {
     const email = dto.email.trim().toLowerCase();
     assertPasswordPolicy(dto.password, { email });
 
@@ -247,15 +268,19 @@ export class AuthService implements OnApplicationBootstrap {
     //    request a new link from the banner (POST /auth/verify-email/resend).
     await this.verification.issueSafely({ userId, email, fullName: dto.fullName || null, ip: meta.ip });
 
-    // 6. Sign token
-    const accessToken = this.signAccessToken({
-      userId,
-      email,
-      organizationId: orgId,
-      role: 'ORGANIZATION_OWNER',
-      systemRole: 'USER',
-      tokenVersion: 0,
-    });
+    // 6. Sign token (bound to a new server-side session)
+    const accessToken = await this.issueSessionToken(
+      {
+        userId,
+        email,
+        organizationId: orgId,
+        role: 'ORGANIZATION_OWNER',
+        systemRole: 'USER',
+        tokenVersion: 0,
+      },
+      'SIGNUP',
+      meta
+    );
 
     return {
       accessToken,
@@ -276,7 +301,7 @@ export class AuthService implements OnApplicationBootstrap {
    * Password step. Returns a session, or — when TOTP 2FA is enabled — a short-lived
    * challenge token that must be completed with POST /auth/login/2fa.
    */
-  async login(dto: LoginDto): Promise<LoginResult> {
+  async login(dto: LoginDto, meta: RequestMeta = {}): Promise<LoginResult> {
     const userRes = await this.db.query(
       `SELECT u.id, u.password_hash, u.status, u.token_version, u.totp_enabled_at
        FROM users u
@@ -300,6 +325,14 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Account is not active');
     }
 
+    if (passwordHashNeedsRehash(row.password_hash)) {
+      // Parameters changed since the hash was created: upgrade transparently.
+      const upgraded = await this.hashPassword(dto.password);
+      await this.db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [upgraded, row.id], {
+        bypassRls: true,
+      });
+    }
+
     if (row.totp_enabled_at) {
       return {
         mfaRequired: true,
@@ -308,7 +341,7 @@ export class AuthService implements OnApplicationBootstrap {
       };
     }
 
-    return this.createSession(row.id);
+    return this.createSession(row.id, { meta, authMethod: 'PASSWORD' });
   }
 
   /**
@@ -317,7 +350,11 @@ export class AuthService implements OnApplicationBootstrap {
    */
   async createSession(
     userId: string,
-    options: { preferredOrganizationId?: string | null } = {}
+    options: {
+      preferredOrganizationId?: string | null;
+      meta?: RequestMeta;
+      authMethod?: SessionAuthMethod;
+    } = {}
   ): Promise<SessionResult> {
     const preferred =
       options.preferredOrganizationId && isUuid(options.preferredOrganizationId)
@@ -349,14 +386,18 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('User has no active organization assignment');
     }
     const role = row.role || 'VIEWER';
-    const accessToken = this.signAccessToken({
-      userId: row.id,
-      email: row.email,
-      organizationId,
-      role,
-      systemRole: row.system_role,
-      tokenVersion: Number(row.token_version ?? 0),
-    });
+    const accessToken = await this.issueSessionToken(
+      {
+        userId: row.id,
+        email: row.email,
+        organizationId,
+        role,
+        systemRole: row.system_role,
+        tokenVersion: Number(row.token_version ?? 0),
+      },
+      options.authMethod || 'PASSWORD',
+      options.meta
+    );
     const mfaEnabled = !!row.totp_enabled_at;
     return {
       accessToken,
@@ -376,23 +417,38 @@ export class AuthService implements OnApplicationBootstrap {
     };
   }
 
-  signAccessToken(params: {
-    userId: string;
-    email: string;
-    organizationId: string;
-    role: string;
-    systemRole: string;
-    tokenVersion: number;
-  }): string {
-    return this.jwt.sign({
+  /** Registers a server-side session and signs an access token bound to it (jti). */
+  private async issueSessionToken(
+    params: {
+      userId: string;
+      email: string;
+      organizationId: string;
+      role: string;
+      systemRole: string;
+      tokenVersion: number;
+    },
+    authMethod: SessionAuthMethod,
+    meta: RequestMeta = {}
+  ): Promise<string> {
+    const sessionId = uuidv4();
+    const token = this.jwt.sign({
       sub: params.userId,
       email: params.email,
       organizationId: params.organizationId,
       role: params.role,
       systemRole: params.systemRole,
       tv: params.tokenVersion,
-      jti: uuidv4(),
+      jti: sessionId,
     });
+    let expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_MS);
+    try {
+      const decoded: any = this.jwt.decode(token);
+      if (decoded?.exp) expiresAt = new Date(decoded.exp * 1000);
+    } catch {
+      // keep default
+    }
+    await this.sessions.create({ id: sessionId, userId: params.userId, expiresAt, authMethod, meta });
+    return token;
   }
 
   signMfaChallenge(userId: string, tokenVersion: number): string {

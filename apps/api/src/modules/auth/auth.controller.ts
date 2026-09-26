@@ -9,6 +9,9 @@ import {
   Res,
   Req,
   ForbiddenException,
+  Delete,
+  Param,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
@@ -47,6 +50,7 @@ import { TwoFactorService } from './two-factor.service';
 import { RequestMeta } from './security-audit.service';
 import { cookieExtractor } from './strategies/jwt.strategy';
 import { DatabaseService } from '../database/database.service';
+import { SessionService } from './session.service';
 
 export const SESSION_COOKIE_NAME = 'erppreflight_session';
 export const SESSION_COOKIE_OPTIONS = {
@@ -86,7 +90,8 @@ export class AuthController {
     private readonly accountSecurity: AccountSecurityService,
     private readonly twoFactor: TwoFactorService,
     private readonly jwt: JwtService,
-    private readonly db: DatabaseService
+    private readonly db: DatabaseService,
+    private readonly sessions: SessionService
   ) {}
 
   private withCookie(res: Response | undefined, session: SessionResult): SessionResult {
@@ -102,7 +107,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @Req() req?: Request
   ) {
-    const result = await this.authService.register(dto, { ip: requestMeta(req).ip });
+    const result = await this.authService.register(dto, requestMeta(req));
     return this.withCookie(res, result);
   }
 
@@ -111,8 +116,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @AuthRateLimit(LOGIN_RATE_LIMIT)
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response, @Req() req?: Request) {
+    const result = await this.authService.login(dto, requestMeta(req));
     if (isMfaChallenge(result)) {
       return result;
     }
@@ -137,7 +142,7 @@ export class AuthController {
     return this.withCookie(res, session);
   }
 
-  /** Revokes the presented token (if valid) and clears the session cookie. */
+  /** Revokes the presented token's server-side session (if valid) and clears the session cookie. */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(@Res({ passthrough: true }) res: Response, @Req() req?: Request) {
@@ -147,11 +152,11 @@ export class AuthController {
     if (token) {
       try {
         const payload: any = this.jwt.verify(token);
-        if (payload?.jti && payload?.sub && payload?.exp && !payload.typ) {
-          await this.accountSecurity.revokeSession(payload.jti, payload.sub, payload.exp);
+        if (payload?.jti && payload?.sub && !payload.typ) {
+          await this.accountSecurity.revokeSession(payload.sub, payload.jti, 'LOGOUT');
         }
       } catch {
-        // Invalid / expired token: nothing to revoke.
+        // Invalid / expired token or session already revoked: nothing to revoke.
       }
     }
     clearSessionCookie(res);
@@ -171,6 +176,27 @@ export class AuthController {
     const result = await this.accountSecurity.logoutAll(userId, requestMeta(req));
     clearSessionCookie(res);
     return result;
+  }
+
+  /** Active sessions of the caller (device management). */
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @DenyApiKeyAuth()
+  async listSessions(@CurrentUser() user: any) {
+    return this.sessions.list(user.id, user.jti);
+  }
+
+  /** Signs out one session (device) of the caller. */
+  @Delete('sessions/:sessionId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @DenyApiKeyAuth()
+  async revokeSession(
+    @CurrentUser('id') userId: string,
+    @Param('sessionId', new ParseUUIDPipe()) sessionId: string,
+    @Req() req: Request
+  ) {
+    return this.accountSecurity.revokeSession(userId, sessionId, 'USER_REVOKED', requestMeta(req));
   }
 
   @UseGuards(JwtAuthGuard)
@@ -354,10 +380,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @DenyApiKeyAuth()
   async switchOrganization(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: any,
     @Body() dto: SwitchOrganizationDto,
-    @Res({ passthrough: true }) res: Response
+    @Res({ passthrough: true }) res: Response,
+    @Req() req: Request
   ) {
+    const userId: string = user.id;
     const membership = await this.db.query(
       `SELECT 1 FROM organization_members m JOIN organizations o ON o.id = m.organization_id
        WHERE m.user_id = $1 AND m.organization_id = $2 AND o.status = 'ACTIVE'`,
@@ -367,7 +395,14 @@ export class AuthController {
     if (membership.rows.length === 0) {
       throw new ForbiddenException('Access denied: You are not an active member of this organization');
     }
-    const session = await this.authService.createSession(userId, { preferredOrganizationId: dto.organizationId });
+    const session = await this.authService.createSession(userId, {
+      preferredOrganizationId: dto.organizationId,
+      meta: requestMeta(req),
+    });
+    // The new session replaces the calling one (no session pile-up when switching).
+    if (user.jti) {
+      await this.sessions.revoke(userId, user.jti, 'LOGOUT').catch(() => undefined);
+    }
     return this.withCookie(res, session);
   }
 }

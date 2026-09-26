@@ -9,11 +9,11 @@
 --   * user_action_tokens: hashed, single-use, expiring tokens (e-mail
 --     verification, password reset). Only SHA-256 digests are stored.
 --   * user_recovery_codes: hashed 2FA recovery codes.
---   * revoked_sessions: per-token (jti) logout denylist until natural expiry.
+--   * user_sessions: server-side session registry (list / revoke individual sessions).
 --   * organization_invitations: tenant-owned invitations (RLS enforced).
 --   * mail_outbox: messages captured by the development mail transport.
 --
--- User-global tables (tokens, recovery codes, revoked sessions, mail outbox) are
+-- User-global tables (tokens, recovery codes, sessions, mail outbox) are
 -- not tenant data. They are only accessed by the authentication service with the
 -- login role, so the tenant runtime role `erppreflight_app` has NO privileges on
 -- them (defence in depth: a tenant-scoped transaction can never read a reset
@@ -64,14 +64,24 @@ CREATE TABLE IF NOT EXISTS user_recovery_codes (
     UNIQUE (user_id, code_hash)
 );
 
--- 5. revoked_sessions (global, user-scoped) ------------------------------------
-CREATE TABLE IF NOT EXISTS revoked_sessions (
-    jti UUID PRIMARY KEY,
+-- 5. user_sessions (global, user-scoped) ---------------------------------------
+-- Server-side session registry: every access token carries its session id (jti).
+-- A token is accepted only while its session row exists, is not revoked and has not
+-- expired, so sessions can be listed and revoked individually (device management).
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL,
-    revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    revoked_at TIMESTAMPTZ,
+    revoked_reason VARCHAR(40),
+    ip VARCHAR(64),
+    user_agent VARCHAR(512),
+    auth_method VARCHAR(20) NOT NULL DEFAULT 'PASSWORD'
 );
-CREATE INDEX IF NOT EXISTS idx_revoked_sessions_expiry ON revoked_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at);
 
 -- 6. mail_outbox (development transport capture) -------------------------------
 CREATE TABLE IF NOT EXISTS mail_outbox (
@@ -121,7 +131,27 @@ BEGIN
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE organization_invitations TO erppreflight_app;
         REVOKE ALL ON TABLE user_action_tokens FROM erppreflight_app;
         REVOKE ALL ON TABLE user_recovery_codes FROM erppreflight_app;
-        REVOKE ALL ON TABLE revoked_sessions FROM erppreflight_app;
+        REVOKE ALL ON TABLE user_sessions FROM erppreflight_app;
         REVOKE ALL ON TABLE mail_outbox FROM erppreflight_app;
     END IF;
 END $$;
+
+-- 9. GDPR organization erasure vs. the append-only audit ledger -----------------
+-- audit_events stays append-only (UPDATE is never allowed). The only DELETE allowed
+-- is the cascade of a deliberate organization erasure (spec 10 §10.19): the
+-- deleting transaction declares the organization with
+--   SELECT set_config('app.erasure_organization_id', '<org uuid>', true)
+-- and may then only remove that organization's rows. The erasure itself is logged
+-- by the API (the ledger it would be written to is being erased).
+CREATE OR REPLACE FUNCTION audit_events_immutable_guard()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE'
+       AND NULLIF(current_setting('app.erasure_organization_id', true), '') IS NOT NULL
+       AND OLD.organization_id::text = current_setting('app.erasure_organization_id', true) THEN
+        RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'Audit trail violation: audit_events table is strictly append-only. UPDATE and DELETE operations are prohibited by law and platform invariant.'
+    USING ERRCODE = '55P02';
+END;
+$$ LANGUAGE plpgsql;

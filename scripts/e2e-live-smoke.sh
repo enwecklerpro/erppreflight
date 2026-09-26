@@ -15,6 +15,7 @@ R=$RANDOM
 pass(){ echo "PASS  $1"; }
 fail(){ echo "FAIL  $1 :: $2"; FAILS=$((FAILS+1)); }
 jqv(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(eval('d'+sys.argv[1]))" "$1" 2>/dev/null; }
+jqe(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(eval(sys.argv[1]))" "$1" 2>/dev/null; }
 MBT="${MAIL_DEV_OUTBOX_TOKEN:-}"
 # mlink <recipient> <TEMPLATE>: newest link of that template in the dev mailbox (polls: some mails are sent in background)
 mlink(){ for _i in 1 2 3 4 5 6 7 8 9 10; do _L=$(curl -s "$A/dev/mail/messages?to=$1&limit=10" -H "X-Dev-Mailbox-Token: $MBT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next((l for m in d['items'] if m['template']==sys.argv[1] for l in m['links']),''))" "$2" 2>/dev/null); [ -n "$_L" ] && { echo "$_L"; return; }; sleep 0.5; done; }
@@ -121,13 +122,17 @@ TC=$TC2; HC="Authorization: Bearer $TC"
 T3=$(curl -s -X POST $A/auth/login -H "$J" -d "{\"email\":\"$CE\",\"password\":\"CarolChange!2026w\"}" | jqv "['accessToken']")
 curl -s -o /dev/null -X POST $A/auth/logout -H "Authorization: Bearer $T3"
 [ "$(code $A/auth/me -H "Authorization: Bearer $T3")" = 401 ] && [ "$(code $A/auth/me -H "$HC")" = 200 ] && pass "logout revokes only that session" || fail "single logout" ""
+T4=$(curl -s -X POST $A/auth/login -H "$J" -d "{\"email\":\"$CE\",\"password\":\"CarolChange!2026w\"}" | jqv "['accessToken']")
+SL=$(curl -s $A/auth/sessions -H "$HC"); S4=$(echo "$SL" | jqe "[x['id'] for x in d if not x['current']][0]")
+[ "$(echo "$SL" | jqe "sum(1 for x in d if x['current'])")" = 1 ] && [ -n "$S4" ] && pass "session list: $(echo "$SL" | jqe "len(d)") active sessions, current flagged" || fail "session list" "$SL"
+C=$(code -X DELETE $A/auth/sessions/$S4 -H "$HC"); [ "$C" = 200 ] && [ "$(code $A/auth/me -H "Authorization: Bearer $T4")" = 401 ] && pass "revoke one session (device) -> its token 401" || fail "revoke session" $C
 # 12 2FA (TOTP): setup -> enable -> login requires code -> recovery code
 SU=$(curl -s -X POST $A/auth/2fa/setup -H "$J" -H "$HC" -d '{"password":"CarolChange!2026w"}'); SEC=$(echo $SU | jqv "['secret']")
 echo "$SU" | grep -q "otpauth://totp/" && pass "2FA setup returns otpauth URI + base32 secret" || fail "2fa setup" "$SU"
 C=$(code -X POST $A/auth/2fa/enable -H "$J" -H "$HC" -d '{"code":"000000"}'); [ "$C" = 400 ] && pass "2FA enable rejects wrong code" || fail "2fa wrong code" $C
 EN=$(curl -s -X POST $A/auth/2fa/enable -H "$J" -H "$HC" -d "{\"code\":\"$(totp $SEC)\"}")
 RCODE=$(echo $EN | jqv "['recoveryCodes'][0]"); TC2=$(echo $EN | jqv "['accessToken']")
-[ -n "$RCODE" ] && [ "$(echo $EN | jqv "['user']['mfaEnabled']")" = True ] && pass "2FA enabled, $(echo $EN | jqv "len(d['recoveryCodes'])") recovery codes issued" || fail "2fa enable" "$EN"
+[ -n "$RCODE" ] && [ "$(echo $EN | jqv "['user']['mfaEnabled']")" = True ] && pass "2FA enabled, $(echo $EN | jqe "len(d['recoveryCodes'])") recovery codes issued" || fail "2fa enable" "$EN"
 [ "$(code $A/auth/me -H "$HC")" = 401 ] && pass "enabling 2FA revoked other sessions" || fail "2fa session revocation" ""
 TC=$TC2; HC="Authorization: Bearer $TC"
 LG=$(curl -s -X POST $A/auth/login -H "$J" -d "{\"email\":\"$CE\",\"password\":\"CarolChange!2026w\"}")
@@ -156,12 +161,21 @@ NO=$(curl -s $A/organizations -H "$HC" | python3 -c "import sys,json;print(len(j
 [ "$(curl -s $A/organizations/current -H "$HC" -H "X-Tenant-Id: $OA" | jqv "['id']")" = "$OA" ] && [ "$(curl -s $A/organizations/current -H "$HC" -H "X-Tenant-Id: $OC" | jqv "['id']")" = "$OC" ] && pass "org switch via X-Tenant-Id works for both memberships" || fail "org switch" ""
 C=$(code $A/organizations/current -H "$HC" -H "X-Tenant-Id: $OB"); [ "$C" = 403 ] && pass "switch to non-member org B still denied (403)" || fail "cross-tenant switch" $C
 SW=$(curl -s -X POST $A/auth/switch-organization -H "$J" -H "$HC" -d "{\"organizationId\":\"$OA\"}"); [ "$(echo $SW | jqv "['user']['organizationId']")" = "$OA" ] && pass "switch-organization issues session for org A" || fail "switch-organization" "$SW"
+HC="Authorization: Bearer $(echo $SW | jqv "['accessToken']")"  # the switch replaced the previous session
+[ "$(code $A/auth/me -H "$HC")" = 200 ] && pass "switched session active (previous session replaced)" || fail "switched session" ""
 C=$(code -X POST $A/auth/switch-organization -H "$J" -H "$HC" -d "{\"organizationId\":\"$OB\"}"); [ "$C" = 403 ] && pass "switch-organization to foreign org -> 403" || fail "switch foreign" $C
 C=$(code -X POST $A/organizations/invitations -H "$J" -H "$HC" -H "X-Tenant-Id: $OA" -d "{\"email\":\"x$R@e2e.local\",\"role\":\"VIEWER\"}"); [ "$C" = 403 ] && pass "AUDITOR cannot invite (RolesGuard 403)" || fail "auditor invite" $C
 MEM=$(curl -s $A/organizations/members -H "$HA"); CMID=$(echo $MEM | python3 -c "import sys,json;print([m['id'] for m in json.load(sys.stdin) if m['email']=='$CE'][0])"); AMID=$(echo $MEM | python3 -c "import sys,json;print([m['id'] for m in json.load(sys.stdin) if m['role']=='ORGANIZATION_OWNER'][0])")
 [ "$(curl -s -X PATCH $A/organizations/members/$CMID -H "$J" -H "$HA" -d '{"role":"LEAD_ARCHITECT"}' | jqv "['role']")" = LEAD_ARCHITECT ] && pass "owner changes carol's role to LEAD_ARCHITECT" || fail "change role" ""
 C=$(code -X PATCH $A/organizations/members/$AMID -H "$J" -H "$HA" -d '{"role":"VIEWER"}'); [ "$C" = 409 ] && pass "last owner cannot be demoted (409)" || fail "last owner demote" $C
 C=$(code -X DELETE $A/organizations/members/$AMID -H "$HA"); [ "$C" = 409 ] && pass "last owner cannot be removed (409)" || fail "last owner remove" $C
+IV2=$(curl -s -X POST $A/organizations/invitations -H "$J" -H "$HA" -d "{\"email\":\"erin$R@e2e.local\",\"role\":\"VIEWER\"}" | jqv "['id']")
+EL1=$(mlink "erin$R@e2e.local" ORGANIZATION_INVITATION)
+RS=$(curl -s -X POST $A/organizations/invitations/$IV2/resend -H "$HA" | jqv "['status']"); EL2=$(mlink "erin$R@e2e.local" ORGANIZATION_INVITATION)
+[ "$RS" = PENDING ] && [ "$EL1" != "$EL2" ] && [ "$(code -X POST $A/invitations/preview -H "$J" -d "{\"token\":\"${EL1##*token=}\"}")" = 404 ] && pass "resend invitation issues new token, old token revoked" || fail "resend invitation" "$RS"
+[ "$(curl -s -X POST $A/organizations/ownership-transfer -H "$J" -H "$HA" -d "{\"memberId\":\"$CMID\"}" | jqv "['transferred']")" = True ] && pass "ownership transferred alice -> carol" || fail "ownership transfer" ""
+C=$(code -X POST $A/organizations/ownership-transfer -H "$J" -H "$HA" -d "{\"memberId\":\"$AMID\"}"); [ "$C" = 403 ] && pass "former owner (now SECURITY_ADMIN) cannot transfer ownership" || fail "transfer by non-owner" $C
+[ "$(curl -s -X PATCH $A/organizations/members/$AMID -H "$J" -H "$HC" -H "X-Tenant-Id: $OA" -d '{"role":"ORGANIZATION_OWNER"}' | jqv "['role']")" = ORGANIZATION_OWNER ] && pass "new owner restores alice as co-owner" || fail "restore owner" ""
 DE="dave$R@e2e.local"
 curl -s -o /dev/null -X POST $A/organizations/invitations -H "$J" -H "$HA" -d "{\"email\":\"$DE\",\"role\":\"VIEWER\"}"
 DL=$(mlink "$DE" ORGANIZATION_INVITATION)
@@ -173,13 +187,13 @@ curl -s -o /dev/null -X POST $A/auth/logout-all -H "Authorization: Bearer $TD"
 [ "$(code $A/auth/me -H "Authorization: Bearer $TD")" = 401 ] && pass "logout-all revokes every session" || fail "logout-all" ""
 # 14 GDPR: account export, org export, account deletion (sole-owner org deleted with confirmation)
 EXP=$(curl -s $A/account/export -H "$HC")
-[ "$(echo $EXP | jqv "['profile']['email']")" = "$CE" ] && [ "$(echo $EXP | jqv "len(d['memberships'])")" = 2 ] && pass "account export JSON (profile + 2 memberships, $(echo $EXP | jqv "len(d['activity'])") activity events)" || fail "account export" "$(echo $EXP | head -c 200)"
+[ "$(echo $EXP | jqv "['profile']['email']")" = "$CE" ] && [ "$(echo $EXP | jqe "len(d['memberships'])")" = 2 ] && pass "account export JSON (profile + 2 memberships, $(echo $EXP | jqe "len(d['activity'])") activity events)" || fail "account export" "$(echo $EXP | head -c 200)"
 C=$(curl -s -o $TMP/org.zip -w "%{http_code}" $A/organizations/current/export -H "$HA"); unzip -l $TMP/org.zip 2>/dev/null | grep -q findings.json && pass "organization export ZIP ($(stat -c %s $TMP/org.zip) bytes, $(unzip -l $TMP/org.zip | grep -c json) JSON files)" || fail "org export" $C
 IMP=$(curl -s $A/account/deletion-impact -H "$HC")
-[ "$(echo $IMP | jqv "d['soleOwnerOrganizations'][0]['id']")" = "$OC" ] && pass "deletion impact: sole-owner org C will be deleted, org A only left" || fail "deletion impact" "$IMP"
-C=$(code -X DELETE $A/account -H "$J" -H "$HC" -d "{\"password\":\"CarolChange!2026w\",\"code\":\"$(totp $SEC 1)\",\"confirmation\":\"DELETE MY ACCOUNT\"}"); [ "$C" = 409 ] && pass "account deletion requires explicit org-deletion confirmation (409)" || fail "delete w/o confirm" $C
+[ "$(echo $IMP | jqv "['soleOwnerOrganizations'][0]['id']")" = "$OC" ] && pass "deletion impact: sole-owner org C will be deleted, org A only left" || fail "deletion impact" "$IMP"
+C=$(code -X DELETE $A/account -H "$J" -H "$HC" -d "{\"password\":\"CarolChange!2026w\",\"recoveryCode\":\"$(echo $EN | jqv "['recoveryCodes'][2]")\",\"confirmation\":\"DELETE MY ACCOUNT\"}"); [ "$C" = 409 ] && pass "account deletion requires explicit org-deletion confirmation (409)" || fail "delete w/o confirm" $C
 DEL=$(curl -s -X DELETE $A/account -H "$J" -H "$HC" -d "{\"password\":\"CarolChange!2026w\",\"recoveryCode\":\"$(echo $EN | jqv "['recoveryCodes'][1]")\",\"confirmation\":\"DELETE MY ACCOUNT\",\"confirmOrganizationDeletion\":[\"$OC\"]}")
-[ "$(echo $DEL | jqv "['deleted']")" = True ] && pass "account deleted (orgs deleted: $(echo $DEL | jqv "len(d['organizationsDeleted'])"))" || fail "account deletion" "$DEL"
+[ "$(echo $DEL | jqv "['deleted']")" = True ] && pass "account deleted (orgs deleted: $(echo $DEL | jqe "len(d['organizationsDeleted'])"))" || fail "account deletion" "$DEL"
 [ "$(code $A/auth/me -H "$HC")" = 401 ] && [ "$(code -X POST $A/auth/login -H "$J" -d "{\"email\":\"$CE\",\"password\":\"CarolChange!2026w\"}")" = 401 ] && pass "deleted account: sessions revoked, login impossible" || fail "deleted account access" ""
 curl -s $A/organizations/members -H "$HA" | grep -q "$CE" && fail "anonymisation" "carol still listed in org A" || pass "deleted user removed from org A and anonymised"
 echo; [ "$FAILS" -eq 0 ] && echo "ALL CHECKS PASSED" || { echo "$FAILS CHECK(S) FAILED"; exit 1; }

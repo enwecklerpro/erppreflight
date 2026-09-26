@@ -14,6 +14,7 @@ import { EmailVerificationService } from './email-verification.service';
 import { AccountSecurityService } from './account-security.service';
 import { TwoFactorService } from './two-factor.service';
 import { SecurityAuditService } from './security-audit.service';
+import { SessionService } from './session.service';
 
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { MailModule } from '../mail/mail.module';
@@ -50,6 +51,7 @@ import { AuditModule } from '../audit/audit.module';
     AccountSecurityService,
     TwoFactorService,
     SecurityAuditService,
+    SessionService,
   ],
   exports: [
     AuthService,
@@ -61,6 +63,7 @@ import { AuditModule } from '../audit/audit.module';
     AccountSecurityService,
     TwoFactorService,
     SecurityAuditService,
+    SessionService,
     MailModule,
   ],
 })

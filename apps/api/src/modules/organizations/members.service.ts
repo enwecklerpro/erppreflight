@@ -129,6 +129,46 @@ export class MembersService {
     return { removed: true };
   }
 
+  /**
+   * Transfers ownership: the target member becomes ORGANIZATION_OWNER and the calling
+   * owner becomes SECURITY_ADMIN, atomically.
+   */
+  async transferOwnership(organizationId: string, actor: Actor, memberId: string, meta: RequestMeta = {}) {
+    const result = await this.db.withTenantTransaction(organizationId, async (client) => {
+      const members = await this.lockMembers(client, organizationId);
+      const self = members.find((m) => m.user_id === actor.id);
+      const target = members.find((m) => m.id === memberId);
+      if (!self || self.role !== OWNER) {
+        throw new ForbiddenException('Only an organization owner can transfer ownership');
+      }
+      if (!target) {
+        throw new NotFoundException('Member not found');
+      }
+      if (target.id === self.id) {
+        throw new ConflictException('You already own this organization');
+      }
+      await client.query(
+        `UPDATE organization_members SET role = $1, updated_at = NOW() WHERE id = $2 AND organization_id = $3`,
+        [OWNER, target.id, organizationId]
+      );
+      await client.query(
+        `UPDATE organization_members SET role = 'SECURITY_ADMIN', updated_at = NOW() WHERE id = $1 AND organization_id = $2`,
+        [self.id, organizationId]
+      );
+      return { newOwnerUserId: target.user_id, previousOwnerUserId: self.user_id };
+    });
+    await this.securityAudit.recordForOrganization(
+      organizationId,
+      actor.id,
+      'ORGANIZATION_OWNERSHIP_TRANSFERRED',
+      'ORGANIZATION_MEMBER',
+      result.newOwnerUserId,
+      { previousOwner: result.previousOwnerUserId, previousOwnerNewRole: 'SECURITY_ADMIN' },
+      meta
+    );
+    return { transferred: true, newOwnerUserId: result.newOwnerUserId };
+  }
+
   /** The caller leaves the organization (not allowed for the last owner). */
   async leave(organizationId: string, userId: string, meta: RequestMeta = {}) {
     const res = await this.db.query(

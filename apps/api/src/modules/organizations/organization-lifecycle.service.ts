@@ -13,6 +13,7 @@ import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import { SecurityAuditService, RequestMeta } from '../auth/security-audit.service';
 import { BILLING_ACCOUNT_HOOK, BillingAccountHook } from './billing-account.hook';
+import { withGlobalTransaction } from '../auth/global-transaction';
 
 /** Rows exported per table; larger tables are flagged as truncated in the manifest. */
 export const ORG_EXPORT_ROW_LIMIT = 100_000;
@@ -215,7 +216,13 @@ export class OrganizationLifecycleService {
       );
     }
 
-    await this.db.query('DELETE FROM organizations WHERE id = $1', [organizationId], { bypassRls: true });
+    await withGlobalTransaction(this.db, async (client) => {
+      // Declares this transaction as the GDPR erasure of exactly this organization, the
+      // only case in which the append-only audit guard lets its ledger rows cascade away
+      // (migration 011). Transaction-local: it cannot leak to other requests.
+      await client.query("SELECT set_config('app.erasure_organization_id', $1, true)", [organizationId]);
+      await client.query('DELETE FROM organizations WHERE id = $1', [organizationId]);
+    });
     this.logger.warn(
       `ORGANIZATION_DELETED org=${organizationId} actor=${actorId} storageObjects=${storageObjectsDeleted} billing=${billing.status}`
     );

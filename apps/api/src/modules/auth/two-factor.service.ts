@@ -17,6 +17,7 @@ import { SecretBox } from './crypto/secret-box';
 import { buildOtpauthUri, generateTotpSecret, verifyTotp } from './crypto/totp';
 import { generateRecoveryCodes, hashRecoveryCode } from './crypto/opaque-token';
 import { withGlobalTransaction } from './global-transaction';
+import { SessionService } from './session.service';
 
 export const TOTP_ISSUER = 'ERP Preflight';
 export const TOTP_SETUP_TTL_MINUTES = 15;
@@ -49,6 +50,7 @@ export class TwoFactorService {
     private readonly auth: AuthService,
     private readonly mail: MailService,
     private readonly securityAudit: SecurityAuditService,
+    private readonly sessions: SessionService,
     config: ConfigService
   ) {
     this.box = new SecretBox(config.getOrThrow<string>('MASTER_ENCRYPTION_KEY'), 'totp-secret/v1');
@@ -167,12 +169,17 @@ export class TwoFactorService {
         [userId, step]
       );
       await this.replaceRecoveryCodes(client, userId, recoveryCodes);
+      await this.sessions.revokeAll(userId, 'TWO_FACTOR_CHANGED', client);
       return user.email as string;
     });
     this.failures.delete(userId);
     this.mail.sendInBackground(email, renderTwoFactorChanged({ enabled: true, when: utcNow() }));
     await this.securityAudit.recordForUser(userId, 'USER_2FA_ENABLED', { sessionsRevoked: true }, meta);
-    const session = await this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId });
+    const session = await this.auth.createSession(userId, {
+      preferredOrganizationId: activeOrganizationId,
+      meta,
+      authMethod: 'PASSWORD_2FA',
+    });
     return { recoveryCodes, session };
   }
 
@@ -203,12 +210,13 @@ export class TwoFactorService {
         [userId]
       );
       await client.query('DELETE FROM user_recovery_codes WHERE user_id = $1', [userId]);
+      await this.sessions.revokeAll(userId, 'TWO_FACTOR_CHANGED', client);
       return user.email as string;
     });
     this.failures.delete(userId);
     this.mail.sendInBackground(email, renderTwoFactorChanged({ enabled: false, when: utcNow() }));
     await this.securityAudit.recordForUser(userId, 'USER_2FA_DISABLED', { sessionsRevoked: true }, meta);
-    return this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId });
+    return this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId, meta });
   }
 
   async regenerateRecoveryCodes(
@@ -276,7 +284,7 @@ export class TwoFactorService {
     if (usedRecoveryCode) {
       await this.securityAudit.recordForUser(userId, 'USER_2FA_RECOVERY_CODE_USED', {}, meta);
     }
-    return this.auth.createSession(userId);
+    return this.auth.createSession(userId, { meta, authMethod: 'PASSWORD_2FA' });
   }
 
   /**

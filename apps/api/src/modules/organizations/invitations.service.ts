@@ -180,6 +180,21 @@ export class InvitationsService {
     };
   }
 
+  /** Re-sends an unaccepted invitation with a fresh token and expiry (old token revoked). */
+  async resend(organizationId: string, actor: Actor, invitationId: string, meta: RequestMeta = {}) {
+    const res = await this.db.query(
+      `SELECT email, role FROM organization_invitations
+       WHERE id = $1 AND organization_id = $2 AND accepted_at IS NULL`,
+      [invitationId, organizationId],
+      { tenantId: organizationId }
+    );
+    const invitation = res.rows[0];
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found or already accepted');
+    }
+    return this.create(organizationId, actor, invitation.email, invitation.role, meta);
+  }
+
   async revoke(organizationId: string, actor: Actor, invitationId: string, meta: RequestMeta = {}) {
     const res = await this.db.query(
       `UPDATE organization_invitations SET revoked_at = NOW()
@@ -287,7 +302,7 @@ export class InvitationsService {
       {},
       meta
     );
-    return this.auth.createSession(userId, { preferredOrganizationId: organizationId });
+    return this.auth.createSession(userId, { preferredOrganizationId: organizationId, meta, authMethod: 'INVITATION' });
   }
 
   /** Creates a (verified) account for the invited address and joins the organization. */
@@ -338,6 +353,6 @@ export class InvitationsService {
       { newAccount: true },
       meta
     );
-    return this.auth.createSession(userId, { preferredOrganizationId: organizationId });
+    return this.auth.createSession(userId, { preferredOrganizationId: organizationId, meta, authMethod: 'INVITATION' });
   }
 }

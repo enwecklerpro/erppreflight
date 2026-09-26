@@ -21,6 +21,7 @@ import {
   CreateInvitationDto,
   DeleteOrganizationDto,
   OrganizationSecurityDto,
+  TransferOwnershipDto,
   UpdateMemberRoleDto,
 } from './dto/membership.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -134,6 +135,20 @@ export class OrganizationsController {
     return this.members.updateRole(tenantId, user, memberId, dto.role, requestMeta(req));
   }
 
+  /** Owner hands ownership to another member (caller becomes SECURITY_ADMIN). */
+  @Post('ownership-transfer')
+  @HttpCode(HttpStatus.OK)
+  @Roles('ORGANIZATION_OWNER')
+  @DenyApiKeyAuth()
+  async transferOwnership(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto: TransferOwnershipDto,
+    @Req() req: Request
+  ) {
+    return this.members.transferOwnership(tenantId, user, dto.memberId, requestMeta(req));
+  }
+
   /** The caller leaves the active organization. */
   @Post('members/leave')
   @HttpCode(HttpStatus.OK)
@@ -174,6 +189,19 @@ export class OrganizationsController {
     @Req() req: Request
   ) {
     return this.invitations.create(tenantId, user, dto.email, dto.role, requestMeta(req));
+  }
+
+  @Post('invitations/:invitationId/resend')
+  @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
+  @UseGuards(VerifiedEmailGuard)
+  @DenyApiKeyAuth()
+  async resendInvitation(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('invitationId', new ParseUUIDPipe()) invitationId: string,
+    @Req() req: Request
+  ) {
+    return this.invitations.resend(tenantId, user, invitationId, requestMeta(req));
   }
 
   @Delete('invitations/:invitationId')

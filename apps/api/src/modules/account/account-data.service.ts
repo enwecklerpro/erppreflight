@@ -195,7 +195,7 @@ export class AccountDataService {
       await client.query('DELETE FROM organization_members WHERE user_id = $1', [userId]);
       await client.query('DELETE FROM user_action_tokens WHERE user_id = $1', [userId]);
       await client.query('DELETE FROM user_recovery_codes WHERE user_id = $1', [userId]);
-      await client.query('DELETE FROM revoked_sessions WHERE user_id = $1', [userId]);
+      await client.query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
       await client.query(
         `UPDATE api_keys SET status = 'REVOKED' WHERE created_by = $1 AND status = 'ACTIVE'`,
         [userId]

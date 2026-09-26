@@ -4,12 +4,14 @@ import { DatabaseService } from '../database/database.service';
 import { JwtService } from '@nestjs/jwt';
 import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { EmailVerificationService } from './email-verification.service';
+import { SessionService } from './session.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let mockDb: Partial<DatabaseService>;
   let mockJwt: Partial<JwtService>;
   let mockVerification: { issueSafely: ReturnType<typeof vi.fn> };
+  let mockSessions: { create: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockDb = {
@@ -19,10 +21,13 @@ describe('AuthService', () => {
       sign: vi.fn().mockReturnValue('mock-jwt-token'),
     };
     mockVerification = { issueSafely: vi.fn().mockResolvedValue(undefined) };
+    mockSessions = { create: vi.fn().mockResolvedValue(undefined) };
+    (mockJwt as any).decode = vi.fn().mockReturnValue({ exp: 2_000_000_000 });
     service = new AuthService(
       mockDb as DatabaseService,
       mockJwt as JwtService,
-      mockVerification as unknown as EmailVerificationService
+      mockVerification as unknown as EmailVerificationService,
+      mockSessions as unknown as SessionService
     );
   });
 
@@ -53,6 +58,10 @@ describe('AuthService', () => {
     const payload = (mockJwt.sign as any).mock.calls[0][0];
     expect(payload.tv).toBe(0);
     expect(typeof payload.jti).toBe('string');
+    // ...and the jti is registered as a server-side session expiring with the token
+    expect(mockSessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ id: payload.jti, authMethod: 'SIGNUP', expiresAt: new Date(2_000_000_000 * 1000) })
+    );
   });
 
   it('should reject sign-up with a password that violates the policy', async () => {

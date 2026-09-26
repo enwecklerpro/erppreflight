@@ -6,6 +6,7 @@ import { ActionTokenStore } from './action-token.store';
 import { AuthService, SessionResult, assertPasswordPolicy } from './auth.service';
 import { SecurityAuditService, RequestMeta } from './security-audit.service';
 import { withGlobalTransaction } from './global-transaction';
+import { SessionService } from './session.service';
 
 export const PASSWORD_RESET_TTL_MINUTES = 60;
 /** Reset e-mails per account per hour (beyond this the request is silently ignored). */
@@ -23,11 +24,11 @@ function utcNow(): string {
 /**
  * Password reset / change and session revocation.
  *
- * Session revocation model: every access token carries `tv` = users.token_version at
- * issuance. Bumping token_version (password change/reset, 2FA change, logout-all,
- * account deletion) invalidates every outstanding token at once; JwtStrategy and
- * TenancyMiddleware compare it on every request. Single-session logout records the
- * token's jti in revoked_sessions until the token's natural expiry.
+ * Session revocation model: every access token is bound to a server-side session
+ * (user_sessions, id = token jti) and carries `tv` = users.token_version at issuance.
+ * Password change/reset, 2FA changes, logout-all and account deletion revoke every
+ * session and bump token_version; logout / "revoke session" revoke one session.
+ * JwtStrategy checks both on every request.
  */
 @Injectable()
 export class AccountSecurityService {
@@ -38,7 +39,8 @@ export class AccountSecurityService {
     private readonly auth: AuthService,
     private readonly tokens: ActionTokenStore,
     private readonly mail: MailService,
-    private readonly securityAudit: SecurityAuditService
+    private readonly securityAudit: SecurityAuditService,
+    private readonly sessions: SessionService
   ) {}
 
   /**
@@ -126,6 +128,7 @@ export class AccountSecurityService {
         throw new BadRequestException('This reset link is no longer valid for this account.');
       }
       await this.tokens.revokeAll(consumed.user_id, 'PASSWORD_RESET', client);
+      await this.sessions.revokeAll(consumed.user_id, 'PASSWORD_RESET', client);
       return updated.rows[0];
     });
 
@@ -170,12 +173,13 @@ export class AccountSecurityService {
       { bypassRls: true }
     );
     await this.tokens.revokeAll(userId, 'PASSWORD_RESET');
+    await this.sessions.revokeAll(userId, 'PASSWORD_CHANGED');
     this.mail.sendInBackground(
       user.email,
       renderPasswordChanged({ name: user.full_name, when: utcNow(), resetUrl: this.mail.link('/forgot-password') })
     );
     await this.securityAudit.recordForUser(userId, 'USER_PASSWORD_CHANGED', { sessionsRevoked: true }, meta);
-    return this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId });
+    return this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId, meta });
   }
 
   /** Increments token_version: every outstanding access token becomes invalid. */
@@ -189,22 +193,22 @@ export class AccountSecurityService {
 
   async logoutAll(userId: string, meta: RequestMeta = {}): Promise<{ success: true }> {
     await this.bumpTokenVersion(userId);
+    await this.sessions.revokeAll(userId, 'LOGOUT_ALL');
     await this.securityAudit.recordForUser(userId, 'USER_SESSIONS_REVOKED', { scope: 'ALL' }, meta);
     return { success: true };
   }
 
-  /** Revokes a single access token (logout) until it would have expired anyway. */
-  async revokeSession(jti: string, userId: string, expSeconds: number): Promise<void> {
-    await this.db.query(
-      `INSERT INTO revoked_sessions (jti, user_id, expires_at)
-       VALUES ($1, $2, to_timestamp($3))
-       ON CONFLICT (jti) DO NOTHING`,
-      [jti, userId, expSeconds],
-      { bypassRls: true }
-    );
-    // Opportunistic cleanup of entries whose tokens have expired.
-    await this.db.query(`DELETE FROM revoked_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`, [], {
-      bypassRls: true,
-    });
+  /** Revokes one session of the user (logout or "sign out this device"). */
+  async revokeSession(
+    userId: string,
+    sessionId: string,
+    reason: 'LOGOUT' | 'USER_REVOKED',
+    meta: RequestMeta = {}
+  ): Promise<{ revoked: true }> {
+    await this.sessions.revoke(userId, sessionId, reason);
+    if (reason === 'USER_REVOKED') {
+      await this.securityAudit.recordForUser(userId, 'USER_SESSION_REVOKED', { sessionId }, meta);
+    }
+    return { revoked: true };
   }
 }
