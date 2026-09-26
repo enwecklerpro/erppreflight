@@ -8,6 +8,7 @@ export type MailTransportKind = 'smtp' | 'http' | 'dev';
 export type MailTemplateId =
   | 'EMAIL_VERIFICATION'
   | 'PASSWORD_RESET'
+  | 'MAGIC_LINK'
   | 'PASSWORD_CHANGED'
   | 'ORGANIZATION_INVITATION'
   | 'TWO_FACTOR_ENABLED'

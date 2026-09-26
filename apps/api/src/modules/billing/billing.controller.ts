@@ -24,6 +24,7 @@ import { BillingService } from './billing.service';
 import { TenantUsage } from './billing.interface';
 import { UsageService } from '../usage/usage.service';
 import { Audited } from '../audit/audited.decorator';
+import { SkipCsrf } from '../auth/csrf.guard';
 
 @ApiTags('Billing & Entitlements')
 @Controller('billing')
@@ -135,6 +136,7 @@ export class BillingController {
 
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
+  @SkipCsrf() // authenticated by the Stripe-Signature HMAC, not by the session cookie
   @ApiOperation({ summary: 'Stripe Webhook Receiver' })
   async handleWebhook(
     @Headers('stripe-signature') signature: string,

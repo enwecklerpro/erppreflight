@@ -559,9 +559,14 @@ export class SsoService {
     return userId!;
   }
 
-  webCompletionUrl(token: string, organizationId: string, returnTo: string): string {
-    const frag = new URLSearchParams({ token, org: organizationId, next: returnTo });
-    return `${appBaseUrl()}/sso/done#${frag.toString()}`;
+  /**
+   * Web landing page after a successful SSO login. The session is already in the
+   * HttpOnly cookie (its home organization is the IdP's organization); the URL
+   * carries no credential, only the post-login path.
+   */
+  webCompletionUrl(returnTo: string): string {
+    const params = new URLSearchParams({ next: returnTo });
+    return `${appBaseUrl()}/sso/done?${params.toString()}`;
   }
 
   webErrorUrl(code: string): string {

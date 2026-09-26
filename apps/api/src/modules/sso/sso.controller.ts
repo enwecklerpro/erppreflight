@@ -28,7 +28,9 @@ import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
-import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS, requestMeta } from '../auth/auth.controller';
+import { requestMeta } from '../auth/auth.controller';
+import { SessionCookieService } from '../auth/session-cookie';
+import { SkipCsrf } from '../auth/csrf.guard';
 import { SSO_STATE_COOKIE, SsoService } from './sso.service';
 import { ScimError, ScimService, SCIM_ERROR } from './scim.service';
 import { ZodBody } from '../../common/openapi/zod-openapi';
@@ -128,7 +130,10 @@ export class SsoAdminController {
 export class SsoLoginController {
   private readonly logger = new Logger(SsoLoginController.name);
 
-  constructor(private readonly sso: SsoService) {}
+  constructor(
+    private readonly sso: SsoService,
+    private readonly cookies: SessionCookieService
+  ) {}
 
   @Get('discover')
   @ApiOperation({ summary: 'Is SSO available for this e-mail address (verified domain + active IdP)?' })
@@ -167,8 +172,10 @@ export class SsoLoginController {
     try {
       const { session, returnTo } = await this.sso.completeLogin(query, readCookie(req, SSO_STATE_COOKIE), requestOrigin(req), requestMeta(req));
       res.clearCookie(SSO_STATE_COOKIE, { path: '/api/v1/sso' });
-      res.cookie(SESSION_COOKIE_NAME, session.accessToken, SESSION_COOKIE_OPTIONS);
-      res.redirect(302, this.sso.webCompletionUrl(session.accessToken, session.user.organizationId, returnTo));
+      // The session travels only in the HttpOnly cookie (top-level navigation, SameSite=Lax
+      // applies); the web completion page receives no token.
+      this.cookies.setSessionCookies(res, session.accessToken);
+      res.redirect(302, this.sso.webCompletionUrl(returnTo));
     } catch (err: any) {
       this.logger.warn(`SSO callback failed: ${err?.message}`);
       res.clearCookie(SSO_STATE_COOKIE, { path: '/api/v1/sso' });
@@ -199,6 +206,7 @@ export class ScimExceptionFilter implements ExceptionFilter {
 /** SCIM 2.0 service provider (bearer token per organization). */
 @ApiTags('Enterprise Identity: SCIM 2.0')
 @UseFilters(ScimExceptionFilter)
+@SkipCsrf() // SCIM bearer token per organization, never the browser session cookie
 @Controller('scim/v2')
 export class ScimController {
   constructor(private readonly scim: ScimService) {}

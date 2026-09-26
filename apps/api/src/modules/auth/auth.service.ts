@@ -350,9 +350,10 @@ export class AuthService implements OnApplicationBootstrap {
   /**
    * Organizations that enforce SSO (ACTIVE IdP with enforce_sso on a VERIFIED e-mail
    * domain) must not be reachable through password login for their members. Platform
-   * SUPER_ADMINs stay exempt as the documented break-glass path.
+   * SUPER_ADMINs stay exempt as the documented break-glass path. Also applied to
+   * magic-link sign-in (MagicLinkService): SSO enforcement covers every local method.
    */
-  private async assertPasswordLoginAllowed(userId: string, email: string): Promise<void> {
+  async assertPasswordLoginAllowed(userId: string, email: string): Promise<void> {
     const domain = String(email || '').trim().toLowerCase().split('@')[1];
     if (!domain) return;
     const res = await this.db.query(
@@ -498,15 +499,30 @@ export class AuthService implements OnApplicationBootstrap {
     return token;
   }
 
-  signMfaChallenge(userId: string, tokenVersion: number): string {
+  /**
+   * Short-lived token between the first factor and the TOTP step. `firstFactor`
+   * records how the first step was passed (password or magic link) so the final
+   * session carries the right auth method.
+   */
+  signMfaChallenge(userId: string, tokenVersion: number, firstFactor: 'PASSWORD' | 'MAGIC_LINK' = 'PASSWORD'): string {
     return this.jwt.sign(
-      { sub: userId, typ: MFA_CHALLENGE_TYPE, tv: tokenVersion, jti: uuidv4() },
+      {
+        sub: userId,
+        typ: MFA_CHALLENGE_TYPE,
+        tv: tokenVersion,
+        jti: uuidv4(),
+        ...(firstFactor === 'MAGIC_LINK' ? { amr: 'MAGIC_LINK' } : {}),
+      },
       { expiresIn: MFA_CHALLENGE_TTL_SECONDS }
     );
   }
 
   /** Verifies a 2FA challenge token (signature, expiry and type). */
-  verifyMfaChallenge(token: string): { userId: string; tokenVersion: number } {
+  verifyMfaChallenge(token: string): {
+    userId: string;
+    tokenVersion: number;
+    firstFactor: 'PASSWORD' | 'MAGIC_LINK';
+  } {
     let payload: any;
     try {
       payload = this.jwt.verify(token);
@@ -516,6 +532,10 @@ export class AuthService implements OnApplicationBootstrap {
     if (payload?.typ !== MFA_CHALLENGE_TYPE || typeof payload.sub !== 'string' || !isUuid(payload.sub)) {
       throw new UnauthorizedException('Invalid sign-in challenge');
     }
-    return { userId: payload.sub, tokenVersion: Number(payload.tv ?? 0) };
+    return {
+      userId: payload.sub,
+      tokenVersion: Number(payload.tv ?? 0),
+      firstFactor: payload.amr === 'MAGIC_LINK' ? 'MAGIC_LINK' : 'PASSWORD',
+    };
   }
 }

@@ -4,17 +4,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthRateLimit, AuthRateLimitGuard, INVITATION_RATE_LIMIT } from '../auth/guards/auth-rate-limit.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
-import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS, requestMeta } from '../auth/auth.controller';
-import { SessionResult } from '../auth/auth.service';
+import { requestMeta } from '../auth/auth.controller';
+import { SessionCookieService } from '../auth/session-cookie';
 import { InvitationsService } from './invitations.service';
 import { AcceptInvitationNewAccountDto, InvitationTokenDto } from './dto/membership.dto';
-
-function withCookie(res: Response | undefined, session: SessionResult): SessionResult {
-  if (res && typeof res.cookie === 'function') {
-    res.cookie(SESSION_COOKIE_NAME, session.accessToken, SESSION_COOKIE_OPTIONS);
-  }
-  return session;
-}
 
 /**
  * Invitation acceptance (not tenant-scoped: the invitation token identifies the
@@ -22,7 +15,10 @@ function withCookie(res: Response | undefined, session: SessionResult): SessionR
  */
 @Controller('invitations')
 export class InvitationsController {
-  constructor(private readonly invitations: InvitationsService) {}
+  constructor(
+    private readonly invitations: InvitationsService,
+    private readonly cookies: SessionCookieService
+  ) {}
 
   @Post('preview')
   @HttpCode(HttpStatus.OK)
@@ -44,7 +40,8 @@ export class InvitationsController {
     @Res({ passthrough: true }) res: Response,
     @Req() req: Request
   ) {
-    return withCookie(res, await this.invitations.acceptAsExistingUser(dto.token, userId, requestMeta(req)));
+    // Session in the HttpOnly cookie; browsers never receive the access token in the body.
+    return this.cookies.present(req, res, await this.invitations.acceptAsExistingUser(dto.token, userId, requestMeta(req)));
   }
 
   /** New user: creates an account for the invited address and joins the organization. */
@@ -57,7 +54,8 @@ export class InvitationsController {
     @Res({ passthrough: true }) res: Response,
     @Req() req: Request
   ) {
-    return withCookie(
+    return this.cookies.present(
+      req,
       res,
       await this.invitations.acceptWithNewAccount(dto.token, dto.password, dto.fullName, requestMeta(req))
     );

@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req } from
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AgentDevicesService, EnrollSchema, HeartbeatSchema, JobResultSchema } from './agent-devices.service';
 import { ZodBody } from '../../common/openapi/zod-openapi';
+import { SkipCsrf } from '../auth/csrf.guard';
 
 function rawBodyOf(req: any): string {
   if (req.rawBody && Buffer.isBuffer(req.rawBody)) return req.rawBody.toString('utf8');
@@ -15,6 +16,7 @@ function rawBodyOf(req: any): string {
  * AgentDevicesService.authenticate); user JWTs / API keys are not accepted here.
  */
 @ApiTags('Local Agent Device API')
+@SkipCsrf() // device credential + request signature, never the browser session cookie
 @Controller('agent-api')
 export class AgentApiController {
   constructor(private readonly devices: AgentDevicesService) {}

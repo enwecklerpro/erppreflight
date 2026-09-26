@@ -129,6 +129,8 @@ export class AppModule implements NestModule {
         'auth/login',
         'auth/register',
         'auth/logout',
+        'auth/magic-link',
+        'auth/magic-link/(.*)',
         'admin/(.*)',
         'admin',
         'knowledge/(.*)',

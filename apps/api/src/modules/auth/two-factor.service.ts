@@ -266,7 +266,7 @@ export class TwoFactorService {
 
   /** Second login step: challenge token + TOTP or recovery code -> session. */
   async completeLogin(challengeToken: string, factor: SecondFactor, meta: RequestMeta = {}): Promise<SessionResult> {
-    const { userId, tokenVersion } = this.auth.verifyMfaChallenge(challengeToken);
+    const { userId, tokenVersion, firstFactor } = this.auth.verifyMfaChallenge(challengeToken);
     this.checkFailureBudget(userId);
     let usedRecoveryCode = false;
     await withGlobalTransaction(this.db, async (client) => {
@@ -284,7 +284,10 @@ export class TwoFactorService {
     if (usedRecoveryCode) {
       await this.securityAudit.recordForUser(userId, 'USER_2FA_RECOVERY_CODE_USED', {}, meta);
     }
-    return this.auth.createSession(userId, { meta, authMethod: 'PASSWORD_2FA' });
+    return this.auth.createSession(userId, {
+      meta,
+      authMethod: firstFactor === 'MAGIC_LINK' ? 'MAGIC_LINK_2FA' : 'PASSWORD_2FA',
+    });
   }
 
   /**
