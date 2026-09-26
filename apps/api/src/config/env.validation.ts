@@ -19,8 +19,6 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
-  // Logical Redis database index for BullMQ queues and the Redis client (default 0).
-  REDIS_DB: z.coerce.number().int().min(0).max(15).default(0),
   JWT_SECRET: z.string().min(32).optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),
