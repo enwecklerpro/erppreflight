@@ -1,10 +1,11 @@
-> **SUPERSEDED — historical record, kept for traceability (spec 0.2).** The milestone table below was
-> written before the 2026-09-25 audit and **overstates completeness**: "100% complete" rows include
-> features that were broken (API did not boot, uploads were never analysed, tenant isolation was
-> bypassable) or are missing (public site, i18n, password reset/2FA, billing UI). Authoritative sources:
+> **SUPERSEDED — do not use for status decisions.** The canonical per-capability status is
+> **[`docs/CURRENT_PRODUCT_STATUS.md`](docs/CURRENT_PRODUCT_STATUS.md)** (spec C §64, commit `6303f1d`, 2026-09-26).
+> This file is a historical record kept for traceability (spec 0.2). Its milestone table was written before the
+> 2026-09-25 audit and **overstates completeness** ("100% complete" rows include features that were broken or missing
+> at the time). Other current sources:
 >
-> - [`RELEASE_READINESS_REPORT.md`](RELEASE_READINESS_REPORT.md) — what was tested live and what passed;
-> - [`docs/CURRENT_PRODUCT_STATUS.md`](docs/CURRENT_PRODUCT_STATUS.md) — canonical per-capability status (spec C §64);
+> - [`RELEASE_READINESS_REPORT.md`](RELEASE_READINESS_REPORT.md) — top-level verdict, owner actions;
+> - [`docs/E2E_TEST_REPORT.md`](docs/E2E_TEST_REPORT.md) — exact commands and test counts;
 > - [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md), [`GO_LIVE_CHECKLIST.md`](GO_LIVE_CHECKLIST.md).
 
 # ERP Preflight — Complete Implementation Status & Enterprise Verification

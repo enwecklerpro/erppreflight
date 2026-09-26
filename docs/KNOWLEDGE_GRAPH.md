@@ -3,6 +3,10 @@
 Spec: Part 04 (§4.3–4.9), Part 05 (§5.2–5.4, §5.10), Part 14 (§14.14, §14.33), Part 17 (§17.3),
 remediation prompt §26–§31, §59, §71. Migration: `packages/database/migrations/014_knowledge_graph_release_intelligence.sql`.
 
+Status against C §71 and measured sync numbers (13 files, 68,627 objects, 341,247 release states, 10,160 successor
+edges, ~37 s, second run NOOP — local stack, commit `6303f1d`): **[`docs/KNOWLEDGE_GRAPH_STATUS.md`](KNOWLEDGE_GRAPH_STATUS.md)**.
+Production has not been synced yet.
+
 ## Data model
 
 | Table | Scope | Purpose |
