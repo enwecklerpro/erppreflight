@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { DelayedError } from 'bullmq';
 import { anyCidrContains, cidrContains, CidrError, normalizeIp, parseCidr } from '../src/modules/tenant-access/cidr';
 import { clientIpOf } from '../src/modules/tenant-access/client-ip';
-import { apiPath, decideTenantAccess, isSuspensionExemptPath } from '../src/modules/tenant-access/tenant-access.policy';
+import { apiPath, decideMachineAccess, decideTenantAccess, isSuspensionExemptPath } from '../src/modules/tenant-access/tenant-access.policy';
 import { decideImpersonationRequest } from '../src/modules/tenant-access/impersonation.policy';
 import {
   IMPERSONATION_COOKIE_NAME,
@@ -17,6 +17,8 @@ import { ImpersonationService, StartImpersonationSchema } from '../src/modules/t
 import { IpAllowlistReplaceSchema, IpAllowlistService } from '../src/modules/tenant-access/ip-allowlist.service';
 import { ExtendTrialSchema, SuspendTenantSchema, TenantAdminService } from '../src/modules/tenant-access/tenant-admin.service';
 import { TenancyMiddleware } from '../src/modules/tenancy/tenancy.middleware';
+import { ImpersonationMiddleware } from '../src/modules/tenant-access/impersonation.middleware';
+import { ScimService } from '../src/modules/sso/scim.service';
 import { SupportMailService } from '../src/modules/support/support-mail.service';
 import { resolveTicketLocale } from '../src/modules/support/support-thread.service';
 import {
@@ -98,6 +100,21 @@ describe('tenant access policy (suspension, IP allowlist)', () => {
     expect(apiPath('/api/v1')).toBe('/');
   });
 
+  it('folds letter case like the Express router does (case-insensitive routing)', () => {
+    expect(apiPath('/api/v1/API-KEYS')).toBe('/api-keys');
+    expect(apiPath('/API/V1/Account/Export?x=1')).toBe('/account/export');
+    expect(apiPath('//api/v1//Organizations/current/export/')).toBe('/organizations/current/export');
+  });
+
+  it('machine credentials (agent devices, SCIM) stop while suspended; agents honour the allowlist', () => {
+    const list = { status: 'ACTIVE', allowlistCount: 1, ipAllowed: false };
+    expect(decideMachineAccess(suspended, { ipAllowlist: false, clientIp: null })?.code).toBe('TENANT_SUSPENDED');
+    expect(decideMachineAccess(active, { ipAllowlist: true, clientIp: '192.0.2.1' })).toBeNull();
+    expect(decideMachineAccess(list, { ipAllowlist: true, clientIp: '192.0.2.1' })?.code).toBe('IP_NOT_ALLOWED');
+    expect(decideMachineAccess(list, { ipAllowlist: false, clientIp: null })).toBeNull();
+    expect(decideMachineAccess({ ...list, ipAllowed: true }, { ipAllowlist: true, clientIp: '192.0.2.1' })).toBeNull();
+  });
+
   it('members of a suspended tenant get TENANT_SUSPENDED on tenant routes', () => {
     expect(decideTenantAccess(suspended, member('/projects'))?.code).toBe('TENANT_SUSPENDED');
     expect(decideTenantAccess(suspended, member('/projects', 'POST'))?.code).toBe('TENANT_SUSPENDED');
@@ -163,6 +180,14 @@ describe('impersonation policy', () => {
     }
   });
 
+  it('letter case never bypasses the deny lists (Express routes case-insensitively)', () => {
+    for (const p of ['/API-KEYS', '/Auth/sessions', '/Account/export', '/Organizations/current/export', '/SSO/Admin/scim-tokens', '/Admin/overview']) {
+      expect(decideImpersonationRequest('GET', p, false)).toMatchObject({ allowed: false, code: 'IMPERSONATION_SECRET_ACCESS_DENIED' });
+      expect(decideImpersonationRequest('GET', apiPath(`/api/v1${p}`), false)).toMatchObject({ allowed: false });
+    }
+    expect(decideImpersonationRequest('POST', '/Billing/portal', false)).toMatchObject({ allowed: false });
+  });
+
   it('identity reads and session control stay available', () => {
     expect(decideImpersonationRequest('GET', '/auth/me', true)).toEqual({ allowed: true });
     expect(decideImpersonationRequest('POST', '/impersonation/end', true)).toEqual({ allowed: true });
@@ -171,7 +196,17 @@ describe('impersonation policy', () => {
 
   it('read-write mode still refuses billing, membership, allowlist and credential writes', () => {
     expect(decideImpersonationRequest('POST', '/projects', false)).toEqual({ allowed: true });
-    for (const p of ['/billing/portal', '/organizations/members/x', '/organizations/current/ip-allowlist', '/support/access-grants', '/connectors/x']) {
+    for (const p of [
+      '/billing/portal',
+      '/organizations/members/x',
+      '/organizations/current/ip-allowlist',
+      '/support/access-grants',
+      '/connectors/x',
+      '/agents/devices/x/revoke',
+      '/invitations/accept',
+      '/retention/purge',
+      '/retention/settings',
+    ]) {
       expect(decideImpersonationRequest('POST', p, false)).toMatchObject({ allowed: false, code: 'IMPERSONATION_SECRET_ACCESS_DENIED' });
     }
   });
@@ -479,5 +514,53 @@ describe('tenant access and support e-mails', () => {
     expect(resolveTicketLocale(undefined, { headers: { cookie: 'erp_locale=de' } })).toBe('de');
     expect(resolveTicketLocale(undefined, { headers: { 'accept-language': 'de-DE,de;q=0.9' } })).toBe('de');
     expect(resolveTicketLocale(undefined, { headers: {} })).toBe('en');
+  });
+});
+
+// ---------------------------------------------------------------------------- review fixes
+
+describe('ImpersonationMiddleware: credential conflicts and case folding', () => {
+  const ctx = { id: SESSION, organizationId: ORG, targetUserId: MEMBER, impersonatorId: OPERATOR, impersonatorEmail: 'op@x', readOnly: true };
+  function make() {
+    const impersonation = {
+      authenticate: vi.fn().mockResolvedValue({ kind: 'valid', ctx }),
+      recordRequest: vi.fn().mockResolvedValue(undefined),
+      end: vi.fn(),
+      clearCookie: vi.fn(),
+    } as any;
+    return { mw: new ImpersonationMiddleware(impersonation), impersonation };
+  }
+  const req = (method: string, url: string, headers: Record<string, string> = {}) =>
+    ({ method, originalUrl: url, url, headers: { cookie: `${IMPERSONATION_COOKIE_NAME}=tok`, ...headers }, socket: {} }) as any;
+
+  it('an API key next to an impersonation credential is refused and audited as denied', async () => {
+    const { mw, impersonation } = make();
+    const next = vi.fn();
+    await expect(mw.use(req('GET', '/api/v1/projects', { 'x-api-key': 'erppf_key' }), {} as any, next)).rejects.toMatchObject({
+      response: { code: 'IMPERSONATION_CREDENTIAL_CONFLICT' },
+    });
+    expect(next).not.toHaveBeenCalled();
+    expect(impersonation.recordRequest.mock.calls[0][2]).toMatchObject({ allowed: false });
+  });
+
+  it('upper-case secret paths are denied before any handler runs', async () => {
+    const { mw } = make();
+    const next = vi.fn();
+    await expect(mw.use(req('GET', '/API/V1/Account/Export'), {} as any, next)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(next).not.toHaveBeenCalled();
+    await mw.use(req('GET', '/api/v1/Projects'), {} as any, next);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('machine credentials of suspended tenants', () => {
+  it('SCIM tokens of a suspended organization get a SCIM 403', async () => {
+    const db = { query: vi.fn().mockResolvedValue({ rows: [{ id: 't1', organization_id: ORG }] }) } as any;
+    const tenantAccess = { machineDenial: vi.fn().mockResolvedValue({ code: 'TENANT_SUSPENDED', message: 'suspended' }) } as any;
+    const scim = new ScimService(db, {} as any, tenantAccess);
+    await expect(scim.authenticate('Bearer erppf_scim_abc')).rejects.toMatchObject({ status: 403 });
+    expect(tenantAccess.machineDenial).toHaveBeenCalledWith(ORG, null, { ipAllowlist: false });
+    tenantAccess.machineDenial.mockResolvedValue(null);
+    await expect(scim.authenticate('Bearer erppf_scim_abc')).resolves.toMatchObject({ organizationId: ORG });
   });
 });

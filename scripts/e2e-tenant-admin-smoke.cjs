@@ -212,9 +212,19 @@ async function auditActions(tenant) {
       ['GET', '/sso/admin/config'],
       ['GET', '/organizations/current/export'],
       ['GET', '/admin/overview'],
+      // Express routes case-insensitively: letter case must not slip past the deny list.
+      ['GET', '/API-KEYS'],
+      ['GET', '/Auth/sessions'],
+      ['GET', '/Account/export'],
+      ['GET', '/Organizations/current/export'],
+      ['GET', '/sso/Admin/scim-tokens'],
     ]) {
       expectStatus(await call(method, p, { token: imp.token, body: method === 'POST' ? {} : undefined }), 403, 'IMPERSONATION_SECRET_ACCESS_DENIED', `${method} ${p}`);
     }
+    const upperPrefix = await fetch(`${API}/API/V1/api-keys`, { headers: { Authorization: `Bearer ${imp.token}` } });
+    expect(upperPrefix.status === 403, `upper-case API prefix: ${upperPrefix.status}`);
+    // An API key next to the impersonation credential would swap the principal: refused.
+    expectStatus(await call('GET', '/projects', { token: imp.token, headers: { 'X-Api-Key': 'erppf_not_a_real_key' } }), 403, 'IMPERSONATION_CREDENTIAL_CONFLICT', 'api key + impersonation');
   });
 
   await step('15 impersonation is bound to its tenant (X-Tenant-Id of another org -> 403)', async () => {
@@ -263,6 +273,13 @@ async function auditActions(tenant) {
     expectStatus(await call('POST', `/admin/tenants/${a.orgId}/suspend`, { token: admin.token, body: { reason: 'short' } }), 400, 'VALIDATION_FAILED', 'short reason');
   });
 
+  let enrollment;
+  await step('21a (setup) an agent enrollment token issued before the suspension', async () => {
+    const res = await call('POST', '/agents/enrollment-tokens', { token: a.token, body: { label: 'suspension smoke' } });
+    expectStatus(res, 201, null, 'enrollment token');
+    enrollment = res.json.enrollmentToken;
+  });
+
   await step('21 suspend -> members get 403 TENANT_SUSPENDED, owner e-mailed', async () => {
     const res = await call('POST', `/admin/tenants/${a.orgId}/suspend`, { token: admin.token, body: { reason: 'Unpaid invoices since 2026-07 (smoke test)' } });
     expectStatus(res, 200, null, 'suspend');
@@ -273,6 +290,14 @@ async function auditActions(tenant) {
     const mail = await waitMail(a.email, 'TENANT_SUSPENDED');
     expect(/gesperrt/.test(mail[0].subject) && /suspended/.test(mail[0].subject), 'bilingual subject');
     expect(mail[0].text.includes('Unpaid invoices since 2026-07'), 'reason in mail');
+  });
+
+  await step('21b local agent devices of a suspended tenant are refused (403 TENANT_SUSPENDED)', async () => {
+    const { publicKey } = require('crypto').generateKeyPairSync('ed25519');
+    const res = await call('POST', '/agent-api/enroll', {
+      body: { enrollmentToken: enrollment, name: 'smoke device', publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString() },
+    });
+    expectStatus(res, 403, 'TENANT_SUSPENDED', 'agent enroll');
   });
 
   await step('22 suspended: login, tenant status, GDPR export still work', async () => {

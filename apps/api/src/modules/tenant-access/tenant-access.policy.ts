@@ -4,11 +4,18 @@
  * in the tenant has been verified; unit-tested without HTTP.
  */
 
-/** Path of an API request without the `/api/v1` prefix and query string. */
+/**
+ * Path of an API request without the `/api/v1` prefix and query string, LOWER-CASED.
+ * Express routes case-insensitively (`GET /api/v1/API-KEYS` reaches the api-keys
+ * controller), so every policy decision (impersonation deny lists, suspension and
+ * allowlist exemptions) must compare a case-folded path; otherwise a changed letter
+ * case slips past the deny lists.
+ */
 export function apiPath(originalUrl: string | undefined | null): string {
-  const path = String(originalUrl ?? '').split('?')[0].split('#')[0];
-  const stripped = path.replace(/^\/api\/v1(?=\/|$)/, '');
-  const clean = stripped.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+  const path = String(originalUrl ?? '').split('?')[0].split('#')[0].toLowerCase();
+  const collapsed = path.replace(/\/{2,}/g, '/');
+  const stripped = collapsed.replace(/^\/api\/v1(?=\/|$)/, '');
+  const clean = stripped.replace(/\/+$/, '');
   return clean === '' ? '/' : clean;
 }
 
@@ -85,6 +92,28 @@ export function decideTenantAccess(state: TenantAccessState, req: TenantAccessRe
     return {
       code: 'IP_NOT_ALLOWED',
       message: `Access from ${req.clientIp ?? 'this network'} is not allowed by this organization's IP allowlist.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Machine credentials of a tenant that do not pass through TenancyMiddleware (local
+ * agent devices, SCIM provisioning tokens):
+ * - SUSPENDED organization → TENANT_SUSPENDED (no operator exemption: machines are the
+ *   tenant's own integrations and must stop while it is suspended);
+ * - with `ipAllowlist`, a non-empty allowlist that does not contain the peer →
+ *   IP_NOT_ALLOWED. SCIM passes `ipAllowlist: false`: provisioning calls originate
+ *   from the identity provider's cloud, never from the customer's network.
+ */
+export function decideMachineAccess(state: TenantAccessState, options: { ipAllowlist: boolean; clientIp: string | null }): TenantAccessDenial | null {
+  if (state.status === 'SUSPENDED') {
+    return { code: 'TENANT_SUSPENDED', message: 'This organization has been suspended.' };
+  }
+  if (options.ipAllowlist && state.allowlistCount > 0 && !state.ipAllowed) {
+    return {
+      code: 'IP_NOT_ALLOWED',
+      message: `Access from ${options.clientIp ?? 'this network'} is not allowed by this organization's IP allowlist.`,
     };
   }
   return null;

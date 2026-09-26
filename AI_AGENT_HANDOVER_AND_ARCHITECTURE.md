@@ -393,7 +393,7 @@ WEB_URL=... API_BASE_URL=... DOUBLES_FILE=... MAIL_DEV_OUTBOX_TOKEN=... node scr
 # + Chromium checks of the admin dialogs, banner, suspended screen (EN/DE), allowlist settings, ticket thread.
 # REDIS_URL (the API's Redis) enables the queue check; SUPPORT_INBOX_EMAIL on the API enables the inbox checks.
 WEB_URL=... API_BASE_URL=... SUPER_ADMIN_EMAIL=... SUPER_ADMIN_PASSWORD=... MAIL_DEV_OUTBOX_TOKEN=... [REDIS_URL=...] \
-  node scripts/e2e-tenant-admin-smoke.cjs [shotDir]                                          # pnpm smoke:tenant-admin, 35 steps
+  node scripts/e2e-tenant-admin-smoke.cjs [shotDir]                                          # pnpm smoke:tenant-admin, 37 steps
 # Everything the CI live-e2e job runs (infra, builds, API prod mode, smokes, backup/restore drill):
 PG_ADMIN_URL=... S3_ACCESS_KEY=... S3_SECRET_KEY=... bash scripts/ci-live-e2e.sh
 ```
@@ -419,7 +419,13 @@ Tenant access administration (module `apps/api/src/modules/tenant-access`, migra
   account, API keys, SSO admin, billing writes, admin → 403 `IMPERSONATION_SECRET_ACCESS_DENIED`; READ_WRITE only with an
   active tenant support grant) and audits every request (tenant chain + platform ledger, fail-closed 503). Banner:
   `components/tenant-access/impersonation-banner.tsx` (countdown, End). Adding a secret-bearing route? Extend
-  `ALWAYS_DENIED` in `impersonation.policy.ts`.
+  `ALWAYS_DENIED` in `impersonation.policy.ts`. Policies compare the CASE-FOLDED path (`apiPath()`), because Express
+  routes case-insensitively (`/API-KEYS` reaches the api-keys controller). An `X-Api-Key` next to an impersonation
+  credential is refused (403 `IMPERSONATION_CREDENTIAL_CONFLICT`).
+- Machine credentials that bypass `TenancyMiddleware` check `TenantAccessService.machineDenial`: local agent devices
+  (`/agent-api/*`: enroll/heartbeat/result → 403 `TENANT_SUSPENDED` / `IP_NOT_ALLOWED`) and SCIM tokens (SCIM 403 while
+  suspended; the IP allowlist does not apply to SCIM — calls come from the IdP's cloud). Webhook retries and the connector
+  health sweep skip suspended organizations (resume after reactivation).
 - IP allowlist (Enterprise, `ipAllowlist` plan feature): `GET|PUT|DELETE /organizations/current/ip-allowlist`
   (owners/security admins; ≤ 50 CIDR entries, IPv4/IPv6; 409 `IP_ALLOWLIST_LOCKOUT` unless `confirmLockout`), enforced for
   every tenant-scoped request incl. API keys (403 `IP_NOT_ALLOWED`). The client address is Express `req.ip`, i.e. it follows

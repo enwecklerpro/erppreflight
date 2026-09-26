@@ -15,8 +15,9 @@ export function isSafeMethod(method: string): boolean {
 }
 
 /** Session control that must keep working while impersonating (and after expiry). */
-export function isImpersonationControlPath(path: string, method: string): boolean {
+export function isImpersonationControlPath(rawPath: string, method: string): boolean {
   const m = String(method).toUpperCase();
+  const path = String(rawPath).toLowerCase();
   return (
     (m === 'GET' && path === '/impersonation/current') ||
     (m === 'POST' && path === '/impersonation/end') ||
@@ -35,7 +36,7 @@ const ALWAYS_DENIED: RegExp[] = [
   /^\/auth(\/|$)/, // password, 2FA, sessions, sign-out-everywhere, org switch (GET /auth/me and /auth/csrf excepted below)
   /^\/account(\/|$)/, // GDPR export / account deletion of the impersonated person
   /^\/api-keys(\/|$)/,
-  /^\/sso\/admin(\/|$)/, // IdP client secrets, SCIM tokens
+  /^\/sso(\/|$)/, // IdP client secrets, SCIM tokens (/sso/admin) and sign-in flows
   /^\/webhooks\/[^/]+\/rotate-secret$/,
   /^\/webhooks\/[^/]+\/deliveries\/[^/]+\/payload$/,
   /^\/agents\/(enrollment-tokens|signing-key)(\/|$)/,
@@ -60,14 +61,19 @@ const WRITE_DENIED: RegExp[] = [
   /^\/connectors(\/|$)/, // connector credentials
   /^\/landscapes(\/|$)/, // system credentials
   /^\/webhooks(\/|$)/,
+  /^\/agents(\/|$)/, // local agent devices, jobs and revocation
+  /^\/invitations(\/|$)/, // accepting an invitation would add the impersonated person to another organization
+  /^\/retention(\/|$)/, // retention settings and data purges are destructive
 ];
 
 export type ImpersonationDecision =
   | { allowed: true }
   | { allowed: false; code: typeof IMPERSONATION_READ_ONLY | typeof IMPERSONATION_SECRET_ACCESS_DENIED; message: string };
 
-export function decideImpersonationRequest(method: string, path: string, readOnly: boolean): ImpersonationDecision {
+export function decideImpersonationRequest(method: string, rawPath: string, readOnly: boolean): ImpersonationDecision {
   const m = String(method || 'GET').toUpperCase();
+  // Express routes case-insensitively: decide on the case-folded path (apiPath() already folds).
+  const path = String(rawPath).toLowerCase();
   if (isImpersonationControlPath(path, m)) return { allowed: true };
   const allowedRead = SAFE_METHODS.has(m) && ALWAYS_ALLOWED_READS.some((re) => re.test(path));
   if (!allowedRead && ALWAYS_DENIED.some((re) => re.test(path))) {

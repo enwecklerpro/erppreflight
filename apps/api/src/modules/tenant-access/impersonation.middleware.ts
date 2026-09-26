@@ -57,6 +57,22 @@ export class ImpersonationMiddleware implements NestMiddleware {
     }
 
     const ctx = outcome.ctx;
+    // An API key would replace the impersonated principal (JwtAuthGuard / TenancyMiddleware
+    // resolve X-Api-Key first) while the ledger records an impersonation request: refuse
+    // the ambiguous combination instead of acting under a different identity.
+    const apiKey = req.headers['x-api-key'];
+    if (typeof apiKey === 'string' && apiKey.length > 0 && !control) {
+      await this.impersonation.recordRequest(
+        ctx,
+        { method, path },
+        { allowed: false, code: 'IMPERSONATION_SECRET_ACCESS_DENIED', message: 'API key presented with an impersonation session' },
+        meta
+      );
+      throw new ForbiddenException({
+        code: 'IMPERSONATION_CREDENTIAL_CONFLICT',
+        message: 'An API key cannot be used together with an impersonation session.',
+      });
+    }
     if (method === 'POST' && path === '/auth/logout') {
       await this.impersonation.end(ctx.id, 'LOGOUT', { id: ctx.impersonatorId, email: ctx.impersonatorEmail }, meta);
       this.impersonation.clearCookie(res);

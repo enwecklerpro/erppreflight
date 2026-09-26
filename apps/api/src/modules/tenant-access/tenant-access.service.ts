@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { apiPath, decideTenantAccess } from './tenant-access.policy';
+import { TenantAccessDenial, apiPath, decideMachineAccess, decideTenantAccess } from './tenant-access.policy';
 import { clientIpOf } from './client-ip';
 
 export interface TenantAccessSnapshot {
@@ -74,6 +74,24 @@ export class TenantAccessService {
     if (denial) {
       throw new ForbiddenException({ code: denial.code, message: denial.message });
     }
+  }
+
+  /**
+   * Decision for a tenant machine credential (local agent device, SCIM token); see
+   * decideMachineAccess. Null = allowed (also for unknown organizations: the credential
+   * lookup already failed closed).
+   */
+  async machineDenial(
+    organizationId: string,
+    clientIp: string | null,
+    options: { ipAllowlist: boolean }
+  ): Promise<TenantAccessDenial | null> {
+    const state = await this.snapshot(organizationId, clientIp);
+    if (!state) return null;
+    return decideMachineAccess(
+      { status: state.status, allowlistCount: state.allowlistCount, ipAllowed: state.ipAllowed },
+      { ipAllowlist: options.ipAllowlist, clientIp }
+    );
   }
 
   /** Used by queue workers: jobs of suspended tenants are deferred, not processed. */
