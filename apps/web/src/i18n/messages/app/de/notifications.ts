@@ -9,7 +9,7 @@ export const notifications: typeof En = {
   markAllRead: 'Alle als gelesen markieren',
   noUnread: 'Keine ungelesenen Benachrichtigungen.',
   none: 'Noch keine Benachrichtigungen.',
-  emptyHint: 'Sie werden über abgeschlossene oder fehlgeschlagene Analysen, kritische Befunde und Änderungen beobachteter Releases informiert.',
+  emptyHint: 'Sie werden über abgeschlossene oder fehlgeschlagene Analysen, kritische Befunde, Ihnen zugewiesene Befunde und Änderungen beobachteter Releases informiert.',
   loadingMore: 'Wird geladen …',
   loadOlder: 'Ältere Benachrichtigungen laden',
   prefsTitle: 'Zustellungseinstellungen',
@@ -32,6 +32,7 @@ export const notifications: typeof En = {
     analysis_failed: 'Analyse fehlgeschlagen',
     finding_critical: 'Kritische Befunde / Blocker',
     release_watch_changed: 'Änderungen beobachteter Releases',
+    finding_assigned: 'Mir zugewiesener Befund',
   },
 };
 

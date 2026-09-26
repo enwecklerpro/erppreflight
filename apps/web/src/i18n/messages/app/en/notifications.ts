@@ -8,7 +8,7 @@ export const notifications = {
   markAllRead: 'Mark all as read',
   noUnread: 'No unread notifications.',
   none: 'No notifications yet.',
-  emptyHint: 'You will be notified about completed or failed analyses, critical findings and release watch changes.',
+  emptyHint: 'You will be notified about completed or failed analyses, critical findings, findings assigned to you and release watch changes.',
   loadingMore: 'Loading…',
   loadOlder: 'Load older notifications',
   prefsTitle: 'Delivery preferences',
@@ -31,6 +31,7 @@ export const notifications = {
     analysis_failed: 'Analysis failed',
     finding_critical: 'Critical / blocker findings',
     release_watch_changed: 'Release watch changes',
+    finding_assigned: 'Finding assigned to me',
   },
 };
 

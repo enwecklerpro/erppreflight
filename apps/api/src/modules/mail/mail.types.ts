@@ -12,7 +12,9 @@ export type MailTemplateId =
   | 'ORGANIZATION_INVITATION'
   | 'TWO_FACTOR_ENABLED'
   | 'TWO_FACTOR_DISABLED'
-  | 'ACCOUNT_DELETED';
+  | 'ACCOUNT_DELETED'
+  | 'FINDING_ASSIGNED'
+  | 'NOTIFICATION';
 
 export interface MailMessage {
   to: string;
