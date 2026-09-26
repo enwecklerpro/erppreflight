@@ -22,6 +22,8 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { SuperAdminGuard } from '../admin/guards/super-admin.guard';
 import { Audited } from '../audit/audited.decorator';
 import { CreateGrantSchema, CreateTicketSchema, SupportService, TicketStatusEnum } from './support.service';
+import { AdminTicketReplySchema, SupportThreadService, TicketReplySchema, resolveTicketLocale } from './support-thread.service';
+import { SupportMailService } from './support-mail.service';
 
 function parseOr400<S extends z.ZodTypeAny>(schema: S, body: unknown, what: string): z.output<S> {
   const parsed = schema.safeParse(body ?? {});
@@ -36,7 +38,10 @@ function parseOr400<S extends z.ZodTypeAny>(schema: S, body: unknown, what: stri
 @Controller('support')
 @UseGuards(JwtAuthGuard, TenancyGuard, RolesGuard)
 export class SupportController {
-  constructor(private readonly support: SupportService) {}
+  constructor(
+    private readonly support: SupportService,
+    private readonly thread: SupportThreadService
+  ) {}
 
   @Get('tickets')
   async listTickets(@CurrentTenant() tenantId: string) {
@@ -57,7 +62,37 @@ export class SupportController {
     }),
   })
   async createTicket(@CurrentTenant() tenantId: string, @Req() req: any, @Body() body: unknown) {
-    return this.support.createTicket(tenantId, req.user?.id ?? null, parseOr400(CreateTicketSchema, body, 'ticket'));
+    const dto = parseOr400(CreateTicketSchema, body, 'ticket');
+    const ticket = await this.support.createTicket(tenantId, req.user?.id ?? null, {
+      ...dto,
+      locale: resolveTicketLocale(dto.locale, req),
+    });
+    // E-mails to the requester and the support inbox (asynchronous, never fail the request).
+    await this.thread.notifyCreated(ticket.id).catch(() => undefined);
+    return ticket;
+  }
+
+  @Get('tickets/:ticketId/messages')
+  async listMessages(@CurrentTenant() tenantId: string, @Param('ticketId', new ParseUUIDPipe()) ticketId: string) {
+    return this.thread.listMessages(tenantId, ticketId);
+  }
+
+  /** Customer reply on a ticket of the caller's organization; e-mails the requester and the support inbox. */
+  @Post('tickets/:ticketId/messages')
+  @Audited({
+    action: 'support.ticket.replied',
+    targetType: 'SUPPORT_TICKET',
+    targetId: ({ params }) => params.ticketId,
+    payload: ({ result }) => ({ messageId: result?.message?.id ?? null, authorRole: 'CUSTOMER' }),
+  })
+  async reply(
+    @CurrentTenant() tenantId: string,
+    @Param('ticketId', new ParseUUIDPipe()) ticketId: string,
+    @Req() req: any,
+    @Body() body: unknown
+  ) {
+    const dto = parseOr400(TicketReplySchema, body, 'reply');
+    return this.thread.customerReply(tenantId, ticketId, { id: req.user?.id ?? null, email: req.user?.email ?? null }, dto.body);
   }
 
   @Get('access-grants')
@@ -98,16 +133,67 @@ export class SupportController {
 @Controller('admin/support')
 @UseGuards(JwtAuthGuard, SuperAdminGuard)
 export class SupportAdminController {
-  constructor(private readonly support: SupportService) {}
+  constructor(
+    private readonly support: SupportService,
+    private readonly thread: SupportThreadService,
+    private readonly mails: SupportMailService
+  ) {}
 
   @Get('tickets')
   async listAll(@Query('status') status?: string) {
     return this.support.listAllTickets(status || undefined);
   }
 
+  /** Where ticket e-mails for operators go (SUPPORT_INBOX_EMAIL / SUPPORT_INBOX_LOCALE). */
+  @Get('config')
+  config() {
+    const inboxEmail = this.mails.inboxAddress();
+    return { inboxConfigured: !!inboxEmail, inboxEmail, inboxLocale: this.mails.inboxLocale() };
+  }
+
+  /** Ticket with its conversation (operator view). */
+  @Get('tickets/:ticketId')
+  async getTicket(@Param('ticketId', new ParseUUIDPipe()) ticketId: string) {
+    return this.thread.adminTicket(ticketId);
+  }
+
+  /** Status change; e-mails the requester and the support inbox. Recorded in the tenant ledger. */
   @Patch('tickets/:ticketId')
-  async updateStatus(@Param('ticketId', new ParseUUIDPipe()) ticketId: string, @Body() body: unknown) {
+  @Audited({
+    action: 'support.ticket.status_changed',
+    targetType: 'SUPPORT_TICKET',
+    targetId: ({ params }) => params.ticketId,
+    tenantId: ({ result }) => result?.organizationId,
+    payload: ({ result, request }) => ({
+      status: result?.status ?? null,
+      previousStatus: result?.previousStatus ?? null,
+      changed: result?.changed ?? false,
+      byEmail: request.user?.email ?? null,
+    }),
+  })
+  async updateStatus(@Param('ticketId', new ParseUUIDPipe()) ticketId: string, @Body() body: unknown, @Req() req: any) {
     const { status } = parseOr400(z.object({ status: TicketStatusEnum }).strict(), body, 'ticket status');
-    return this.support.updateTicketStatus(ticketId, status);
+    const change = await this.thread.changeStatus(ticketId, status, { id: req.user?.id ?? null, email: req.user?.email ?? null });
+    const ticket = await this.support.getTicket(ticketId);
+    return { ...ticket, ...change };
+  }
+
+  /** Operator reply (optionally with a status change); e-mails the requester and the support inbox. */
+  @Post('tickets/:ticketId/messages')
+  @Audited({
+    action: 'support.ticket.replied',
+    targetType: 'SUPPORT_TICKET',
+    targetId: ({ params }) => params.ticketId,
+    tenantId: ({ result }) => result?.organizationId,
+    payload: ({ result, request }) => ({
+      messageId: result?.message?.id ?? null,
+      authorRole: 'SUPPORT',
+      statusChange: result?.statusChange ?? null,
+      byEmail: request.user?.email ?? null,
+    }),
+  })
+  async reply(@Param('ticketId', new ParseUUIDPipe()) ticketId: string, @Body() body: unknown, @Req() req: any) {
+    const dto = parseOr400(AdminTicketReplySchema, body, 'reply');
+    return this.thread.supportReply(ticketId, { id: req.user?.id ?? null, email: req.user?.email ?? null }, dto.body, dto.status);
   }
 }
