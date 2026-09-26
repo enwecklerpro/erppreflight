@@ -35,10 +35,13 @@ import {
   AdminUserItem,
   AdminQueueData,
 } from '../../lib/api-client';
+import { BusinessPanel, FeatureFlagsPanel, IncidentsPanel, SupportConsolePanel } from '@/components/admin/ops-panels';
 
 export default function SuperAdminPortal() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'overview' | 'tenants' | 'users' | 'engines' | 'queues'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'business' | 'incidents' | 'support' | 'flags' | 'tenants' | 'users' | 'engines' | 'queues'
+  >('overview');
   const [userSearch, setUserSearch] = useState('');
   const [tenantSearch, setTenantSearch] = useState('');
 
@@ -216,6 +219,10 @@ export default function SuperAdminPortal() {
         <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-white/10">
           {[
             { id: 'overview', label: 'Global Overview', icon: Activity },
+            { id: 'business', label: 'Business & Usage', icon: Layers },
+            { id: 'incidents', label: 'Incidents & Jobs', icon: AlertTriangle },
+            { id: 'support', label: 'Support Console', icon: Search },
+            { id: 'flags', label: 'Feature Flags', icon: CheckCircle2 },
             { id: 'tenants', label: 'Tenant Directory', icon: Building2 },
             { id: 'users', label: 'User Administration', icon: Users },
             { id: 'engines', label: 'SAP Engine Matrix', icon: Cpu },
@@ -240,6 +247,11 @@ export default function SuperAdminPortal() {
           })}
         </div>
       </div>
+
+      {activeTab === 'business' && <BusinessPanel />}
+      {activeTab === 'incidents' && <IncidentsPanel />}
+      {activeTab === 'support' && <SupportConsolePanel />}
+      {activeTab === 'flags' && <FeatureFlagsPanel />}
 
       {/* Tab: Overview */}
       {activeTab === 'overview' && (
@@ -287,12 +299,12 @@ export default function SuperAdminPortal() {
 
                 <div className="bg-card border border-border p-5 rounded-xl shadow-sm">
                   <div className="flex items-center justify-between text-muted-foreground text-xs font-medium">
-                    <span>Clean Core Index</span>
+                    <span>Blocker / Critical Findings</span>
                     <ShieldCheck className="h-4 w-4 text-amber-500" />
                   </div>
-                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.cleanCoreIndex}%</div>
+                  <div className="text-3xl font-extrabold text-foreground mt-2">{overview.blockersAndCritical}</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {overview.blockersAndCritical} Blockers / Critical findings
+                    of {overview.totalFindings} findings across all tenants
                   </div>
                 </div>
               </div>

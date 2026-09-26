@@ -1,0 +1,150 @@
+# ERP Preflight — Deployment Guide
+
+> Spec 13.12 #2, 12.7, 12.16, C §52–§56. Production target: one Hostinger VPS running Coolify v4,
+> deploying `docker-compose.coolify.yml` from this repository. Architecture background and the full
+> environment-variable table: `AI_AGENT_HANDOVER_AND_ARCHITECTURE.md` §4. Verified state:
+> `RELEASE_READINESS_REPORT.md`, `docs/E2E_TEST_REPORT.md`.
+
+## 1. What gets deployed
+
+| Service | Image / build | Exposure |
+|---|---|---|
+| `web` | `infra/docker/Dockerfile.web` (Next.js standalone, non-root) | Traefik: `erppreflight.com`, `www.` |
+| `api` | `infra/docker/Dockerfile.api` (NestJS, runs migrations on start, non-root) | Traefik: `api.erppreflight.com` |
+| `analysis-python` | `infra/docker/Dockerfile.analysis` (FastAPI, non-root) | internal only |
+| `postgres` | `pgvector/pgvector:pg16` | internal only |
+| `redis` | `redis:7.2-alpine` (AOF on) | internal only |
+| `minio` | `elestio/minio:latest` | internal only |
+| `clamav` | `clamav/clamav:latest` (3 GB limit) | internal only |
+
+Sizing: summed memory limits ≈ 13 GB; use a plan with **≥ 16 GB RAM** (8 GB plans risk OOM-kills of
+ClamAV). Disk: DB + objects + ≥ 2 × that for local backups.
+
+## 2. First deployment
+
+1. **DNS** (Hostinger hPanel): `A @`, `A www`, `A api` → VPS IPv4.
+2. **VPS**: Ubuntu 24.04, `ufw allow 22,80,443/tcp`, install Coolify
+   (`curl -fsSL https://cdn.coolify.io/coolify/install.sh | bash`), secure the Coolify dashboard
+   (strong admin password, 2FA, restrict port 8000 to your IP).
+3. **Coolify resource**: Project → Environment → New Resource → GitHub repository
+   `enwecklerpro/erppreflight`, branch `main`, build pack *Docker Compose*,
+   compose path **`/docker-compose.coolify.yml`**.
+4. **Environment variables** — copy `.env.coolify.example`; generate every secret fresh:
+   ```bash
+   openssl rand -hex 32        # POSTGRES_PASSWORD, S3_SECRET_KEY, MASTER_ENCRYPTION_KEY, METRICS_TOKEN
+   openssl rand -base64 48     # JWT_SECRET
+   ```
+   Required (compose refuses to start without them, the API refuses known defaults):
+   `POSTGRES_PASSWORD`, `JWT_SECRET`, `MASTER_ENCRYPTION_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`.
+   Also set `NEXT_PUBLIC_API_URL=https://api.erppreflight.com` (**build-time** for the web image),
+   `CORS_ORIGIN=https://erppreflight.com,https://www.erppreflight.com`,
+   `ADMIN_BOOTSTRAP_EMAIL`/`ADMIN_BOOTSTRAP_PASSWORD` (first deploy only), keep `CLAMAV_MOCK_MODE=false`,
+   `STRICT_MIGRATIONS=true`, `DB_RUNTIME_ROLE=erppreflight_app`.
+5. **Deploy**. The API container runs all pending migrations before it starts
+   (`infra/docker/api-entrypoint.sh`); with `STRICT_MIGRATIONS=true` a failing migration stops the
+   container and the deployment shows unhealthy instead of serving a half-migrated schema.
+6. **Verify** (§5), then remove `ADMIN_BOOTSTRAP_PASSWORD` from the environment.
+
+Without Coolify: `docker network create coolify; docker compose -f docker-compose.coolify.yml up -d --build`
+behind your own reverse proxy (the file joins the external `coolify` network).
+
+## 3. Releases and updates (spec 12.16)
+
+1. Merge to `main` only with green `CI`, `Security` and `Docker` workflows (branch protection).
+2. Tag: `git tag v1.4.0 && git push origin v1.4.0` → `release.yml` builds the three images, pushes
+   them to `ghcr.io/enwecklerpro/erppreflight/{api,web,analysis}`, attaches SLSA provenance + SBOM,
+   signs the digests with cosign (keyless) and publishes a GitHub Release with changelog, digests and
+   CycloneDX SBOMs.
+3. Verify before deploying:
+   ```bash
+   cosign verify ghcr.io/enwecklerpro/erppreflight/api@sha256:<digest> \
+     --certificate-identity-regexp 'https://github.com/enwecklerpro/erppreflight/.github/workflows/release.yml@refs/tags/v.*' \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+   ```
+4. **Back up first** when the release contains new files in `packages/database/migrations`
+   (the release notes say so): run `scripts/backup.sh` on the VPS (§6).
+5. Deploy: today Coolify builds from the tagged commit (set the resource's branch/commit to the tag).
+   Deploying the signed GHCR digests instead requires replacing `build:` with `image: …@sha256:` in a
+   Coolify-specific compose override — recommended next step (KNOWN_LIMITATIONS O3/O9).
+6. Verify (§5). **Rollback:** redeploy the previous tag. Migrations are forward-only; if a migration
+   must be undone, restore the pre-deploy backup (`docs/runbooks/DISASTER_RECOVERY.md`).
+
+## 4. Configuration reference
+
+`.env.coolify.example` documents every variable read by the compose file; the API validates them in
+`apps/api/src/config/env.validation.ts`. Secret rotation: `docs/runbooks/SECRET_ROTATION.md`.
+
+## 5. Post-deploy verification
+
+```bash
+curl -s https://api.erppreflight.com/health/liveness
+curl -s https://api.erppreflight.com/health/readiness | jq .   # postgres, redis, minio, analysis (19 engines), clamav: all "up"
+curl -s -o /dev/null -w '%{http_code}\n' https://erppreflight.com/api/health
+API_BASE_URL=https://api.erppreflight.com bash scripts/e2e-live-smoke.sh      # 21 checks, 2 throwaway tenants
+WEB_URL=https://erppreflight.com node scripts/e2e-ui-smoke.cjs                # Chromium journey (needs `pnpm install`)
+```
+
+The smoke tests create tenants named `Org A <n>` / `Org B <n>` with `@e2e.local` addresses; delete
+them afterwards if the production database must stay clean.
+
+## 6. Backups (spec 12.7, 13.11 "working backups")
+
+`scripts/backup.sh` (run on the VPS host, daily via cron or a Coolify scheduled task):
+
+- `pg_dump -Fc` **inside** the postgres container (no DB port exposure, no password on the command
+  line), validated with `pg_restore --list`, SHA-256 recorded;
+- exact row count of every table (`table_counts.tsv`) for restore verification;
+- `mc mirror` of the `erppreflight-quarantine`, `-clean` and `-reports` buckets using the MinIO image
+  already on the host;
+- `manifest.json`, `umask 077`, lock file, retention (`BACKUP_RETENTION_DAYS`, default 14).
+
+Set-up commands, off-site copy and the restore procedure: `docs/runbooks/DISASTER_RECOVERY.md`.
+`scripts/restore.sh` verifies checksum, per-table row counts, RLS policies and object counts and exits
+non-zero on any mismatch.
+
+### 6.1 Restore drill executed (2026-09-26, shared local infrastructure, workstream-E database)
+
+Command: `scripts/ci-live-e2e.sh` (drill phase), same scripts as production, against the shared
+Postgres 16/pgvector + MinIO containers, database `erppreflight_ws_e`, buckets `erppreflight-ws-e-*`:
+
+| Step | Result |
+|---|---|
+| Seed via API: register tenant, create project "Restore Drill", upload fixture (ClamAV CLEAN) | object sha256 `9724d499…` |
+| `scripts/backup.sh` | 26 tables / 40 rows, dump 159 316 bytes (sha256 `bc17c8a3…`), clean bucket 7 objects, reports bucket 10 objects |
+| Disaster | `DROP DATABASE erppreflight_ws_e`, all objects deleted from the three buckets |
+| `scripts/restore.sh` | checksum OK; row counts verified for 26 tables (40 rows); 22 tables with ENABLE+FORCE RLS, 22 policies; 7 + 10 objects restored |
+| API restarted on restored data | login of the drill user OK, project readable, downloaded file **byte-identical** (sha256 `9724d499…`) |
+
+The CI `live-e2e` job repeats this drill on every run.
+
+## 7. Monitoring
+
+- Health: `/health/liveness`, `/health/readiness` (use readiness for uptime monitoring).
+- Metrics: `GET /api/v1/metrics` with `Authorization: Bearer $METRICS_TOKEN` (Prometheus format).
+- Logs: `docker logs erppreflight-<service>` / Coolify log view; the API logs JSON with `X-Request-ID`.
+- Not yet available: tracing, error tracking, dashboards, alerting (KNOWN_LIMITATIONS O4). Minimum
+  until then: an external uptime check on `/health/readiness` and on certificate expiry
+  (`docs/runbooks/CERTIFICATE_RENEWAL.md`).
+
+## 8. Runbooks
+
+`docs/runbooks/`: `INCIDENT_RESPONSE.md`, `CLAMAV_DOWN.md`, `QUEUE_BACKLOG.md`, `DISASTER_RECOVERY.md`,
+`SECRET_ROTATION.md`, `CERTIFICATE_RENEWAL.md`, `HOSTINGER_COOLIFY_DEPLOYMENT.md` (historical walkthrough).
+
+## 9. Single-VPS limitation and migration path (spec C §56)
+
+The current layout is **not highly available**: one host runs every service; a host, disk or
+provider failure is a full outage, and data written since the last off-site backup is lost.
+Acceptable for an initial launch with a documented RPO/RTO (DISASTER_RECOVERY §0), not for
+enterprise SLAs. Migration path, in order of value:
+
+1. **Managed PostgreSQL** with PITR (point `DATABASE_URL` at it; keep the RLS runtime role — create
+   `erppreflight_app` and a login user that is a member of it; migrations run unchanged).
+2. **External S3** (any S3-compatible service: set `S3_ENDPOINT`, keys and bucket names; enable
+   versioning and object lock on the buckets).
+3. **Managed/replicated Redis** (`REDIS_URL` with TLS `rediss://`).
+4. **Separate worker processes**: the BullMQ worker currently runs inside the API container; split it
+   so analysis load scales independently; run ≥ 2 API replicas behind the proxy (move the auth rate
+   limiter to Redis first — SECURITY_REVIEW S4).
+5. **CDN/WAF** in front of `web` and `api` (also adds DDoS protection and edge TLS).
+6. ClamAV as a separate, horizontally scaled scanning service.

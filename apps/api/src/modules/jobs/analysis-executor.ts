@@ -203,11 +203,16 @@ export class AnalysisExecutor {
   async run(input: AnalysisRunInput): Promise<AnalysisRunResult> {
     const { analysisId, organizationId, projectId, engineTypes, targetRelease } = input;
 
-    await this.db.query(
-      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2`,
+    const runningRes = await this.db.query(
+      `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2 RETURNING created_at`,
       [analysisId, organizationId],
       { tenantId: organizationId }
     );
+    // Time-based rules (e.g. decommission recency) need a stable reference date. Use the
+    // analysis creation date so re-runs of the same analysis stay reproducible; an
+    // evaluation date inside the artifact or the requested configuration still wins.
+    const createdAt = runningRes?.rows?.[0]?.created_at;
+    const evaluationDate = createdAt ? new Date(createdAt).toISOString().slice(0, 10) : undefined;
 
     const artifacts = await this.prepareArtifacts(input);
     if (artifacts.length === 0) {
@@ -237,6 +242,7 @@ export class AnalysisExecutor {
             artifactS3Key: artifact.storagePath,
             artifactType: artifact.artifactType,
             configuration: {
+              ...(evaluationDate ? { evaluation_date: evaluationDate } : {}),
               ...(input.configuration ?? {}),
               ...(artifact.fileId ? { sourceFileId: artifact.fileId } : {}),
               ...(artifact.fileName ? { sourceFileName: artifact.fileName } : {}),

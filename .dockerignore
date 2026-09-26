@@ -1,0 +1,80 @@
+# ==============================================================================
+# ERP Preflight — Docker build context exclusions (all images build with context `.`)
+#
+# The Dockerfiles in infra/docker only COPY:
+#   package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json
+#   packages/  apps/api/  apps/web/  services/analysis-python/  infra/docker/api-entrypoint.sh
+# Everything else is excluded so that local build outputs, secrets and customer-like test
+# artifacts never reach an image layer, and so the context upload stays small.
+# ==============================================================================
+
+# VCS, agent metadata, CI
+.git
+.gitignore
+.gitattributes
+.github
+.agents
+.claude
+.turbo
+**/.turbo
+
+# Dependencies and build outputs (rebuilt inside the image; stale copies break
+# incremental builds, e.g. a *.tsbuildinfo without its dist/ makes tsc emit nothing)
+**/node_modules
+**/.next
+**/dist
+**/out
+**/*.tsbuildinfo
+**/coverage
+**/.pnpm-store
+
+# Python caches and local virtualenvs
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.hypothesis
+**/.venv
+**/venv
+
+# Tests that are not part of any image (the python service's own unit tests are also
+# excluded from the runtime image; they run in CI, not in production)
+tests
+services/analysis-python/tests
+playwright-report
+test-results
+e2e-artifacts
+
+# Secrets and local environment files (only the documented templates may be sent)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.coolify.example
+*.pem
+*.key
+
+# Specification archive, documentation and operational scripts
+*.zip
+*.md
+!apps/**/README.md
+!packages/**/README.md
+docs
+scripts
+infra/coolify
+
+# Compose files and alternative entrypoints are not image inputs
+docker-compose*.yml
+docker-compose*.yaml
+server.js
+playwright.config.ts
+orval.config.ts
+
+# Editor / OS noise
+.vscode
+.idea
+**/.DS_Store
+**/Thumbs.db
+*.log

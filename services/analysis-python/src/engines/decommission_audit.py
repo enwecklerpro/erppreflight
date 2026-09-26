@@ -26,6 +26,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -190,6 +193,86 @@ PENDING_WORK_ITEM_STATUSES = {"READY", "SELECTED", "STARTED"}
 # Feature 30: Safe Decommission & Archiving Readiness Engine (Cardinal Axiom 2)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+from pydantic import model_validator
+
+import re as _re
+
+RULES = rule_catalog(
+    RuleSpec(
+        "DECOM_USER_NOT_FOUND", "Candidate user absent from USR02", Severity.CRITICAL,
+        "Check the user ID and client; export the complete USR02 for the client and re-run.", "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_SCHEDULED_JOB_DEPENDENCY", "Background jobs run under the user", Severity.CRITICAL,
+        "In SM37 change the step user of the listed jobs to a technical (system-type) user before locking the "
+        "account; released periodic jobs fail otherwise.", "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_ACTIVE_RFC_DEPENDENCY", "RFC destinations log on with the user", Severity.CRITICAL,
+        "In SM59 switch the listed destinations to a dedicated communication user with least-privilege roles "
+        "before deactivation.", "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_WORKFLOW_AGENT_DEPENDENCY", "Open workflow items assigned to the user", Severity.MAJOR,
+        "Forward the open work items in SWIA / SBWP and update agent determination (rules / org assignment).",
+        "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_RECENT_ACTIVITY_DETECTED", "User active within the grace period", Severity.MAJOR,
+        "Lock dialog logon and observe for 14–30 days (SM20 / ST03N) before deleting or archiving.",
+        "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_LOCKED_USER_CALL_FLOOD", "Locked user still receives logon attempts", Severity.CRITICAL,
+        "Identify the calling system from SM20/SM21 (terminal / RFC caller) and update its credentials or "
+        "disable the interface before archiving.", "DECOMMISSION_PREFLIGHT",
+    ),
+    RuleSpec(
+        "DECOM_SAFE_FOR_ARCHIVING", "No dependencies found in the supplied extracts", Severity.INFO,
+        "Follow the decommissioning runbook: lock in SU01, set validity end, remove roles, archive with SARA. "
+        "The verdict is limited to the supplied USR02/TBTCO/RFCDES/SWWWIHEAD extracts and evaluation date.",
+        "DECOMMISSION_PREFLIGHT",
+    ),
+)
+
+
+class DecommissionInput(ContractModel):
+    target_user: Optional[str] = None
+    bname: Optional[str] = None
+    username: Optional[str] = None
+    evaluation_date: Optional[str] = None
+    snapshot_date: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_target(self) -> "DecommissionInput":
+        if not (self.target_user or self.bname or self.username):
+            raise insufficient("No decommissioning candidate supplied: provide 'target_user'.")
+        return self
+
+
+def _decom_text_check(text: str) -> Optional[str]:
+    if _re.search(r"^\s*\[[A-Za-z0-9_]+\]\s*$", text, _re.M):
+        return None
+    return "CSV export must be organised in table sections ([TARGET], [USR02], [TBTCO], [RFCDES], [SWWWIHEAD], …)."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.TEXT),
+    summary=(
+        "User decommissioning extract: JSON {'target_user', 'evaluation_date', 'usr02': [...], 'tbtco': [...], "
+        "'rfcdes': [...], 'swwwihead': [...], 'sm20': [...]} or a sectioned CSV ([USR02], [TBTCO], …). "
+        "Time-based rules require 'evaluation_date' (extract date); it is never taken from the system clock."
+    ),
+    required=("target_user", "USR02, TBTCO, RFCDES, SWWWIHEAD extracts", "evaluation_date for recency rules"),
+    json_model=DecommissionInput,
+    text_check=_decom_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class DecommissionAuditEngine(BaseEngine):
     """Authoritative preflight engine for safe decommissioning and user archiving."""
@@ -197,6 +280,8 @@ class DecommissionAuditEngine(BaseEngine):
     # Point 1: Metadata
     engine_type = EngineType.SAFE_DECOMMISSION_PREFLIGHT
     rule_prefix = "DECOM"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Safe Decommission Preflight"
     description = "Unused Z-program, table, and interface retirement preflight validator"
     version = "2.0.0"
@@ -513,18 +598,25 @@ class DecommissionAuditEngine(BaseEngine):
             )
         target = data.target_user
 
+        # Determinism (Axiom 2 #4): the reference date for time-based rules comes ONLY from the input
+        # (payload, configuration or options.custom_params) — never from the system clock.
+        custom = request.options.custom_params or {}
         ref_date_str = (
             (request.configuration or {}).get("evaluation_date")
             or (request.configuration or {}).get("snapshot_date")
+            or custom.get("evaluation_date")
+            or custom.get("snapshot_date")
             or data.evaluation_date
         )
+        ref_date: Optional[date] = None
         if ref_date_str:
             try:
                 ref_date = date.fromisoformat(str(ref_date_str)[:10])
-            except Exception:
-                ref_date = date.today()
-        else:
-            ref_date = date.today()
+            except (TypeError, ValueError):
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    "evaluation_date must be an ISO date (YYYY-MM-DD).",
+                ) from None
 
         # ----------------------------------------------------------------------
         # Rule 0: Verify Target User Existence in USR02
@@ -736,11 +828,32 @@ class DecommissionAuditEngine(BaseEngine):
         # ----------------------------------------------------------------------
         # Rule 4: Recent Usage Activity Detection (SM20 / ST03N / USR02.TRDAT)
         # ----------------------------------------------------------------------
-        rules_evaluated += 1
         days_since_active = 999
         last_active_date: Optional[date] = None
+        time_rules_evaluated = ref_date is not None
+        if not time_rules_evaluated:
+            f = Finding(
+                rule_id="DECOM_INSUFFICIENT_INPUT",
+                severity=Severity.INFO,
+                category="DECOMMISSION_PREFLIGHT",
+                title=f"Recent-Activity Rule Not Evaluated for '{target}': Evaluation Date Missing",
+                description=(
+                    "The time-based activity rule (USR02.TRDAT / audit log recency) needs the extract's evaluation "
+                    "date ('evaluation_date' / 'snapshot_date' in the payload, configuration or options). It was not "
+                    "supplied, so recency was not assessed and no safe-to-decommission verdict can be issued."
+                ),
+                confidence=ConfidenceClass.UNKNOWN,
+                confidence_score=0.30,
+                remediation="Re-run with 'evaluation_date' set to the date the tables were extracted (YYYY-MM-DD).",
+                evidence=[],
+                affected_objects=[target],
+                technical_details={"missingInput": "evaluation_date", "rule": "RECENT_ACTIVITY"},
+            )
+            findings.append(ConfidenceClassifier.classify(f))
+        else:
+            rules_evaluated += 1
 
-        if user_entry and user_entry.last_logon_date:
+        if ref_date is not None and user_entry and user_entry.last_logon_date:
             p_date = _parse_date(user_entry.last_logon_date)
             if p_date:
                 last_active_date = p_date
@@ -748,7 +861,7 @@ class DecommissionAuditEngine(BaseEngine):
 
         # Also inspect audit logs
         user_audit_entries = [a for a in data.audit_logs if a.user.upper() == target]
-        if user_audit_entries:
+        if user_audit_entries and ref_date is not None:
             for entry in user_audit_entries:
                 if entry.timestamp:
                     d_parsed = _parse_date(entry.timestamp[:10])
@@ -758,7 +871,7 @@ class DecommissionAuditEngine(BaseEngine):
                             days_since_active = diff
                             last_active_date = d_parsed
 
-        if days_since_active <= data.grace_period_days:
+        if ref_date is not None and days_since_active <= data.grace_period_days:
             line_no, col_no, snippet = _locate_line_in_text(raw_text, str(user_entry.last_logon_date if user_entry else target))
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -872,7 +985,10 @@ class DecommissionAuditEngine(BaseEngine):
                 technical_details={"missingTables": [t.upper() for t in missing_tables]},
             )
             findings.append(ConfidenceClassifier.classify(f))
-        if not has_blockers and not missing_tables and days_since_active >= data.grace_period_days:
+        if (
+            not has_blockers and not missing_tables and time_rules_evaluated
+            and days_since_active >= data.grace_period_days
+        ):
             line_no, col_no, snippet = _locate_line_in_text(raw_text, target)
             ev = EvidenceEngine.create_evidence(
                 artifact_path=artifact_path,
@@ -975,7 +1091,7 @@ class DecommissionAuditEngine(BaseEngine):
         return AnalysisResponse(
             job_id=request.job_id,
             engine_type=self.engine_type,
-            status=AnalysisStatus.PARTIAL if verdict_withheld else AnalysisStatus.COMPLETED,
+            status=AnalysisStatus.PARTIAL if (verdict_withheld or not time_rules_evaluated) else AnalysisStatus.COMPLETED,
             findings=findings,
             metrics=AnalysisMetrics(
                 execution_time_ms=execution_time_ms,

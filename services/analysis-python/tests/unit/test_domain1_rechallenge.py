@@ -166,7 +166,8 @@ class TestEmpiricalRechallengeFormDoctorDefects:
 
     @pytest.mark.asyncio
     async def test_plain_text_arbitrary_notes_no_crash(self):
-        """Defect 1 Edge Case: Arbitrary non-XML non-SAPscript text (.txt) must complete cleanly with 0 findings."""
+        """Defect 1 Edge Case: Arbitrary non-XML non-SAPscript text (.txt) must not crash and must NOT produce a
+        clean verdict (COMPLETED with 0 findings would claim the form was checked): FAILED + INVALID_INPUT."""
         notes = "This is a simple text note without any XML tags or legacy forms.\nAuthor: Consultant."
         req = AnalysisRequest(
             job_id="99999999-1111-2222-3333-444444444447",
@@ -177,10 +178,10 @@ class TestEmpiricalRechallengeFormDoctorDefects:
             artifact_type=ArtifactType.TXT,
             target_release="S4HC_2502",
         )
-        res = await FormDoctorEngine().analyze(req)
-        assert res.status == AnalysisStatus.COMPLETED
-        assert res.error_message is None
-        assert len(res.findings) == 0
+        res = await EngineRunner.execute(req)
+        assert res.status == AnalysisStatus.FAILED
+        assert [f.rule_id for f in res.findings] == ["FORM_INVALID_INPUT"]
+        assert res.findings[0].confidence == ConfidenceClass.UNKNOWN
 
     @pytest.mark.asyncio
     async def test_raw_content_abap_driver_and_legacy_markers_detected(self):

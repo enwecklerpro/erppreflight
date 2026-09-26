@@ -18,6 +18,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Audited } from '../audit/audited.decorator';
 
 @Controller('projects')
 @UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
@@ -26,6 +27,12 @@ export class ProjectsController {
 
   @Post()
   @RequireEntitlement('PROJECT_CREATE')
+  @Audited({
+    action: 'project.created',
+    targetType: 'PROJECT',
+    targetId: ({ result }) => result?.id,
+    payload: ({ result }) => ({ name: result?.name ?? null }),
+  })
   async create(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
@@ -48,6 +55,12 @@ export class ProjectsController {
   }
 
   @Put(':id')
+  @Audited({
+    action: 'project.updated',
+    targetType: 'PROJECT',
+    targetId: ({ params }) => params.id,
+    payload: ({ body }) => ({ fields: Object.keys(body ?? {}).slice(0, 20) }),
+  })
   async update(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
@@ -59,6 +72,7 @@ export class ProjectsController {
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles('ORGANIZATION_OWNER', 'SECURITY_ADMIN')
+  @Audited({ action: 'project.deleted', targetType: 'PROJECT', targetId: ({ params }) => params.id, security: true })
   async remove(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string
@@ -67,6 +81,12 @@ export class ProjectsController {
   }
 
   @Post(':id/baseline')
+  @Audited({
+    action: 'project.baseline_set',
+    targetType: 'PROJECT',
+    targetId: ({ params }) => params.id,
+    payload: ({ body }) => ({ analysisId: body?.analysisId ?? null }),
+  })
   async setBaseline(
     @CurrentTenant() tenantId: string,
     @Param('id') projectId: string,

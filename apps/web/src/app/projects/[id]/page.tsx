@@ -50,6 +50,7 @@ import { customInstance, saveBlobAsFile } from '../../../lib/api/custom-instance
 import { queryKeys } from '../../../lib/query/query-keys';
 import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
 import { WhatIfSimulationPanel } from '@/components/changesets/what-if-simulation-panel';
+import { ReportExportPanel } from '@/components/commercial/report-export-panel';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
@@ -71,6 +72,7 @@ export default function ProjectWorkspacePage() {
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
+  const [exportPanelRunId, setExportPanelRunId] = useState<string | null>(null);
 
   // Artifact Dropzone state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1049,7 +1051,8 @@ export default function ProjectWorkspacePage() {
           ) : (
             <div className="divide-y divide-border text-xs">
               {analyses.map((run) => (
-                <div key={run.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div key={run.id} className="py-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold font-mono text-foreground">{run.id.slice(0, 8)}...</span>
@@ -1086,6 +1089,18 @@ export default function ProjectWorkspacePage() {
                     </span>
                     {(run.status === 'COMPLETED' || run.status === 'PARTIAL') && (
                       <>
+                        <button
+                          type="button"
+                          onClick={() => setExportPanelRunId(exportPanelRunId === run.id ? null : run.id)}
+                          aria-expanded={exportPanelRunId === run.id}
+                          aria-controls={`export-panel-${run.id}`}
+                          data-testid={`open-exports-${run.id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded border border-primary/40 bg-card hover:bg-muted text-foreground transition-colors"
+                          title="Export reports (PDF, XLSX, CSV, JSON, HTML, ZIP)"
+                        >
+                          <Download className="size-3 text-primary" aria-hidden="true" />
+                          <span>Reports</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() =>
@@ -1141,6 +1156,12 @@ export default function ProjectWorkspacePage() {
                       </>
                     )}
                   </div>
+                </div>
+                {exportPanelRunId === run.id && (
+                  <div id={`export-panel-${run.id}`}>
+                    <ReportExportPanel projectId={projectId} analysisId={run.id} />
+                  </div>
+                )}
                 </div>
               ))}
             </div>

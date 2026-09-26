@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { S3StorageService } from '../storage/s3-storage.service';
 import {
@@ -6,7 +6,41 @@ import {
   TriggerExportDto,
   TriggerExportSchema,
   ReportDownloadResponse,
+  ReportBranding,
+  ReportBrandingSchema,
+  ReportType,
 } from '@erppreflight/schemas';
+import { EntitlementsService } from '../billing/entitlements.service';
+
+/** Human titles for report types (spec 01 §1.9). */
+export const REPORT_TYPE_TITLES: Record<ReportType, string> = {
+  TECHNICAL: 'Technical Findings Report',
+  EXECUTIVE: 'Executive Summary Report',
+  PROJECT_READINESS: 'Project Readiness Report',
+  MIGRATION_BLOCKER: 'Migration Blocker Report',
+  CLEAN_CORE: 'Clean Core Report',
+  AUDIT: 'Audit Report',
+};
+
+const CLEAN_CORE_ENGINE_HINTS = ['CLEAN_CORE', 'EXTENSION_IMPACT', 'CUSTOM_FIELD_FLOW'];
+
+/**
+ * Selects the findings a report type covers. Deterministic: same findings in,
+ * same subset out (ordering preserved).
+ */
+export function selectFindingsForReport(reportType: ReportType, findings: any[]): any[] {
+  switch (reportType) {
+    case 'MIGRATION_BLOCKER':
+      return findings.filter((f) => f.severity === 'BLOCKER' || f.severity === 'CRITICAL');
+    case 'CLEAN_CORE':
+      return findings.filter((f) => {
+        const hay = `${f.engine ?? ''} ${f.category ?? ''} ${f.rule_id ?? ''}`.toUpperCase();
+        return CLEAN_CORE_ENGINE_HINTS.some((h) => hay.includes(h));
+      });
+    default:
+      return findings;
+  }
+}
 import * as crypto from 'node:crypto';
 import { ZipArchive } from 'archiver';
 import PDFDocument from 'pdfkit';
@@ -19,8 +53,79 @@ export class ExportService {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly storage: S3StorageService
+    private readonly storage: S3StorageService,
+    @Optional() private readonly entitlements?: EntitlementsService
   ) {}
+
+  /** Stored tenant branding (organizations.report_branding). */
+  public async getBranding(tenantId: string): Promise<ReportBranding> {
+    const res = await this.db.query(`SELECT report_branding FROM organizations WHERE id = $1`, [tenantId], {
+      bypassRls: true,
+    });
+    const parsed = ReportBrandingSchema.safeParse(res.rows?.[0]?.report_branding ?? {});
+    return parsed.success ? parsed.data : {};
+  }
+
+  private async brandingAllowed(tenantId: string): Promise<boolean> {
+    if (!this.entitlements) return false;
+    const plan = await this.entitlements.getPlanState(tenantId);
+    return plan.limits.features.reportBranding;
+  }
+
+  public async updateBranding(tenantId: string, body: unknown): Promise<ReportBranding> {
+    const parsed = ReportBrandingSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException(`Invalid branding: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+    }
+    if (Object.keys(parsed.data).length > 0 && !(await this.brandingAllowed(tenantId))) {
+      throw new ForbiddenException('Tenant report branding requires the Professional plan or higher.');
+    }
+    await this.db.query(`UPDATE organizations SET report_branding = $2::jsonb, updated_at = NOW() WHERE id = $1`, [
+      tenantId,
+      JSON.stringify(parsed.data),
+    ], { bypassRls: true });
+    return parsed.data;
+  }
+
+  /**
+   * Effective white-label for one export: request override or stored tenant
+   * branding, only on plans with report branding (Team/Enterprise tier).
+   */
+  private async resolveWhiteLabel(tenantId: string, requested: TriggerExportDto['whiteLabel']) {
+    const allowed = await this.brandingAllowed(tenantId);
+    if (requested && Object.keys(requested).length > 0) {
+      if (!allowed) throw new ForbiddenException('Report branding requires the Professional plan or higher.');
+      return requested;
+    }
+    if (!allowed) return undefined;
+    const stored = await this.getBranding(tenantId);
+    return Object.keys(stored).length > 0 ? stored : undefined;
+  }
+
+  /** Audit events about this analysis and its reports (AUDIT report appendix). */
+  private async auditTrailForAnalysis(tenantId: string, analysisId: string) {
+    const res = await this.db.query(
+      `SELECT e.sequence_num, e.action, e.target_type, e.target_id, e.actor_type, u.email AS actor_email,
+              e.created_at, e.current_hash
+         FROM audit_events e LEFT JOIN users u ON u.id = e.actor_id
+        WHERE e.organization_id = $1
+          AND (e.target_id = $2::uuid
+               OR e.target_id IN (SELECT id FROM reports WHERE analysis_id = $2::uuid AND organization_id = $1))
+        ORDER BY e.sequence_num ASC LIMIT 500`,
+      [tenantId, analysisId],
+      { tenantId }
+    );
+    return (res.rows ?? []).map((r: any) => ({
+      sequenceNum: Number(r.sequence_num),
+      action: r.action,
+      targetType: r.target_type,
+      targetId: r.target_id,
+      actorType: r.actor_type,
+      actorEmail: r.actor_email ?? null,
+      createdAt: new Date(r.created_at).toISOString(),
+      hash: r.current_hash,
+    }));
+  }
 
   /**
    * Generates a preflight audit export bundle (PDF, JSON_BUNDLE, XLSX, or CSV).
@@ -36,9 +141,6 @@ export class ExportService {
     const parsed = TriggerExportSchema.safeParse(dto ?? {});
     if (!parsed.success) {
       throw new BadRequestException(`Invalid export request: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
-    }
-    if (parsed.data.format === 'ZIP_ALL') {
-      throw new BadRequestException('Export format ZIP_ALL is not supported yet.');
     }
     dto = { ...dto, ...parsed.data };
 
@@ -69,50 +171,28 @@ export class ExportService {
       evidenceList = evidenceRes.rows || [];
     }
 
-    const reportId = uuidv4();
-    let fileBuffer: Buffer;
-    let fileName: string;
-    let mimeType: string;
-
-    switch (dto.format) {
-      case 'PDF':
-        fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.pdf`;
-        mimeType = 'application/pdf';
-        fileBuffer = await this.generatePdfReport(analysis, findings, evidenceList, dto);
-        break;
-
-      case 'JSON_BUNDLE':
-        fileName = `Reproducibility_Bundle_${analysisId.slice(0, 8)}.json`;
-        mimeType = 'application/json';
-        fileBuffer = Buffer.from(
-          JSON.stringify(
-            this.generateJsonBundle(analysis, findings, evidenceList),
-            null,
-            2
-          ),
-          'utf-8'
-        );
-        break;
-
-      case 'XLSX':
-        fileName = `Migration_Traceability_Matrix_${analysisId.slice(0, 8)}.xlsx`;
-        mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-        fileBuffer = await this.generateXlsxWorkbook(analysis, findings, evidenceList);
-        break;
-
-      case 'HTML_OFFLINE':
-        fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`;
-        mimeType = 'text/html;charset=utf-8';
-        fileBuffer = Buffer.from(this.generateOfflineHtmlReport(analysis, findings, evidenceList, dto), 'utf-8');
-        break;
-
-      case 'CSV':
-      default:
-        fileName = `Traceability_Matrix_${analysisId.slice(0, 8)}.csv`;
-        mimeType = 'text/csv';
-        fileBuffer = Buffer.from(this.generateCsvReport(findings), 'utf-8');
-        break;
+    const reportType: ReportType = dto.reportType ?? 'TECHNICAL';
+    dto = {
+      ...dto,
+      whiteLabel: await this.resolveWhiteLabel(tenantId, dto.whiteLabel),
+      // Executive summaries never carry code/evidence snippets.
+      includeEvidenceSnippets: reportType === 'EXECUTIVE' ? false : dto.includeEvidenceSnippets,
+    };
+    analysis.report_type = reportType;
+    analysis.report_title = REPORT_TYPE_TITLES[reportType];
+    analysis.total_findings_all_types = findings.length;
+    if (reportType === 'AUDIT') {
+      analysis.audit_trail = await this.auditTrailForAnalysis(tenantId, analysisId);
     }
+    const selectedFindings = selectFindingsForReport(reportType, findings);
+    const selectedIds = new Set(selectedFindings.map((f: any) => f.id));
+    const selectedEvidence = evidenceList.filter((e: any) => selectedIds.has(e.finding_id));
+
+    const reportId = uuidv4();
+    const { buffer: fileBuffer, fileName, mimeType } =
+      dto.format === 'ZIP_ALL'
+        ? await this.renderZipAll(analysis, selectedFindings, selectedEvidence, dto, analysisId)
+        : await this.renderFormat(dto.format, analysis, selectedFindings, selectedEvidence, dto, analysisId);
 
     const checksumSha256 = crypto
       .createHash('sha256')
@@ -126,8 +206,8 @@ export class ExportService {
     // 4. Save Record in PostgreSQL
     await this.db.query(
       `INSERT INTO reports (
-        id, organization_id, project_id, analysis_id, format, file_name, file_size, s3_key, checksum_sha256, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        id, organization_id, project_id, analysis_id, format, file_name, file_size, s3_key, checksum_sha256, created_by, report_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         reportId,
         tenantId,
@@ -139,6 +219,7 @@ export class ExportService {
         s3Key,
         checksumSha256,
         userId || null,
+        reportType,
       ]
     );
 
@@ -159,6 +240,112 @@ export class ExportService {
       downloadUrl: presigned.downloadUrl,
       expiresAt,
       checksumSha256,
+    };
+  }
+
+  /** Formats bundled by ZIP_ALL (every single-file export format). */
+  public static readonly ZIP_ALL_FORMATS: ReadonlyArray<Exclude<ExportFormat, 'ZIP_ALL'>> = [
+    'PDF',
+    'XLSX',
+    'CSV',
+    'JSON_BUNDLE',
+    'HTML_OFFLINE',
+  ];
+
+  /** Renders one single-file export format. */
+  private async renderFormat(
+    format: ExportFormat,
+    analysis: any,
+    findings: any[],
+    evidenceList: any[],
+    dto: TriggerExportDto,
+    analysisId: string
+  ): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    switch (format) {
+      case 'PDF':
+        return {
+          fileName: `${reportFilePrefix(analysis)}_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.pdf`,
+          mimeType: 'application/pdf',
+          buffer: await this.generatePdfReport(analysis, findings, evidenceList, dto),
+        };
+      case 'JSON_BUNDLE':
+        return {
+          fileName: `Reproducibility_Bundle_${analysisId.slice(0, 8)}.json`,
+          mimeType: 'application/json',
+          buffer: Buffer.from(JSON.stringify(this.generateJsonBundle(analysis, findings, evidenceList), null, 2), 'utf-8'),
+        };
+      case 'XLSX':
+        return {
+          fileName: `Migration_Traceability_Matrix_${analysisId.slice(0, 8)}.xlsx`,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buffer: await this.generateXlsxWorkbook(analysis, findings, evidenceList),
+        };
+      case 'HTML_OFFLINE':
+        return {
+          fileName: `${reportFilePrefix(analysis)}_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`,
+          mimeType: 'text/html;charset=utf-8',
+          buffer: Buffer.from(this.generateOfflineHtmlReport(analysis, findings, evidenceList, dto), 'utf-8'),
+        };
+      case 'CSV':
+        return {
+          fileName: `Traceability_Matrix_${analysisId.slice(0, 8)}.csv`,
+          mimeType: 'text/csv',
+          buffer: Buffer.from(this.generateCsvReport(findings), 'utf-8'),
+        };
+      default:
+        throw new BadRequestException(`Unsupported export format '${format}'`);
+    }
+  }
+
+  /**
+   * ZIP_ALL: every single-file format for one analysis in one archive, plus a
+   * manifest listing each member's SHA-256 so the bundle is self-verifying.
+   */
+  private async renderZipAll(
+    analysis: any,
+    findings: any[],
+    evidenceList: any[],
+    dto: TriggerExportDto,
+    analysisId: string
+  ): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const members: Array<{ format: string; fileName: string; buffer: Buffer }> = [];
+    for (const format of ExportService.ZIP_ALL_FORMATS) {
+      const rendered = await this.renderFormat(format, analysis, findings, evidenceList, dto, analysisId);
+      members.push({ format, fileName: rendered.fileName, buffer: rendered.buffer });
+    }
+    const manifest = {
+      bundle: 'ERP_PREFLIGHT_ZIP_ALL',
+      version: '1.0.0',
+      analysisId,
+      projectId: analysis.project_id,
+      projectName: analysis.project_name ?? null,
+      analysisStatus: analysis.status,
+      findingsCount: findings.length,
+      files: members.map((m) => ({
+        format: m.format,
+        fileName: m.fileName,
+        sizeBytes: m.buffer.length,
+        sha256: crypto.createHash('sha256').update(m.buffer).digest('hex'),
+      })),
+    };
+
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+    archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+    await new Promise<void>((resolve, reject) => {
+      archive.on('end', () => resolve());
+      archive.on('error', (err: Error) => reject(err));
+      archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+      for (const m of members) {
+        archive.append(m.buffer, { name: m.fileName });
+      }
+      archive.finalize();
+    });
+
+    return {
+      buffer: Buffer.concat(chunks),
+      fileName: `Preflight_Export_All_Formats_${analysisId.slice(0, 8)}.zip`,
+      mimeType: 'application/zip',
     };
   }
 
@@ -186,7 +373,7 @@ export class ExportService {
         .fillColor('#FFFFFF')
         .fontSize(10)
         .font('Helvetica-Bold')
-        .text('CONFIDENTIAL — SAP PREFLIGHT ARCHITECTURAL ASSESSMENT REPORT', 50, 15);
+        .text(`CONFIDENTIAL — ${String(analysis.report_title || 'SAP Preflight Assessment Report').toUpperCase()}`, 50, 15);
 
       // Title & Metadata
       doc.moveDown(3);
@@ -276,6 +463,31 @@ export class ExportService {
             .text(`Remediation: ${f.remediation || 'Remediation details in technical matrix.'}`);
 
           doc.moveDown(0.8);
+        }
+      }
+
+      // AUDIT report: hash-chained audit trail appendix for this analysis and its reports.
+      if (Array.isArray(analysis.audit_trail)) {
+        doc.addPage();
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#0F2027').text('Audit Trail Appendix');
+        doc.moveDown(0.5);
+        doc
+          .fontSize(8)
+          .font('Helvetica')
+          .fillColor('#4B5563')
+          .text('Tamper-evident tenant ledger entries (SHA-256 chained) for this analysis and its reports.');
+        doc.moveDown(0.5);
+        if (analysis.audit_trail.length === 0) {
+          doc.fontSize(9).fillColor('#374151').text('No audit events recorded for this analysis.');
+        }
+        for (const ev of analysis.audit_trail) {
+          doc
+            .fontSize(8)
+            .font('Helvetica')
+            .fillColor('#1F2937')
+            .text(
+              `#${ev.sequenceNum}  ${ev.createdAt}  ${ev.action}  ${ev.actorEmail ?? ev.actorType}  hash ${String(ev.hash).slice(0, 16)}…`
+            );
         }
       }
 
@@ -380,7 +592,11 @@ export class ExportService {
         target_release: analysis.target_release,
         created_at: new Date().toISOString(),
         generator: 'ERP Preflight Report Export Engine v1.0.0',
+        report_type: analysis.report_type ?? 'TECHNICAL',
+        report_title: analysis.report_title ?? null,
+        total_findings_in_analysis: analysis.total_findings_all_types ?? findings.length,
       },
+      ...(Array.isArray(analysis.audit_trail) ? { audit_trail: analysis.audit_trail } : {}),
       summary: {
         total_findings: findings.length,
         blocker_count: findings.filter((f) => f.severity === 'BLOCKER').length,
@@ -521,7 +737,7 @@ export class ExportService {
 
   public async getReportsForAnalysis(tenantId: string, projectId: string, analysisId: string) {
     const res = await this.db.query(
-      'SELECT id, format, file_name, file_size, checksum_sha256, created_at FROM reports WHERE organization_id = $1 AND project_id = $2 AND analysis_id = $3 ORDER BY created_at DESC',
+      'SELECT id, format, report_type, file_name, file_size, checksum_sha256, created_at FROM reports WHERE organization_id = $1 AND project_id = $2 AND analysis_id = $3 ORDER BY created_at DESC',
       [tenantId, projectId, analysisId]
     );
     return res.rows || [];
@@ -573,6 +789,7 @@ export class ExportService {
       XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       CSV: 'text/csv; charset=utf-8',
       HTML_OFFLINE: 'text/html; charset=utf-8',
+      ZIP_ALL: 'application/zip',
     };
     const stream = await this.storage.getReportStream(report.s3_key);
     return {
@@ -617,6 +834,7 @@ export class ExportService {
       format: 'HTML_OFFLINE',
       includeEvidenceSnippets: true,
       filterMinSeverity: 'INFO',
+      reportType: 'TECHNICAL',
     });
 
     return { html, fileName };
@@ -777,7 +995,7 @@ export class ExportService {
     analysis: any,
     findings: any[],
     evidenceList: any[],
-    dto: TriggerExportDto
+    dto: Omit<TriggerExportDto, 'reportType'> & { reportType?: ReportType }
   ): string {
     const escapeHtml = (str: unknown): string => {
       if (str === null || str === undefined) return '';
@@ -832,7 +1050,7 @@ export class ExportService {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Preflight Assessment — ${projectName}</title>
+  <title>${escapeHtml(analysis.report_title || 'Preflight Assessment')} — ${projectName}</title>
   <style>
     :root {
       --bg: #030712;
@@ -1087,4 +1305,9 @@ export class ExportService {
 </body>
 </html>`;
   }
+}
+
+function reportFilePrefix(analysis: any): string {
+  const type = String(analysis?.report_type || 'TECHNICAL');
+  return type === 'TECHNICAL' ? 'Preflight_Assessment' : `Preflight_${type.charAt(0)}${type.slice(1).toLowerCase()}`;
 }

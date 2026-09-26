@@ -23,6 +23,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -37,6 +40,9 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
+from pydantic import ValidationError
 
 
 # ==============================================================================
@@ -197,12 +203,67 @@ def _locate_line_in_text(raw_text: str, token: Any) -> Tuple[Optional[int], Opti
 # Cloud IAM & BTP Role Tailoring Cost Guard Engine (Cardinal Axiom 2)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "IAM_REDUNDANT_CATALOG_DETECTED", "Catalog fully contained in another catalog of the role", Severity.MAJOR,
+        "Remove the redundant business catalog from the role (PFCG / 'Maintain Business Roles'); its apps are "
+        "already granted by the superset catalog.", "ROLE_COMPOSITION_GOVERNANCE",
+    ),
+    RuleSpec(
+        "IAM_LICENSE_TIER_INFLATION_DRIVER", "Single app raises the role's license tier", Severity.MAJOR,
+        "Move the tier-raising app into a separate, narrowly assigned role so the remaining users stay on the "
+        "lower (Core / Self-Service) tier.", "LICENSE_OPTIMIZATION",
+    ),
+    RuleSpec(
+        "IAM_UNUSED_CRITICAL_AUTHORIZATION", "Critical authorization never used", Severity.MAJOR,
+        "Revoke the unused critical authorization object from the role or provide it via firefighter / PAM "
+        "access only.", "LEAST_PRIVILEGE_COMPLIANCE",
+    ),
+    RuleSpec(
+        "IAM_PERMANENT_EMERGENCY_ROLE", "Emergency role assigned without end date", Severity.CRITICAL,
+        "Delimit the emergency / firefighter role assignment (SU01 / Identity Provisioning) and route access "
+        "through an approved emergency access process with logging.", "EMERGENCY_ACCESS_GOVERNANCE",
+    ),
+)
+
+
+class IamInput(ContractModel):
+    signal_fields = ("roles", "users")
+    signal_message = "IAM analysis requires business 'roles' and/or 'users' with role assignments."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV),
+    summary=(
+        "Role composition and assignments: JSON {'roles': [{role_name, catalogs, authorizations, assigned_users}], "
+        "'users': [...], 'catalogs': [...], 'price_categories': {...}, 'usage_records': [...]} or CSV exports "
+        "AGR_USERS (UNAME, AGR_NAME), AGR_1251 (AGR_NAME, OBJECT, FIELD, LOW), catalog/app and ST03N usage."
+    ),
+    required=("business roles or user role assignments",),
+    json_model=IamInput,
+    csv_signal_columns=("AGR_NAME", "UNAME", "CATALOG_ID", "APP_ID"),
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class IAMCostEngine(BaseEngine):
     """Production-grade Cloud IAM & BTP Role Tailoring Cost Guard."""
 
     engine_type = EngineType.IAM_COST_OPTIMIZER
     rule_prefix = "IAM"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="Fiori app -> license tier price categories", location="src/engines/iam_cost_guard.py:DEFAULT_PRICE_CATEGORIES",
+            source="Static seed of app license categories; customer price_categories override it",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(DEFAULT_PRICE_CATEGORIES),
+        ),
+    )
     name = "IAM Cost Optimizer"
     description = (
         "Role catalog over-licensing, license tier escalation driver pinpointing, "
@@ -217,12 +278,19 @@ class IAMCostEngine(BaseEngine):
             return IAMCostInputData()
 
         stripped = raw_content.strip()
-        if stripped.startswith("{"):
+        if stripped.startswith("{") or stripped.startswith("["):
+            # Malformed JSON / wrong structure is an input error — never re-read as CSV.
+            data_dict = parse_json_payload(stripped, self.rule_prefix)
+            if not isinstance(data_dict, dict):
+                raise EngineInputError(f"{self.rule_prefix}_INVALID_INPUT", "Expected a JSON object at the top level.")
             try:
-                data_dict = json.loads(stripped)
                 return IAMCostInputData.model_validate(data_dict)
-            except Exception:
-                pass
+            except ValidationError as exc:
+                locs = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors(include_input=False)})
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    "IAM role/user payload does not match the expected structure at: " + ", ".join(locs[:5]),
+                ) from None
 
         # Parse CSV format (handles AGR_1251, AGR_USERS, or composite CSV)
         roles_map: Dict[str, BusinessRoleModel] = {}
@@ -316,7 +384,7 @@ class IAMCostEngine(BaseEngine):
         if (not raw_text or not raw_text.strip()) and request.configuration and isinstance(request.configuration, dict):
             try:
                 data = IAMCostInputData.model_validate(request.configuration)
-            except Exception:
+            except ValidationError:
                 data = self._parse_inputs(raw_text)
         else:
             data = self._parse_inputs(raw_text)
@@ -332,6 +400,14 @@ class IAMCostEngine(BaseEngine):
                     data.users.extend(more_data.users)
                     data.usage_records.extend(more_data.usage_records)
                     data.price_categories.update(more_data.price_categories)
+
+        if not data.roles and not data.users:
+            supplied = bool((raw_text or "").strip())
+            raise EngineInputError(
+                f"{self.rule_prefix}_INVALID_INPUT" if supplied else f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No business roles or user assignments recognised: supply 'roles' / 'users' JSON or AGR_USERS / "
+                "AGR_1251 CSV exports (optionally catalogs and ST03N usage).",
+            )
 
         # Merge price catalog with defaults
         effective_price_map = dict(DEFAULT_PRICE_CATEGORIES)

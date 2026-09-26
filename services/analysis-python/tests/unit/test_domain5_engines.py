@@ -895,8 +895,10 @@ async def test_wf_empty_payload():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["WF_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 # =============================================================================
@@ -1010,8 +1012,10 @@ async def test_iam_empty_input():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["IAM_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 @pytest.mark.asyncio
@@ -1138,8 +1142,10 @@ async def test_acct_det_empty_input():
         raw_content="{}",
     )
     resp = await EngineRunner.execute(req)
-    assert resp.status == AnalysisStatus.COMPLETED
-    assert len(resp.findings) == 0
+    # '{}' carries no data: no clean verdict, FAILED + single UNKNOWN insufficient-input finding.
+    assert resp.status == AnalysisStatus.FAILED
+    assert [f.rule_id for f in resp.findings] == ["ACCT_INSUFFICIENT_INPUT"]
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
 
 
 @pytest.mark.asyncio
