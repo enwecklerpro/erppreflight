@@ -26,7 +26,7 @@ export function RuleRemediation({ ruleId, title, remediation }: { ruleId: string
     <>
       {text.remediation}
       {text.engineRemediation && (
-        <span className="mt-1 block text-xs opacity-80" lang="en">
+        <span className="mt-1 block text-xs opacity-80" lang="en" translate="no">
           {t('app.findings.rule.engineRemediation')} {text.engineRemediation}
         </span>
       )}

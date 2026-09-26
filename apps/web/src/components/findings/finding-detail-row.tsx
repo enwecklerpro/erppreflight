@@ -35,7 +35,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             <span className="font-medium text-foreground" data-testid="finding-rule-title">{rule.title}</span>
           </div>
           {rule.engineTitle && (
-            <p className="text-[11px] text-muted-foreground break-words" data-testid="finding-engine-title">
+            <p className="text-[11px] text-muted-foreground break-words" data-testid="finding-engine-title" translate="no">
               {t('app.findings.rule.engineTitle', { title: rule.engineTitle })}
             </p>
           )}
@@ -82,7 +82,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             {rule.engineRemediation && (
               <div className="mt-2 border-t border-blue-200/70 pt-2 dark:border-blue-900/50">
                 <p className="text-[11px] font-semibold text-blue-800 dark:text-blue-200">{t('app.findings.rule.engineRemediation')}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-blue-950 dark:text-blue-100" lang="en">
+                <p className="mt-0.5 text-xs leading-relaxed text-blue-950 dark:text-blue-100" lang="en" translate="no">
                   {rule.engineRemediation}
                 </p>
               </div>
@@ -117,7 +117,7 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
               <h5 className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wider">
                 {t('app.findings.detail.technicalParameters')}
               </h5>
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono" translate="no">
                 {Object.entries(finding.technicalDetails).map(([key, val]) => (
                   <div key={key} className="flex flex-col">
                     <span className="text-muted-foreground text-[10px]">{key}:</span>

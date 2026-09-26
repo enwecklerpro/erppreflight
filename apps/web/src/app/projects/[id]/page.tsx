@@ -1098,7 +1098,7 @@ export default function ProjectWorkspacePage() {
                       })}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <span
                       className={`px-2.5 py-0.5 text-xs font-semibold rounded ${
                         run.status === 'COMPLETED'
@@ -1372,7 +1372,7 @@ export default function ProjectWorkspacePage() {
                     }`}
                   >
                     <div>
-                      <div className="text-foreground">{eng.name}</div>
+                      <div className="text-foreground" translate="no">{eng.name}</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">{domainLabel(eng.domain)}</div>
                     </div>
                     {selected && <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0 ml-2" />}

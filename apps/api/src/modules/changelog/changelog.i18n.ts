@@ -10,12 +10,12 @@ type ReleaseNoteText = Pick<ReleaseNote, 'title' | 'summary' | 'features' | 'eng
  */
 export const CHANGELOG_DE: Record<string, ReleaseNoteText> = {
   'rel-2026-09-25': {
-    title: 'Enterprise-Plattform-Release: What-if-Canvas, 8-spaltige Traceability & MCP Change Gate',
+    title: 'Enterprise-Plattform-Release: What-if-Canvas, 8-spaltige Rückverfolgbarkeit & MCP Change Gate',
     summary:
-      'Großes Release mit interaktiver DAG-Simulation über React Flow, vollständiger Delivery-Traceability zu SAP Cloud ALM/Jira und Governance über das Model Context Protocol (MCP) Change Gate.',
+      'Großes Release mit interaktiver DAG-Simulation über React Flow, vollständiger Delivery-Rückverfolgbarkeit bis SAP Cloud ALM/Jira und Governance über das Model Context Protocol (MCP) Change Gate.',
     features: [
       'Interaktiver What-if-DAG-Simulations-Canvas auf Basis von @xyflow/react & der Layout-Engine ELK.js',
-      '8-spaltige Delivery-Traceability-Matrix mit Behebungsaufgaben in SAP Cloud ALM / Jira per Klick',
+      '8-spaltige Delivery-Rückverfolgbarkeitsmatrix mit Behebungsaufgaben in SAP Cloud ALM / Jira per Klick',
       'Model-Context-Protocol-(MCP)-Server nach JSON-RPC 2.0 mit 7 offiziellen Preflight-Werkzeugen',
       'Agentic Change Gate mit Bewertung von Vorschlägen und kryptografischen HMAC-Ausführungstokens',
       'Unternehmensvorlagen für Analysen sowie Portal für Kundenfeedback & Abstimmung über Lücken',

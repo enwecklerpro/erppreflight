@@ -137,7 +137,7 @@ function FindingTitleCell({ finding }: { finding: Finding }) {
           </span>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground line-clamp-1">{text.engineTitle ?? finding.description}</p>
+      <p className="text-[11px] text-muted-foreground line-clamp-1" translate="no">{text.engineTitle ?? finding.description}</p>
     </div>
   );
 }
