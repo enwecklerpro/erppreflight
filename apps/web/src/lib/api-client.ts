@@ -520,52 +520,7 @@ export async function approveChangeSet(projectId: string, changesetId: string, r
 }
 
 // Enterprise Traceability
-export interface TraceabilityNodeItem {
-  id: string;
-  process_hierarchy: string;
-  requirement_id: string;
-  requirement_title: string;
-  finding_id: string | null;
-  finding_title?: string;
-  finding_severity?: string;
-  finding_rule_id?: string;
-  remediation_task_id: string | null;
-  task_status: string;
-  test_case_id: string | null;
-  test_status: string;
-  defect_id: string | null;
-  transport_id: string | null;
-  release_id: string;
-  business_criticality: string;
-  external_system: string;
-}
-
-export interface TraceabilityMatrixResponse {
-  nodes: TraceabilityNodeItem[];
-  summary: {
-    totalRequirements: number;
-    requirementsWithoutTests: number;
-    criticalFindingsWithoutTasks: number;
-    transportsWithBlockers: number;
-    overallReadinessPercent: number;
-  };
-}
-
-export async function fetchTraceabilityMatrix(projectId: string): Promise<TraceabilityMatrixResponse> {
-  return customInstance<TraceabilityMatrixResponse>(`/projects/${projectId}/traceability`);
-}
-
-export async function syncTraceability(projectId: string): Promise<any> {
-  return customInstance(`/projects/${projectId}/traceability/sync`, { method: 'POST' });
-}
-
-export async function createTraceabilityTask(projectId: string, findingId: string, externalSystem = 'SAP_CLOUD_ALM'): Promise<any> {
-  return customInstance(`/projects/${projectId}/traceability/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ findingId, externalSystem }),
-  });
-}
+// Delivery traceability & work items: see lib/api/integrations.ts (connector framework)
 
 // Agentic Change Gate (Part 19)
 export interface AgentIdentityItem {
@@ -1084,19 +1039,6 @@ export async function fetchSapObjectById(
   return customInstance<any>(`/projects/${projectId}/objects/${objectId}`);
 }
 
-export async function createWorkItemForFinding(
-  findingId: string,
-  payload: { system?: string; title?: string; process?: string }
-): Promise<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }> {
-  return customInstance<{ success: boolean; workItemId: string; externalSystem: string; deepLink: string; taskBody: any }>(
-    `/findings/${findingId}/work-item`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }
-  );
-}
 
 export async function importAtcArtifact(
   projectId: string,

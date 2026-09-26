@@ -548,7 +548,7 @@ export class SsoService {
 
   webCompletionUrl(token: string, organizationId: string, returnTo: string): string {
     const frag = new URLSearchParams({ token, org: organizationId, next: returnTo });
-    return `${appBaseUrl()}/sso/complete#${frag.toString()}`;
+    return `${appBaseUrl()}/sso/done#${frag.toString()}`;
   }
 
   webErrorUrl(code: string): string {

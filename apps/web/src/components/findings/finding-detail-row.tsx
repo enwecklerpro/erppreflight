@@ -3,13 +3,11 @@ import { Finding } from '@erppreflight/schemas';
 import { FileCode, Hash, Wrench, Shield, CheckCircle2, AlertCircle, Copy, Check, ExternalLink, Send, Loader2, GitBranch, Binary, Cpu, BookOpen, UserCheck, ShieldAlert } from 'lucide-react';
 import { CleanCoreBadge } from './clean-core-badge';
 import { ConfidenceBadge } from './confidence-badge';
-import { createWorkItemForFinding, reviewFinding } from '@/lib/api-client';
+import { reviewFinding } from '@/lib/api-client';
+import { WorkItemIntegration } from './work-item-integration';
 
 export function FindingDetailRow({ finding }: { finding: Finding }) {
   const [copiedHash, setCopiedHash] = React.useState<string | null>(null);
-  const [creatingTask, setCreatingTask] = React.useState(false);
-  const [targetSystem, setTargetSystem] = React.useState('SAP_CLOUD_ALM');
-  const [createdTask, setCreatedTask] = React.useState<{ workItemId: string; externalSystem: string } | null>(null);
 
   // Expert Review & Risk Waiver state (Part 14.12, 14.13, 15.13)
   const [reviewStatus, setReviewStatus] = React.useState<string>(
@@ -46,23 +44,6 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
-  const handleCreateWorkItem = async () => {
-    setCreatingTask(true);
-    try {
-      const res = await createWorkItemForFinding(finding.id, {
-        system: targetSystem,
-        title: `Remediate ${finding.ruleId}: ${finding.title}`,
-      });
-      if (res.success) {
-        setCreatedTask({ workItemId: res.workItemId, externalSystem: res.externalSystem });
-      }
-    } catch (err) {
-      console.error('Failed to create work item:', err);
-    } finally {
-      setCreatingTask(false);
-    }
-  };
-
   return (
     <div className="rounded-xl border border-border/70 bg-card/60 p-5 shadow-inner space-y-5 text-xs">
       {/* Header Bar */}
@@ -93,60 +74,13 @@ export function FindingDetailRow({ finding }: { finding: Finding }) {
             </p>
           </div>
 
-          {/* Finding-to-Task Work Item Creation (Part 15.8) */}
+          {/* Finding-to-Task Work Item Creation (Part 15.8) — configured connectors only */}
           <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <h5 className="font-semibold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <Send className="size-3 text-primary" />
-                Work Management Integration
-              </h5>
-              {createdTask && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <CheckCircle2 className="size-3" />
-                  Linked: {createdTask.workItemId} ({createdTask.externalSystem})
-                </span>
-              )}
-            </div>
-
-            {!createdTask ? (
-              <div className="flex items-center gap-2 pt-1">
-                <select
-                  value={targetSystem}
-                  onChange={(e) => setTargetSystem(e.target.value)}
-                  className="rounded border border-border bg-background px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  aria-label="Target Work Management System"
-                >
-                  <option value="SAP_CLOUD_ALM">SAP Cloud ALM</option>
-                  <option value="JIRA">Jira Software</option>
-                  <option value="AZURE_DEVOPS">Azure DevOps Boards</option>
-                  <option value="GITHUB_ISSUES">GitHub Issues</option>
-                  <option value="SERVICENOW">ServiceNow</option>
-                </select>
-
-                <button
-                  type="button"
-                  onClick={handleCreateWorkItem}
-                  disabled={creatingTask}
-                  className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {creatingTask ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" />
-                      Creating Task...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="size-3" />
-                      Create Work Item
-                    </>
-                  )}
-                </button>
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                Remediation task created with technical context, line references, and reproducibility hash.
-              </p>
-            )}
+            <h5 className="font-semibold text-[11px] text-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Send className="size-3 text-primary" aria-hidden="true" />
+              Work Management Integration
+            </h5>
+            <WorkItemIntegration findingId={finding.id} />
           </div>
 
           {/* Expert Review & Risk Acceptance / Waiver (Part 14.12, 14.13 & 15.13) */}

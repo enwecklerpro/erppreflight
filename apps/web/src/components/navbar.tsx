@@ -18,6 +18,7 @@ import {
   Server,
   Sliders,
   Bot,
+  Cable,
 } from 'lucide-react';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
@@ -46,6 +47,7 @@ export function Navbar() {
     { label: 'Release Matrix', href: '/matrix', icon: ShieldCheck },
     { label: 'Landscapes', href: '/landscapes', icon: Server },
     { label: 'Agent Gate', href: '/agent-gate', icon: Bot },
+    { label: 'Integrations', href: '/integrations', icon: Cable },
     { label: 'Settings', href: '/settings', icon: Sliders },
   ];
 
