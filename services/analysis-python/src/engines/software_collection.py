@@ -20,6 +20,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -204,12 +207,75 @@ def _is_probable_uuid(token: str) -> bool:
 # Main Engine Implementation
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "SC_SCHEMA_VALIDATION_FAILED", "Collection or item entry violates the export schema", Severity.BLOCKER,
+        "Re-export the software collection from 'Export Software Collection'; the named collection/item entry is "
+        "missing mandatory attributes (id, type, status) and was excluded from the dependency analysis.",
+        "RELEASE_TRANSPORT",
+    ),
+    RuleSpec(
+        "SC_CIRCULAR_DEPENDENCY", "Circular dependency between software collections", Severity.CRITICAL,
+        "Merge the interdependent items into one collection or move the shared prerequisite objects into a "
+        "foundation collection imported first; circular collections cannot be imported in any order.",
+        "RELEASE_TRANSPORT",
+    ),
+    RuleSpec(
+        "SC_MISSING_PREREQUISITE", "Prerequisite collection neither exported nor in target", Severity.BLOCKER,
+        "Add the prerequisite collection to the export, or import it into the target tenant first ('Import "
+        "Collection'), then re-run the preflight.", "RELEASE_TRANSPORT",
+    ),
+    RuleSpec(
+        "SC_DRAFT_ITEM_INCLUDED", "Unpublished (draft) item in collection", Severity.MAJOR,
+        "Publish the item in its key-user app (Custom Fields / Custom Logic / Custom CDS Views) before export; "
+        "draft items are not transported.", "RELEASE_TRANSPORT",
+    ),
+    RuleSpec(
+        "SC_DANGLING_FIELD_REFERENCE", "Item references a field that is not exported or present", Severity.CRITICAL,
+        "Add the referenced custom field to an exported collection or confirm it exists in the target tenant; "
+        "otherwise the import fails activation.", "RELEASE_TRANSPORT",
+    ),
+)
+
+
+class SoftwareCollectionInput(ContractModel):
+    signal_fields = ("collections",)
+    signal_message = "No software collections found: expected {'collections': [...]} (Key-User export manifest)."
+    collections: Optional[List[Any]] = None
+
+
+def _sc_xml_check(root: Any) -> Optional[str]:
+    local = (root.tag.split("}")[-1] if "}" in root.tag else root.tag).lower()
+    if "collection" in local or local in ("export", "manifest"):
+        return None
+    return f"XML root <{local[:60]}> is not a software collection export (<software_collections>)."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.XML, InputFormat.ZIP),
+    summary=(
+        "Key-User Software Collection export: JSON {'collections': [{collection_id, items: [{item_id, type, status, "
+        "dependencies}], dependencies}], 'target_system_collections': [...]}, XML <software_collections>, or a ZIP "
+        "(nested up to 2 levels) containing manifest.json / manifest.xml."
+    ),
+    required=("At least one software collection",),
+    json_model=SoftwareCollectionInput,
+    xml_check=_sc_xml_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class SoftwareCollectionEngine(BaseEngine):
     """Preflights SAP S/4HANA Cloud Key-User Software Collections and export manifests."""
 
     engine_type = EngineType.SOFTWARE_COLLECTION_DEPENDENCY_GUARD
     rule_prefix = "SC"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     accepts_binary_input = True
     name = "Software Collection Dependency Guard"
     description = "Export software collection item cross-reference and release validator"
@@ -564,21 +630,22 @@ class SoftwareCollectionEngine(BaseEngine):
         Raises ArchiveSecurityError when the archive violates ingestion limits.
         """
         with SafeZipReader(zip_bytes) as zf:
-            names = zf.namelist()
-            # Locate manifest.json or manifest.xml
-            manifest_files = [f for f in names if f.lower().endswith(("manifest.json", "collections.json", "manifest.xml", "collections.xml"))]
-            if manifest_files:
-                target_file = sorted(manifest_files)[0]
-                content = zf.read(target_file)
-                if target_file.lower().endswith(".json"):
-                    return cls._parse_json_content(content.decode("utf-8", errors="replace"), target_file)
-                return cls._parse_xml_content(content.decode("utf-8", errors="replace"), target_file)
+            # Walks nested archives too (max 2 levels, shared global budgets).
+            members = dict(zf.walk())
+        names = sorted(members)
+        manifest_files = [f for f in names if f.lower().endswith(("manifest.json", "collections.json", "manifest.xml", "collections.xml"))]
+        if manifest_files:
+            target_file = manifest_files[0]
+            content = members[target_file]
+            if target_file.lower().endswith(".json"):
+                return cls._parse_json_content(content.decode("utf-8", errors="replace"), target_file)
+            return cls._parse_xml_content(content.decode("utf-8", errors="replace"), target_file)
 
-            # Fallback: scan JSON files in zip (deterministic order)
-            json_files = sorted(f for f in names if f.lower().endswith(".json"))
-            if json_files:
-                content = zf.read(json_files[0])
-                return cls._parse_json_content(content.decode("utf-8", errors="replace"), json_files[0])
+        # Fallback: first JSON file in the archive (deterministic order)
+        json_files = [f for f in names if f.lower().endswith(".json")]
+        if json_files:
+            content = members[json_files[0]]
+            return cls._parse_json_content(content.decode("utf-8", errors="replace"), json_files[0])
 
         return SoftwareCollectionManifest()
 
@@ -616,52 +683,16 @@ class SoftwareCollectionEngine(BaseEngine):
             manifest = self.parse_artifact(config_json, ArtifactType.JSON, artifact_path)
 
         if not manifest.collections:
-            line_no, col_no, snippet = _locate_line_in_text(raw_text, "collections")
-            ev = EvidenceEngine.create_evidence(
-                artifact_path=artifact_path,
-                content=raw_text or "EMPTY",
-                line_number=line_no,
-                column_number=col_no,
-                snippet=snippet or "EMPTY",
-                provenance=ConfidenceClass.UNKNOWN,
-                source_type=TrustLevel.CUSTOMER_EVIDENCE,
-            )
-            f = Finding(
-                rule_id="SC_SCHEMA_VALIDATION_FAILED",
-                severity=Severity.BLOCKER,
-                category="RELEASE_TRANSPORT",
-                title="Invalid or Empty Software Collection Manifest",
-                description="The supplied artifact could not be parsed into a valid software collection export manifest.",
-                confidence=ConfidenceClass.UNKNOWN,
-                confidence_score=0.30,
-                remediation="Ensure the uploaded artifact conforms to SAP Key-User Software Collection export schema (JSON/XML).",
-                evidence=[ev],
-                technical_details={"raw_artifact_length": len(raw_text)},
-                affected_objects=[],
-            )
-            findings.append(ConfidenceClassifier.classify(f))
-
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            return AnalysisResponse(
-                job_id=request.job_id,
-                engine_type=self.engine_type,
-                status=AnalysisStatus.COMPLETED,
-                findings=findings,
-                metrics=AnalysisMetrics(
-                    execution_time_ms=elapsed_ms,
-                    rules_evaluated=rules_evaluated,
-                    artifacts_scanned=1,
-                    additional_metrics={
-                        "total_collections": 0,
-                        "total_items": 0,
-                        "circular_dependencies_count": 0,
-                        "recommended_sequence": [],
-                        "totalCollections": 0,
-                        "totalItems": 0,
-                        "circularDependenciesCount": 0,
-                        "recommendedSequence": [],
-                    }
-                ),
+            if (raw_text and raw_text.strip()) or is_binary:
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT",
+                    "The artifact is not a Key-User Software Collection export: no collections could be read "
+                    "(expected JSON {'collections': [...]}, XML <software_collections>, or a ZIP containing "
+                    "manifest.json / manifest.xml).",
+                )
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No software collection export supplied; dependency verdicts require the collection manifest.",
             )
 
         # Emit findings for any individual item or collection schema validation failures

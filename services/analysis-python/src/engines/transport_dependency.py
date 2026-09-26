@@ -24,6 +24,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -37,6 +40,8 @@ from src.models.finding import Finding
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.parsers.safe_xml import SafeXmlParser
+from src.core.exceptions import EngineInputError, SecurityViolationError
+from src.parsers.json_input import parse_json_payload
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
 
@@ -197,6 +202,70 @@ def _format_timestamp(as4date: Optional[str], as4time: Optional[str]) -> str:
 # Transport Dependency Analyzer Engine (Point 1: Metadata)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "TR_OBJECT_COLLISION", "Object locked in multiple concurrent transports", Severity.CRITICAL,
+        "Consolidate the object's changes into one transport (or use ChaRM / cross-system object lock, CSOL); "
+        "otherwise the later import silently overwrites the earlier version.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CALL_DEPENDENCY_SEQUENCE_RISK", "Caller imported before the object it references", Severity.MAJOR,
+        "Import the transport containing the referenced object first (adjust the STMS import queue / planned "
+        "sequence) or bundle caller and callee in one transport of copies.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_OVERTAKER_DOWNGRADE_RISK", "Older object version overtakes a newer one", Severity.CRITICAL,
+        "Do not import the older transport after the newer one (overtaker); re-sequence the queue or remove the "
+        "object from the older request.", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CUSTOMIZING_AHEAD_OF_STRUCTURE", "Customizing imported before its DDIC structure", Severity.MAJOR,
+        "Import the workbench request that creates/changes the table structure before the customizing request "
+        "carrying its table entries (E071K).", "RELEASE_AND_TRANSPORT",
+    ),
+    RuleSpec(
+        "TR_CIRCULAR_DEPENDENCY_DETECTED", "Circular dependency between transports", Severity.BLOCKER,
+        "Merge the mutually dependent requests into one transport of copies; circular requests have no valid "
+        "import order.", "RELEASE_AND_TRANSPORT",
+    ),
+)
+
+
+class TransportInput(ContractModel):
+    signal_fields = (
+        "transports", "e070", "E070", "e071", "E071", "e071k", "E071K", "call_references", "callReferences",
+        "dependencies",
+    )
+    signal_message = (
+        "No transport data found: provide 'transports' {TRKORR: [objects]}, 'e070' / 'e071' / 'e071k' record "
+        "lists, or 'call_references'."
+    )
+
+
+def _tr_xml_check(root: Any) -> Optional[str]:
+    if any(True for _ in root.iter("E070")) or any(True for _ in root.iter("E071")):
+        return None
+    return "XML does not contain CTS <E070> / <E071> record sections."
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.XML),
+    summary=(
+        "CTS transport metadata: CSV export of E070/E071/E071K with a TRKORR header row, JSON "
+        "{'transports': {TRKORR: ['TABL ZTAB', …]}, 'e070': [...], 'e071': [...], 'call_references': [...], "
+        "'planned_sequence': [...]}, or XML with <E070>/<E071> sections."
+    ),
+    required=("At least one transport request with its object list",),
+    json_model=TransportInput,
+    csv_signal_columns=("TRKORR",),
+    xml_check=_tr_xml_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class TransportDependencyEngine(BaseEngine):
     """Authoritative preflight engine for SAP CTS transport sequence & collision auditing."""
@@ -204,6 +273,8 @@ class TransportDependencyEngine(BaseEngine):
     # Point 1: Metadata
     engine_type = EngineType.TRANSPORT_DEPENDENCY_ANALYZER
     rule_prefix = "TR"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Transport Dependency Analyzer"
     description = "CTS transport sequence, cross-transport dictionary dependency validator"
     version = "2.0.0"
@@ -237,18 +308,19 @@ class TransportDependencyEngine(BaseEngine):
         if raw_text and raw_text.strip().startswith("<"):
             try:
                 self._parse_xml_content(raw_text, data)
-                return data
-            except Exception:
-                pass
+            except SecurityViolationError:
+                raise EngineInputError(
+                    f"{self.rule_prefix}_INVALID_INPUT", "Malicious XML rejected (Entities/DTD forbidden)."
+                ) from None
+            except ValueError as exc:
+                raise EngineInputError(f"{self.rule_prefix}_PARSE_ERROR", str(exc)) from None
+            return data
 
         # 2. JSON Artifact Detection
         if raw_text and (raw_text.strip().startswith("{") or raw_text.strip().startswith("[")):
-            try:
-                parsed_json = json.loads(raw_text)
-                self._parse_json_content(parsed_json, data, raw_text)
-                return data
-            except Exception:
-                pass
+            parsed_json = parse_json_payload(raw_text, self.rule_prefix)
+            self._parse_json_content(parsed_json, data, raw_text)
+            return data
 
         # 3. CSV Artifact Detection (Lines with commas or semicolons)
         if raw_text and ("\n" in raw_text or "," in raw_text or ";" in raw_text):
@@ -1137,7 +1209,7 @@ class TransportDependencyEngine(BaseEngine):
                 "code": "TR_CIRCULAR_DEPENDENCY_DETECTED",
                 "severity": "BLOCKER",
                 "object": cycle_detected[0] if cycle_detected else "CIRCULAR_CTS",
-                "transports": list(set(cycle_detected)),
+                "transports": sorted(set(cycle_detected)),
                 "title": f"Circular Transport Dependency Detected: {cycle_str}",
                 "message": (
                     f"Circular dependency cycle detected between transports: {cycle_str}. "
@@ -1221,6 +1293,13 @@ class TransportDependencyEngine(BaseEngine):
         start_time = time.perf_counter()
 
         data = self._parse_inputs(request)
+        if not data.all_transports():
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT" if not (request.raw_content or "").strip()
+                else f"{self.rule_prefix}_INVALID_INPUT",
+                "No transport requests could be read: supply E070/E071 exports (CSV with a TRKORR header, JSON "
+                "{'transports': {TRKORR: [objects]}} / 'e070' / 'e071', or CTS XML).",
+            )
         eval_result = self._run_deterministic_rules(data)
 
         findings: List[Finding] = []

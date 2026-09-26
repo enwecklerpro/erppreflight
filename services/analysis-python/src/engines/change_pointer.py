@@ -24,6 +24,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -168,6 +171,88 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Opti
 # Change Pointer Coverage Auditor Engine (Cardinal Axiom 2)
 # ==============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+RULES = rule_catalog(
+    RuleSpec(
+        "CP_GLOBAL_DEACTIVATED", "Change pointers globally deactivated (BD61)", Severity.CRITICAL,
+        "Run BD61 in the sending client, set 'Change pointers activated - generally' and transport the "
+        "customizing (table TBDA1).", "ALE_GLOBAL_CONFIGURATION",
+    ),
+    RuleSpec(
+        "CP_MSG_TYPE_DEACTIVATED", "Message type change pointers inactive (BD50)", Severity.CRITICAL,
+        "Activate change pointers for the message type in BD50 (table TBDA2) and transport the entry.",
+        "ALE_MESSAGE_TYPE_CONFIGURATION",
+    ),
+    RuleSpec(
+        "CP_FIELD_NOT_CONFIGURED_BD52", "Expected field not linked in BD52", Severity.MAJOR,
+        "Add the table/field to the message type's change document object in BD52 (table TBD62); otherwise "
+        "changes to the field never create change pointers.", "ALE_FIELD_LINKAGE",
+    ),
+    RuleSpec(
+        "CP_FIELD_DD04L_CHGFLAG_MISSING", "Data element not change-document relevant", Severity.MAJOR,
+        "In SE11 set 'Change document' on the data element (DD04L-LOGFLAG) of the field and regenerate the "
+        "change document object (SCDO).", "DATA_DICTIONARY_GOVERNANCE",
+    ),
+    RuleSpec(
+        "CP_CUSTOM_FIELD_OMITTED_BD52", "Custom field omitted from BD52", Severity.MAJOR,
+        "Add the custom (YY1_/ZZ) field to BD52 for the message type and extend the IDoc segment / mapping so "
+        "the value is distributed.", "EXTENSIBILITY_GOVERNANCE",
+    ),
+    RuleSpec(
+        "CP_FIELD_FILTERED_BD53", "Field filtered by reduced message type (BD53)", Severity.MINOR,
+        "Review the reduced message type in BD53 and select the field if downstream systems need it.",
+        "ALE_REDUCED_MESSAGE_TYPE",
+    ),
+    RuleSpec(
+        "CP_RUNTIME_UNPROCESSED_BACKLOG", "Unprocessed change pointer backlog (BDCP2)", Severity.MAJOR,
+        "Schedule / repair report RBDMIDOC (BD21) for the message type, check SM37 job logs, and clean up "
+        "processed pointers with RBDCPCLR2.", "RUNTIME_RECONCILIATION",
+    ),
+)
+
+
+class ChangePointerInput(ContractModel):
+    signal_fields = (
+        "target_message_type", "message_type", "bd50_msg_types", "bd50", "message_types",
+        "bd52_fields", "bd52", "fields",
+    )
+    signal_message = (
+        "Change pointer audit requires a message type ('target_message_type' / BD50) and the BD52 field "
+        "configuration."
+    )
+
+
+_CP_RECORD_TYPES = {"BD61", "TBDA1", "BD50", "TBDA2", "BD52", "TBD62", "EXPECTED", "EXP", "DD04L", "BDCP2", "BDCP",
+                    "BD53"}
+
+
+def _cp_text_check(text: str) -> Optional[str]:
+    for line in text.splitlines():
+        first = line.split(",")[0].split(";")[0].strip().upper()
+        if first in _CP_RECORD_TYPES:
+            return None
+    return (
+        "CSV export must use record-type rows (BD61,<X>; BD50,<MESTYP>,<X>; BD52,<MESTYP>,<OBJ>,<TABLE>,<FIELD>; "
+        "DD04L,…; BDCP2,…)."
+    )
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.CSV, InputFormat.TEXT),
+    summary=(
+        "ALE change pointer configuration: JSON {'target_message_type', 'bd61_active', 'bd50_msg_types', "
+        "'bd52_fields', 'expected_fields', 'dd04l_metadata', 'bdcp2_samples', 'bd53_reduced_fields'} or a "
+        "record-type CSV (BD61/BD50/BD52/DD04L/BDCP2 rows)."
+    ),
+    required=("message type (target_message_type or active BD50 entry)", "BD52 field configuration"),
+    json_model=ChangePointerInput,
+    text_check=_cp_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class ChangePointerEngine(BaseEngine):
     """Authoritative preflight engine for ALE / IDoc Change Pointer auditing."""
@@ -175,6 +260,8 @@ class ChangePointerEngine(BaseEngine):
     # Point 1: Metadata
     engine_type = EngineType.CHANGE_POINTER_COVERAGE_AUDITOR
     rule_prefix = "CP"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Change Pointer Coverage Auditor"
     description = "BD61/BD50/BD52 change pointer configuration and event trigger validation"
     version = "2.0.0"

@@ -1,0 +1,76 @@
+{
+  "snapshot_id": "clean-core-released-objects/2408.1",
+  "schema_version": 1,
+  "target_releases": ["S4HANA_CLOUD_2408", "S4H_2023"],
+  "source": "Curated subset of the SAP Cloudification Repository (github.com/SAP/abap-atc-cr-cv-s4hc, objectReleaseInfo) — released (C1, 'USE_IN_CLOUD_DEVELOPMENT') objects and explicitly not-released objects with their documented successors. Objects absent from both lists are reported as unreleased at RULE_DERIVED confidence (never VERIFIED).",
+  "immutable": true,
+  "released": {
+    "function_modules": [
+      "BAPI_TRANSACTION_COMMIT",
+      "BAPI_TRANSACTION_ROLLBACK"
+    ],
+    "cds_views": [
+      "I_BILLINGDOCUMENT", "I_BILLINGDOCUMENTITEM", "I_BUSINESSPARTNER", "I_BUSINESSUSERBASIC",
+      "I_CALENDARDATE", "I_COMPANYCODE", "I_CONTROLLINGAREA", "I_COSTCENTER", "I_COUNTRY", "I_CURRENCY",
+      "I_CUSTOMER", "I_CUSTOMERCOMPANY", "I_CUSTOMERSALESAREA", "I_GLACCOUNT", "I_GLACCOUNTINCHARTOFACCOUNTS",
+      "I_JOURNALENTRY", "I_JOURNALENTRYITEM", "I_LANGUAGE", "I_OUTBOUNDDELIVERY", "I_OUTBOUNDDELIVERYITEM",
+      "I_PLANT", "I_PRODUCT", "I_PRODUCTDESCRIPTION", "I_PRODUCTPLANT", "I_PRODUCTSTORAGELOCATION",
+      "I_PROFITCENTER", "I_PURCHASEORDERAPI01", "I_PURCHASEORDERITEMAPI01", "I_SALESDOCUMENT",
+      "I_SALESDOCUMENTITEM", "I_SALESORDER", "I_SALESORDERITEM", "I_SALESORDERSCHEDULELINE",
+      "I_SALESORGANIZATION", "I_STORAGELOCATION", "I_SUPPLIER", "I_SUPPLIERCOMPANYCODE",
+      "I_UNITOFMEASURE", "I_USER"
+    ],
+    "classes": [
+      "CL_ABAP_CHAR_UTILITIES", "CL_ABAP_CONTEXT_INFO", "CL_ABAP_RANDOM_INT", "CL_ABAP_TSTMP",
+      "CL_ABAP_TYPEDESCR", "CL_ABAP_STRUCTDESCR", "CL_ABAP_TABLEDESCR", "CL_ABAP_CONV_CODEPAGE",
+      "CL_BCS_MAIL_MESSAGE", "CL_HTTP_DESTINATION_PROVIDER", "CL_WEB_HTTP_CLIENT_MANAGER",
+      "CL_SYSTEM_UUID", "CL_APJ_RT_API", "CL_BALI_LOG", "CL_NUMBERRANGE_RUNTIME", "XCO_CP", "XCO_CP_ABAP",
+      "XCO_CP_TIME", "CX_ROOT", "CX_STATIC_CHECK", "CX_DYNAMIC_CHECK", "CX_NO_CHECK"
+    ]
+  },
+  "not_released": {
+    "function_modules": {
+      "WS_DELIVERY_UPDATE": "I_OutboundDeliveryTP (RAP BO) / API_OUTBOUND_DELIVERY_SRV_0002",
+      "BAPI_MATERIAL_SAVEDATA": "I_ProductTP (RAP Business Object)",
+      "BAPI_SALESORDER_CREATEFROMDAT2": "I_SalesOrderTP (RAP Business Object)",
+      "BAPI_ACC_DOCUMENT_POST": "I_JournalEntryTP (RAP Business Object)",
+      "RFC_READ_TABLE": "Released OData API or CDS analytical query",
+      "BAPI_PO_CREATE1": "I_PurchaseOrderTP (RAP Business Object)",
+      "SO_NEW_DOCUMENT_ATT_SEND_API1": "CL_BCS_MAIL_MESSAGE (released mail API)",
+      "SO_NEW_DOCUMENT_SEND_API1": "CL_BCS_MAIL_MESSAGE (released mail API)",
+      "GUI_DOWNLOAD": "No cloud equivalent — return data via a released OData service",
+      "GUI_UPLOAD": "No cloud equivalent — upload via a Fiori app / attachment service",
+      "REUSE_ALV_GRID_DISPLAY": "Fiori Elements list report on a RAP service",
+      "POPUP_TO_CONFIRM": "Fiori UI dialog (no dynpro popups in ABAP Cloud)",
+      "CONVERSION_EXIT_ALPHA_INPUT": "Use |{ value ALPHA = IN }| string template formatting",
+      "CONVERSION_EXIT_ALPHA_OUTPUT": "Use |{ value ALPHA = OUT }| string template formatting",
+      "READ_TEXT": "Released text CDS views / RAP BO text associations",
+      "SAVE_TEXT": "RAP BO text associations",
+      "ENQUEUE_READ": "RAP locking (lock master) instead of direct enqueue inspection",
+      "JOB_OPEN": "CL_APJ_RT_API (application jobs)",
+      "JOB_CLOSE": "CL_APJ_RT_API (application jobs)",
+      "NUMBER_GET_NEXT": "CL_NUMBERRANGE_RUNTIME"
+    },
+    "classes": {
+      "CL_GUI_FRONTEND_SERVICES": "No SAP GUI in ABAP Cloud — use Fiori upload/download",
+      "CL_GUI_ALV_GRID": "Fiori Elements list report on a RAP service",
+      "CL_SALV_TABLE": "Fiori Elements list report on a RAP service",
+      "CL_BCS": "CL_BCS_MAIL_MESSAGE",
+      "CL_ABAP_ZIP": "XCO_CP (released zip handling)"
+    },
+    "tables": {
+      "MARA": "I_Product", "MAKT": "I_ProductDescription", "MARC": "I_ProductPlant",
+      "MARD": "I_ProductStorageLocation", "VBAK": "I_SalesOrder", "VBAP": "I_SalesOrderItem",
+      "VBEP": "I_SalesOrderScheduleLine", "BKPF": "I_JournalEntry", "BSEG": "I_JournalEntryItem",
+      "ACDOCA": "I_JournalEntryItem", "KNA1": "I_Customer", "KNVV": "I_CustomerSalesArea", "LFA1": "I_Supplier",
+      "LFB1": "I_SupplierCompanyCode", "EKKO": "I_PurchaseOrderAPI01", "EKPO": "I_PurchaseOrderItemAPI01",
+      "LIKP": "I_OutboundDelivery", "LIPS": "I_OutboundDeliveryItem", "VBRK": "I_BillingDocument",
+      "VBRP": "I_BillingDocumentItem", "BSIS": "I_JournalEntryItem", "BSAS": "I_JournalEntryItem",
+      "BSID": "I_JournalEntryItem", "BSAD": "I_JournalEntryItem", "BSIK": "I_JournalEntryItem",
+      "BSAK": "I_JournalEntryItem", "T001": "I_CompanyCode", "T001W": "I_Plant", "T002": "I_Language",
+      "T005": "I_Country", "TCURC": "I_Currency", "T006": "I_UnitOfMeasure", "CSKS": "I_CostCenter",
+      "CEPC": "I_ProfitCenter", "SKA1": "I_GLAccountInChartOfAccounts", "BUT000": "I_BusinessPartner",
+      "USR02": "I_User", "T001L": "I_StorageLocation", "TVKO": "I_SalesOrganization"
+    }
+  }
+}
