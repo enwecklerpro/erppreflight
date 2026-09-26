@@ -8,7 +8,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
-import { deriveErrorCode, GENERIC_ERROR_CODES, MESSAGE_ERROR_CODES } from './api-error-codes';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { deriveErrorCode, GENERIC_ERROR_CODES, INDIRECT_ERROR_CODES, MESSAGE_ERROR_CODES } from './api-error-codes';
 
 function run(exception: unknown): { status: number; body: Record<string, unknown> } {
   const filter = new HttpExceptionFilter();
@@ -74,5 +76,28 @@ describe('HttpExceptionFilter envelope', () => {
     const internal = run(new Error('boom'));
     expect(internal.status).toBe(500);
     expect(internal.body.code).toBe('INTERNAL_ERROR');
+  });
+});
+
+describe('indirectly thrown error codes', () => {
+  const src = (rel: string) => readFileSync(resolve(__dirname, '../../modules', rel), 'utf8');
+
+  it('INDIRECT_ERROR_CODES lists every code emitted through constants, policy decisions and templates', () => {
+    const listed = new Set<string>(INDIRECT_ERROR_CODES);
+    const blockerType = src('governance/rule-governance.types.ts').match(/export type PublishBlocker =([^;]+);/)?.[1] ?? '';
+    const blockers = [...blockerType.matchAll(/'([A-Z_]+)'/g)].map((m) => `RULE_PUBLISH_BLOCKED_${m[1]}`);
+    expect(blockers.length).toBeGreaterThan(3);
+    expect(src('governance/rule-governance.service.ts')).toContain('code: `RULE_PUBLISH_BLOCKED_${blocker}`');
+    const constants = [
+      ...src('auth/csrf.guard.ts').matchAll(/_CODE = '([A-Z_]+)'/g),
+      ...src('auth/magic-link.service.ts').matchAll(/_CODE = '([A-Z_]+)'/g),
+      ...src('tenant-access/impersonation.policy.ts').matchAll(/export const IMPERSONATION_[A-Z_]+ = '([A-Z_]+)'/g),
+      ...src('tenant-access/tenant-access.policy.ts').matchAll(/code: '([A-Z_]+)'/g),
+      ...src('tenant-access/impersonation.service.ts').matchAll(/'(IMPERSONATION_(?:EXPIRED|ENDED))'/g),
+    ].map((m) => m[1]);
+    expect(constants).toContain('CSRF_REJECTED');
+    expect(constants).toContain('MAGIC_LINK_INVALID');
+    const missing = [...new Set([...blockers, ...constants])].filter((c) => !listed.has(c));
+    expect(missing).toEqual([]);
   });
 });

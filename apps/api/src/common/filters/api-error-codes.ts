@@ -113,3 +113,31 @@ export function deriveErrorCode(status: number, message: unknown): string {
   if (status >= 500) return 'INTERNAL_ERROR';
   return status >= 400 ? 'BAD_REQUEST' : 'UNKNOWN_ERROR';
 }
+
+/**
+ * Codes that are thrown through a constant, a policy decision object or a template
+ * literal instead of a literal `new XxxException({ code: '...' })` (the web parity test
+ * `api-error-codes.test.ts` scans this file, so listing them here enforces EN + DE text
+ * in `app.apiErrorCodes.codes`). `api-error-codes.spec.ts` checks the sources still
+ * emit exactly these codes.
+ */
+export const INDIRECT_ERROR_CODES = [
+  // auth/csrf.guard.ts (CSRF_REJECTED_CODE), auth/magic-link.service.ts (MAGIC_LINK_INVALID_CODE)
+  'CSRF_REJECTED',
+  'MAGIC_LINK_INVALID',
+  // tenant-access/tenant-access.policy.ts (TenantAccessDenial)
+  'TENANT_SUSPENDED',
+  'IP_NOT_ALLOWED',
+  // tenant-access/impersonation.policy.ts + impersonation.middleware.ts (decision / outcome codes)
+  'IMPERSONATION_READ_ONLY',
+  'IMPERSONATION_SECRET_ACCESS_DENIED',
+  'IMPERSONATION_EXPIRED',
+  'IMPERSONATION_ENDED',
+  // governance/rule-governance.service.ts: `RULE_PUBLISH_BLOCKED_${PublishBlocker}`
+  'RULE_PUBLISH_BLOCKED_COVERAGE_GAP',
+  'RULE_PUBLISH_BLOCKED_NO_SELF_TEST',
+  'RULE_PUBLISH_BLOCKED_SELF_TEST_NOT_PASSED',
+  'RULE_PUBLISH_BLOCKED_SELF_TEST_OUTDATED',
+  'RULE_PUBLISH_BLOCKED_REVIEWER_REQUIRED',
+  'RULE_PUBLISH_BLOCKED_NOT_IN_REVIEW',
+] as const;

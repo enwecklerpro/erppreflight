@@ -7,7 +7,7 @@ export const notificationText: typeof En = {
   analysisBody: 'Engines: {engines}. Ziel-Release: {release}.',
   analysisFailed: 'Analyse fehlgeschlagen',
   analysisFailedBody:
-    'Die Analyse konnte nicht abgeschlossen werden. Öffnen Sie das Projekt, um den Lauf zu prüfen und ihn erneut zu starten.',
+    'Die Analyse konnte nicht abgeschlossen werden. Öffnen Sie den Lauf, um den Fehler zu prüfen, und starten Sie ihn erneut.',
   criticalTitle: '{parts} erkannt',
   partBlocker: '{count, plural, one {# Blocker-Befund} other {# Blocker-Befunde}}',
   partCritical: '{count, plural, one {# kritischer Befund} other {# kritische Befunde}}',

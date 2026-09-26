@@ -128,6 +128,19 @@ const GENERIC_API_ERROR_CODES = new Set<string>([
   'UNKNOWN_ERROR',
 ]);
 
+/**
+ * Specific codes whose server message carries details the dictionary text cannot know
+ * (the invalid CIDR entries, the extension limit in days, the reason a rerun's inputs
+ * are gone): treated like generic codes, so the server message is kept (with the
+ * localized summary prepended outside English).
+ */
+const DETAIL_API_ERROR_CODES = new Set<string>([
+  'IP_ALLOWLIST_INVALID',
+  'TRIAL_EXTENSION_LIMIT',
+  'TRIAL_NOT_APPLICABLE',
+  'RERUN_INPUTS_UNAVAILABLE',
+]);
+
 export function isKnownApiErrorCode(code: unknown): code is ApiErrorCode {
   return typeof code === 'string' && Object.prototype.hasOwnProperty.call(apiErrorCodes.codes, code);
 }
@@ -149,7 +162,7 @@ export function localizeError(error: unknown, t: TFunction, fallback?: string): 
   if (coded) return t(coded);
   if (e.name === 'ZodError') return t('app.validation.unexpectedResponse');
   const code = isKnownApiErrorCode(e.code) ? e.code : null;
-  if (code && !GENERIC_API_ERROR_CODES.has(code)) return t(`app.apiErrorCodes.codes.${code}`);
+  if (code && !GENERIC_API_ERROR_CODES.has(code) && !DETAIL_API_ERROR_CODES.has(code)) return t(`app.apiErrorCodes.codes.${code}`);
   if (e.statusCode === 429) return t('app.validation.tooManyAttempts');
   if (e.name === 'TypeError' && /fetch|network|load failed/i.test(e.message ?? '')) return t('app.validation.networkError');
   if (typeof e.message === 'string' && e.message) {

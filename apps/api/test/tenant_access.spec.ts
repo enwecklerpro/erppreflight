@@ -180,6 +180,30 @@ describe('impersonation policy', () => {
     }
   });
 
+  it('covers the credential and platform routes added by the parallel workstreams', () => {
+    // session-security: magic-link sign-in issues sessions; admin-governance: AI provider
+    // credentials, rule publishing, source sync and knowledge administration.
+    for (const [m, p] of [
+      ['POST', '/auth/magic-link'],
+      ['POST', '/auth/magic-link/preview'],
+      ['POST', '/auth/magic-link/verify'],
+      ['GET', '/admin/ai'],
+      ['PUT', '/admin/ai/providers/openai'],
+      ['PUT', '/admin/ai/tasks/explain_finding'],
+      ['POST', '/admin/rules/OPD_DETERMINATION_STEP_MISSING/transition'],
+      ['POST', '/admin/sources/x/retry'],
+      ['GET', '/admin/knowledge-graph'],
+      ['POST', '/admin/tenants/x/impersonate'],
+    ] as const) {
+      expect(decideImpersonationRequest(m, p, false)).toMatchObject({ allowed: false, code: 'IMPERSONATION_SECRET_ACCESS_DENIED' });
+    }
+    // GET /auth/csrf only returns the token of the operator's own cookie session.
+    expect(decideImpersonationRequest('GET', '/auth/csrf', true)).toEqual({ allowed: true });
+    // analysis-lifecycle: cancel / rerun are tenant writes (read-only mode refuses them).
+    expect(decideImpersonationRequest('POST', '/analyses/x/cancel', true)).toMatchObject({ code: 'IMPERSONATION_READ_ONLY' });
+    expect(decideImpersonationRequest('POST', '/analyses/x/rerun', true)).toMatchObject({ code: 'IMPERSONATION_READ_ONLY' });
+  });
+
   it('letter case never bypasses the deny lists (Express routes case-insensitively)', () => {
     for (const p of ['/API-KEYS', '/Auth/sessions', '/Account/export', '/Organizations/current/export', '/SSO/Admin/scim-tokens', '/Admin/overview']) {
       expect(decideImpersonationRequest('GET', p, false)).toMatchObject({ allowed: false, code: 'IMPERSONATION_SECRET_ACCESS_DENIED' });

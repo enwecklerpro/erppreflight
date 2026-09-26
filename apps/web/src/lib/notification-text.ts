@@ -1,6 +1,8 @@
 import type { TFunction } from '@/i18n/translate';
 import { notificationText as EN } from '@/i18n/messages/app/en/notificationText';
 
+const LEGACY_ANALYSIS_FAILED_BODY = 'The analysis could not be completed. Open the project to review the run and retry.';
+
 /**
  * Renders a stored in-app notification in the UI language.
  *
@@ -48,7 +50,11 @@ export function localizeNotification(n: NotificationTextInput, t: TFunction): { 
     }
     case 'analysis.failed': {
       if (n.title === 'Analysis failed') title = t('app.notificationText.analysisFailed');
-      if (n.body === EN.analysisFailedBody) body = t('app.notificationText.analysisFailedBody');
+      // The API text changed with the analysis run lifecycle (link to the run instead of the
+      // project); notifications stored before that keep the earlier wording.
+      if (n.body === EN.analysisFailedBody || n.body === LEGACY_ANALYSIS_FAILED_BODY) {
+        body = t('app.notificationText.analysisFailedBody');
+      }
       break;
     }
     case 'finding.critical': {

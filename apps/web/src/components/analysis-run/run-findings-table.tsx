@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DataTable } from '@/components/data-table';
-import { findingColumns, findingFacetedFilters } from '@/components/findings/finding-columns';
+import { buildFindingColumns, buildFindingFacetedFilters } from '@/components/findings/finding-columns';
 import { FindingDetailRow } from '@/components/findings/finding-detail-row';
 import { useT } from '@/i18n/client';
 import { analysisRunKeys, fetchRunFindings } from '@/lib/api/analysis-lifecycle';
@@ -24,6 +24,8 @@ export function RunFindingsTable({ analysisId, status }: { analysisId: string; s
     staleTime: terminal ? 5 * 60_000 : 0,
   });
   const findings = query.data ?? [];
+  const columns = React.useMemo(() => buildFindingColumns(t), [t]);
+  const facetedFilters = React.useMemo(() => buildFindingFacetedFilters(t), [t]);
 
   let emptyTitle = t('app.analysisRun.findings.emptyTitle');
   let emptyDescription = t('app.analysisRun.findings.emptyDescription');
@@ -42,9 +44,9 @@ export function RunFindingsTable({ analysisId, status }: { analysisId: string; s
     <div data-testid="analysis-findings" data-count={findings.length}>
       <DataTable
         ariaLabel={t('app.analysisRun.findings.ariaLabel')}
-        columns={findingColumns}
+        columns={columns}
         data={findings}
-        facetedFilters={findingFacetedFilters}
+        facetedFilters={facetedFilters}
         searchColumnId="title"
         searchPlaceholder={t('app.analysisRun.findings.search')}
         renderExpandedRow={(row) => <FindingDetailRow finding={row.original} />}

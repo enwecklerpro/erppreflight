@@ -10,7 +10,7 @@ export const notificationText = {
   analysisPartial: 'Analysis partially completed: {count, plural, one {# finding} other {# findings}}',
   analysisBody: 'Engines: {engines}. Target release: {release}.',
   analysisFailed: 'Analysis failed',
-  analysisFailedBody: 'The analysis could not be completed. Open the project to review the run and retry.',
+  analysisFailedBody: 'The analysis could not be completed. Open the run to review the error and re-run it.',
   criticalTitle: '{parts} detected',
   partBlocker: '{count, plural, one {# blocker finding} other {# blocker findings}}',
   partCritical: '{count, plural, one {# critical finding} other {# critical findings}}',
