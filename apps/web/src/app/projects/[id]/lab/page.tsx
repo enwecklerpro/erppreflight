@@ -37,6 +37,7 @@ import { fetchProject } from '@/lib/api-client';
 import { SeverityBadge } from '@/components/findings/severity-badge';
 import { ConfidenceBadge } from '@/components/findings/confidence-badge';
 import { RegressionTestsPanel } from '@/components/findings/regression-tests-panel';
+import { useErrorText, useRichT, useT } from '@/i18n/client';
 import {
   ScenarioDomain,
   ScenarioFailureType,
@@ -50,113 +51,47 @@ import {
 
 interface DomainOption {
   id: ScenarioDomain;
-  name: string;
   engine: string;
-  description: string;
-  failureOptions: Array<{ id: ScenarioFailureType; label: string; description: string }>;
+  failureOptions: Array<{ id: ScenarioFailureType }>;
 }
 
 const DOMAINS: DomainOption[] = [
   {
     id: 'OPD',
-    name: 'OPD Output Determination',
     engine: 'OPD_GUARD',
-    description: 'BRFplus decision tables for billing and purchase order determination',
     failureOptions: [
-      {
-        id: 'CLEAN_PASS',
-        label: 'Clean Pass (Valid Email & Role)',
-        description: 'All 8 determination steps resolve condition records cleanly',
-      },
-      {
-        id: 'OPD_MISSING_RECIPIENT',
-        label: 'Missing Recipient Defect',
-        description: 'Customer 100045 has no recipient entry in Email Recipient step',
-      },
-      {
-        id: 'OPD_INVALID_CHANNEL',
-        label: 'Decommissioned Channel (FAX)',
-        description: 'Output table assigns FAX which is retired in Cloud',
-      },
-      {
-        id: 'OPD_SHADOWED_RULE',
-        label: 'Shadowed Rule (Unreachable)',
-        description: 'Wildcard rule subsumes specific document type condition',
-      },
+      { id: 'CLEAN_PASS' },
+      { id: 'OPD_MISSING_RECIPIENT' },
+      { id: 'OPD_INVALID_CHANNEL' },
+      { id: 'OPD_SHADOWED_RULE' },
     ],
   },
   {
     id: 'FORM',
-    name: 'ADS FormDoctor Binding',
     engine: 'FORM_DOCTOR',
-    description: 'Adobe Document Services XDP template and context XML binding evaluator',
     failureOptions: [
-      {
-        id: 'CLEAN_PASS',
-        label: 'Clean Pass (Bound Key-User Field)',
-        description: 'All bound XDP fields resolve to valid elements in runtime XML',
-      },
-      {
-        id: 'FORM_MISSING_BINDING',
-        label: 'Unbound Custom Field (YY1_*)',
-        description: 'Bound YY1_PROMOTIONAL_CODE field missing from payload XML',
-      },
-      {
-        id: 'FORM_BINDING_MISMATCH',
-        label: 'Path Mismatch (PostingDate)',
-        description: 'Bound path $.Header.PostingDate not found in XML structure',
-      },
-      {
-        id: 'FORM_TRUNCATION_RISK',
-        label: 'Corrupted XDP Syntax',
-        description: 'Template syntax unclosed tag triggering parse rejection',
-      },
+      { id: 'CLEAN_PASS' },
+      { id: 'FORM_MISSING_BINDING' },
+      { id: 'FORM_BINDING_MISMATCH' },
+      { id: 'FORM_TRUNCATION_RISK' },
     ],
   },
   {
     id: 'MFS',
-    name: 'MFS PLC Telegram Buffer',
     engine: 'MFS_BLACKBOX',
-    description: 'Material Flow System conveyor & stacker crane sequence auditor',
     failureOptions: [
-      {
-        id: 'CLEAN_PASS',
-        label: 'Clean Sequence (Ordered Topology)',
-        description: 'Valid sequential telegram flow with timely PLC acknowledgements',
-      },
-      {
-        id: 'MFS_LOCATION_JUMP',
-        label: 'Topology Location Jump (CP01 -> CP05)',
-        description: 'Handling unit jumps checkpoints without valid graph edge',
-      },
-      {
-        id: 'MFS_ACK_TIMEOUT',
-        label: 'PLC ACK Timeout & Retry Storm',
-        description: 'Missing telegram ACK response triggering duplicate sends',
-      },
+      { id: 'CLEAN_PASS' },
+      { id: 'MFS_LOCATION_JUMP' },
+      { id: 'MFS_ACK_TIMEOUT' },
     ],
   },
   {
     id: 'CHANGE_POINTER',
-    name: 'Change Pointer Coverage',
     engine: 'CHANGE_POINTER_COVERAGE_AUDITOR',
-    description: 'BD21 / BD52 Material Master (MATMAS) delta trigger verification',
     failureOptions: [
-      {
-        id: 'CLEAN_PASS',
-        label: 'Clean Pass (Active Trigger on BRGEW)',
-        description: 'BD61 active, BD50 enabled, and all critical fields registered',
-      },
-      {
-        id: 'CP_MISSING_FIELD_TRIGGER',
-        label: 'Missing BD52 Active Trigger',
-        description: 'Gross weight MARA-BRGEW omitted from change pointer trigger',
-      },
-      {
-        id: 'CP_GLOBAL_DISABLED',
-        label: 'Global Change Pointers Deactivated',
-        description: 'Global change pointer flag deactivated in BD61 configuration',
-      },
+      { id: 'CLEAN_PASS' },
+      { id: 'CP_MISSING_FIELD_TRIGGER' },
+      { id: 'CP_GLOBAL_DISABLED' },
     ],
   },
 ];
@@ -174,6 +109,12 @@ export default function ScenarioTestLabPage() {
   const params = useParams();
   const projectId = (params?.id as string) || '';
   const queryClient = useQueryClient();
+  const t = useT();
+  const rt = useRichT();
+  const errText = useErrorText();
+  const domainName = (id: ScenarioDomain) => t(`app.lab.domains.${id as 'OPD'}.name`);
+  const failureLabel = (domain: ScenarioDomain, id: ScenarioFailureType) =>
+    t(`app.lab.failures.${(id === 'CLEAN_PASS' ? `${domain}_CLEAN_PASS` : id) as 'OPD_CLEAN_PASS'}`);
 
   // Project details query
   const { data: project } = useQuery({
@@ -241,9 +182,7 @@ export default function ScenarioTestLabPage() {
       queryClient.invalidateQueries({ queryKey: ['labScenarios', projectId] });
     },
     onError: (err: any) => {
-      setExecutionError(
-        err?.message || 'Failed to generate synthetic scenario. Check backend connectivity.'
-      );
+      setExecutionError(errText(err, t('app.lab.generateFailed')));
     },
   });
 
@@ -278,10 +217,7 @@ export default function ScenarioTestLabPage() {
       queryClient.invalidateQueries({ queryKey: ['labScenarios', projectId] });
     },
     onError: (err: any) => {
-      setExecutionError(
-        err?.message ||
-          'Failed to execute preflight test. Ensure services/analysis-python is running.'
-      );
+      setExecutionError(errText(err, t('app.lab.runFailed')));
     },
   });
 
@@ -342,19 +278,19 @@ export default function ScenarioTestLabPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20">
       {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <nav aria-label={t('app.lab.breadcrumb')} className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Link href="/projects" className="hover:text-foreground transition-colors">
-          Projects
+          {t('app.lab.projects')}
         </Link>
         <ChevronRight className="size-3.5" />
         <Link
           href={`/projects/${projectId}`}
           className="hover:text-foreground transition-colors font-mono"
         >
-          {project?.name || 'Workspace'}
+          {project?.name || t('app.lab.workspace')}
         </Link>
         <ChevronRight className="size-3.5" />
-        <span className="font-semibold text-foreground">Scenario & Regression Test Lab</span>
+        <span className="font-semibold text-foreground">{t('app.lab.title')}</span>
       </nav>
 
       {/* Page Header */}
@@ -367,10 +303,10 @@ export default function ScenarioTestLabPage() {
               </div>
               <div>
                 <h1 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
-                  Scenario & Regression Test Lab
+                  {t('app.lab.title')}
                 </h1>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Interactive fixture generator & live rule execution workbench across OPD, ADS Forms, MFS BlackBox, and Change Pointers.
+                  {t('app.lab.intro')}
                 </p>
               </div>
             </div>
@@ -382,14 +318,14 @@ export default function ScenarioTestLabPage() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-colors shadow-xs"
             >
               <FolderOpen className="size-3.5 text-primary" />
-              <span>Saved Scenarios ({savedScenarios.length})</span>
+              <span>{t('app.lab.saved', { count: savedScenarios.length })}</span>
             </button>
             <Link
               href={`/projects/${projectId}`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shadow-xs"
             >
               <ArrowLeft className="size-3.5" />
-              Back to Overview
+              {t('app.lab.back')}
             </Link>
           </div>
         </div>
@@ -405,25 +341,25 @@ export default function ScenarioTestLabPage() {
             <div className="flex items-center gap-2">
               <FolderOpen className="size-4 text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                Workspace Scenarios Archive ({savedScenarios.length})
+                {t('app.lab.archive', { count: savedScenarios.length })}
               </h3>
             </div>
             <button
               onClick={() => setShowSavedDrawer(false)}
               className="text-xs text-muted-foreground hover:text-foreground font-semibold"
             >
-              Close
+              {t('app.lab.close')}
             </button>
           </div>
 
           {isSavedLoading ? (
             <div className="py-4 text-center text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin inline mr-2" />
-              Loading scenario catalog...
+              {t('app.lab.loadingCatalog')}
             </div>
           ) : savedScenarios.length === 0 ? (
             <p className="text-xs text-muted-foreground py-2">
-              No saved scenarios found for this project. Generate and run scenarios to persist them automatically.
+              {t('app.lab.noSaved')}
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
@@ -447,7 +383,7 @@ export default function ScenarioTestLabPage() {
                     </h4>
                   </div>
                   <span className="text-[10px] text-muted-foreground mt-2 block">
-                    Mode: {scen.failureType}
+                    {t('app.lab.mode', { mode: failureLabel(scen.domain, scen.failureType) })}
                   </span>
                 </button>
               ))}
@@ -482,9 +418,9 @@ export default function ScenarioTestLabPage() {
                   </span>
                 )}
               </div>
-              <h3 className="font-bold text-sm text-foreground mt-1.5">{domain.name}</h3>
+              <h3 className="font-bold text-sm text-foreground mt-1.5">{domainName(domain.id)}</h3>
               <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
-                {domain.description}
+                {t(`app.lab.domains.${domain.id as 'OPD'}.description`)}
               </p>
             </button>
           );
@@ -496,17 +432,17 @@ export default function ScenarioTestLabPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">
-              Test Scenario / Defect Mode ({activeDomainConfig.name})
+              {t('app.lab.defectMode', { domain: domainName(activeDomainConfig.id) })}
             </label>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Select defect trigger or clean pass to generate authoritative synthetic test fixtures.
+              {t('app.lab.defectModeHint')}
             </p>
           </div>
 
           {/* Target Release Selector */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-              Target Release:
+              {t('app.lab.targetRelease')}
             </span>
             <select
               value={targetRelease}
@@ -536,7 +472,7 @@ export default function ScenarioTestLabPage() {
                     : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
                 }`}
               >
-                <div>{opt.label}</div>
+                <div>{failureLabel(activeDomainConfig.id, opt.id)}</div>
               </button>
             );
           })}
@@ -551,14 +487,14 @@ export default function ScenarioTestLabPage() {
         >
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <span className="font-bold block">Execution Fault Detected</span>
+            <span className="font-bold block">{t('app.lab.faultTitle')}</span>
             <p className="mt-0.5">{executionError}</p>
           </div>
           <button
             onClick={() => handleExecutePreflight()}
             className="px-2.5 py-1 rounded bg-destructive text-destructive-foreground font-semibold hover:bg-destructive/90 transition-colors"
           >
-            Retry Run
+            {t('app.lab.retryRun')}
           </button>
         </div>
       )}
@@ -571,11 +507,11 @@ export default function ScenarioTestLabPage() {
             <div className="flex items-center gap-2">
               <FileCode2 className="size-4 text-primary" />
               <span className="text-xs font-bold text-foreground">
-                Synthetic Fixture Payload ({currentScenario?.format.toUpperCase() || 'XML'})
+                {t('app.lab.payload', { format: currentScenario?.format.toUpperCase() || 'XML' })}
               </span>
               {isPayloadDirty && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
-                  Modified
+                  {t('app.lab.modified')}
                 </span>
               )}
             </div>
@@ -585,24 +521,24 @@ export default function ScenarioTestLabPage() {
                 <button
                   onClick={handleResetPayload}
                   className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  title="Reset to generated fixture"
+                  title={t('app.lab.resetHint')}
                 >
                   <RotateCcw className="size-3" />
-                  <span>Reset</span>
+                  <span>{t('app.lab.reset')}</span>
                 </button>
               )}
               <button
                 onClick={handleCopyPayload}
                 disabled={!editedPayload}
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title="Copy payload to clipboard"
+                title={t('app.lab.copyHint')}
               >
                 {copiedPayload ? (
                   <Check className="size-3 text-emerald-600" />
                 ) : (
                   <Copy className="size-3" />
                 )}
-                <span>{copiedPayload ? 'Copied' : 'Copy'}</span>
+                <span>{copiedPayload ? t('app.lab.copied') : t('app.lab.copy')}</span>
               </button>
               <button
                 onClick={handleExecutePreflight}
@@ -612,12 +548,12 @@ export default function ScenarioTestLabPage() {
                 {runMutation.isPending ? (
                   <>
                     <Loader2 className="size-3.5 animate-spin" />
-                    <span>Executing Engine...</span>
+                    <span>{t('app.lab.executing')}</span>
                   </>
                 ) : (
                   <>
                     <Play className="size-3.5" />
-                    <span>Execute Preflight Test</span>
+                    <span>{t('app.lab.execute')}</span>
                   </>
                 )}
               </button>
@@ -633,7 +569,7 @@ export default function ScenarioTestLabPage() {
                 setIsPayloadDirty(true);
               }}
               spellCheck={false}
-              placeholder="// Generating synthetic preflight fixture..."
+              placeholder={t('app.lab.generating')}
               className="w-full flex-1 bg-transparent text-zinc-100 font-mono text-xs p-2 resize-none focus:outline-none selection:bg-primary/40 leading-relaxed"
             />
           </div>
@@ -641,19 +577,19 @@ export default function ScenarioTestLabPage() {
           {/* Payload Footer */}
           <div className="px-4 py-2.5 border-t border-border bg-muted/20 text-xs flex items-center justify-between">
             <div className="flex items-center gap-3 text-muted-foreground text-[11px]">
-              <span>Characters: {editedPayload.length}</span>
-              <span>Format: {currentScenario?.format.toUpperCase() || 'XML'}</span>
+              <span>{t('app.lab.characters', { count: editedPayload.length })}</span>
+              <span>{t('app.lab.format', { format: currentScenario?.format.toUpperCase() || 'XML' })}</span>
             </div>
 
             {currentScenario?.expectedFindings && currentScenario.expectedFindings.length > 0 ? (
               <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 font-medium">
                 <AlertTriangle className="size-3.5 shrink-0" />
-                <span>Expected: {currentScenario.expectedFindings[0].ruleId}</span>
+                <span>{t('app.lab.expected', { rule: currentScenario.expectedFindings[0].ruleId })}</span>
               </div>
             ) : (
               <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
                 <CheckCircle2 className="size-3.5 shrink-0" />
-                <span>Expected: Clean Pass (0 defects)</span>
+                <span>{t('app.lab.expectedClean')}</span>
               </div>
             )}
           </div>
@@ -665,14 +601,14 @@ export default function ScenarioTestLabPage() {
             <div className="flex items-center gap-2">
               <FlaskConical className="size-4 text-primary" />
               <span className="text-xs font-bold text-foreground">
-                Regression Assertion Ledger
+                {t('app.lab.ledger')}
               </span>
             </div>
 
             {runResult && (
               <span
                 role="status"
-                aria-label={`Run Status: ${runResult.overallStatus}`}
+                aria-label={t('app.lab.runStatus', { status: runResult.overallStatus })}
                 className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
                   runResult.overallStatus === 'PASSED'
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800'
@@ -682,12 +618,12 @@ export default function ScenarioTestLabPage() {
                 {runResult.overallStatus === 'PASSED' ? (
                   <>
                     <CheckCircle2 className="size-3.5 text-emerald-600" />
-                    <span>STATUS: PASSED</span>
+                    <span>{t('app.lab.statusPassed')}</span>
                   </>
                 ) : (
                   <>
                     <XCircle className="size-3.5 text-rose-600" />
-                    <span>STATUS: {runResult.overallStatus}</span>
+                    <span>{t('app.lab.statusOther', { status: runResult.overallStatus })}</span>
                   </>
                 )}
               </span>
@@ -700,9 +636,13 @@ export default function ScenarioTestLabPage() {
                 <div className="size-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mb-3">
                   <Play className="size-6 text-primary" />
                 </div>
-                <h4 className="font-bold text-sm text-foreground">Ready for Preflight Execution</h4>
+                <h4 className="font-bold text-sm text-foreground">{t('app.lab.readyTitle')}</h4>
                 <p className="text-xs text-muted-foreground max-w-sm mt-1">
-                  Click <strong>&quot;Execute Preflight Test&quot;</strong> to dispatch this payload to the Python engine (<code className="font-mono text-[11px] text-foreground">{activeDomainConfig.engine}</code>) and evaluate regression assertions.
+                  {rt('app.lab.readyBodyRich', {
+                    engine: activeDomainConfig.engine,
+                    b: (c) => <strong>{c}</strong>,
+                    code: (c) => <code className="font-mono text-[11px] text-foreground">{c}</code>,
+                  })}
                 </p>
               </div>
             ) : (
@@ -711,7 +651,7 @@ export default function ScenarioTestLabPage() {
                 <div className="grid grid-cols-4 gap-2 text-center text-xs">
                   <div className="p-2.5 rounded-lg border border-border bg-muted/20">
                     <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                      Assertions
+                      {t('app.lab.assertions')}
                     </span>
                     <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
                       {runResult.passedCount} / {runResult.assertionsCount}
@@ -719,7 +659,7 @@ export default function ScenarioTestLabPage() {
                   </div>
                   <div className="p-2.5 rounded-lg border border-border bg-muted/20">
                     <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                      Verdict
+                      {t('app.lab.verdict')}
                     </span>
                     <span
                       className={`text-xs font-bold font-mono mt-1 block ${
@@ -733,15 +673,15 @@ export default function ScenarioTestLabPage() {
                   </div>
                   <div className="p-2.5 rounded-lg border border-border bg-muted/20">
                     <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                      Exec Time
+                      {t('app.lab.execTime')}
                     </span>
                     <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
-                      {runResult.executionTimeMs} ms
+                      {t('app.lab.ms', { ms: runResult.executionTimeMs })}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg border border-border bg-muted/20">
                     <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                      Rules Checked
+                      {t('app.lab.rulesChecked')}
                     </span>
                     <span className="text-base font-bold font-mono text-foreground mt-0.5 block">
                       {runResult.rulesEvaluated}
@@ -753,10 +693,10 @@ export default function ScenarioTestLabPage() {
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Assertion Ledger Verification
+                      {t('app.lab.ledgerVerification')}
                     </h4>
                     <span className="text-[11px] font-mono text-muted-foreground">
-                      SHA: {runResult.payloadSha256.slice(0, 10)}...
+                      {t('app.lab.sha', { sha: runResult.payloadSha256.slice(0, 10) })}
                     </span>
                   </div>
 
@@ -804,7 +744,7 @@ export default function ScenarioTestLabPage() {
                                   : 'text-rose-700 bg-rose-50 dark:bg-rose-950 dark:text-rose-300 border-rose-300'
                               }`}
                             >
-                              {item.passed ? 'PASSED' : 'FAILED'}
+                              {item.passed ? t('app.lab.passed') : t('app.lab.failed')}
                             </span>
                             {isExpanded ? (
                               <ChevronUp className="size-3.5 text-muted-foreground" />
@@ -819,15 +759,15 @@ export default function ScenarioTestLabPage() {
                           <div className="p-3 border-t border-border/80 bg-muted/20 text-xs space-y-2">
                             <div className="grid grid-cols-2 gap-2 text-[11px]">
                               <div>
-                                <span className="text-muted-foreground block">Expected Outcome:</span>
+                                <span className="text-muted-foreground block">{t('app.lab.expectedOutcome')}</span>
                                 <span className="font-semibold text-foreground">
-                                  {item.expected ? 'Defect Triggered' : 'Clean / Not Triggered'}
+                                  {item.expected ? t('app.lab.triggered') : t('app.lab.notTriggered')}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-muted-foreground block">Actual Outcome:</span>
+                                <span className="text-muted-foreground block">{t('app.lab.actualOutcome')}</span>
                                 <span className="font-semibold text-foreground">
-                                  {item.actual ? 'Defect Triggered' : 'Clean / Not Triggered'}
+                                  {item.actual ? t('app.lab.triggered') : t('app.lab.notTriggered')}
                                 </span>
                               </div>
                             </div>
@@ -839,7 +779,7 @@ export default function ScenarioTestLabPage() {
                               />
                               {item.lineNumber && (
                                 <span className="text-[11px] font-mono text-muted-foreground">
-                                  Line: {item.lineNumber}
+                                  {t('app.lab.line', { line: item.lineNumber })}
                                 </span>
                               )}
                             </div>
@@ -851,7 +791,7 @@ export default function ScenarioTestLabPage() {
                             )}
 
                             <div className="pt-1 text-[10px] font-mono text-muted-foreground break-all">
-                              Evidence Checksum: {item.evidenceSha256}
+                              {t('app.lab.evidenceChecksum', { sha: item.evidenceSha256 ?? '' })}
                             </div>
                           </div>
                         )}
@@ -864,7 +804,7 @@ export default function ScenarioTestLabPage() {
                 {runResult.findings.length > 0 && (
                   <div className="pt-2 border-t border-border space-y-2">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Emitted Engine Findings ({runResult.findings.length})
+                      {t('app.lab.emitted', { count: runResult.findings.length })}
                     </h4>
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                       {runResult.findings.map((finding, idx) => (
@@ -887,7 +827,7 @@ export default function ScenarioTestLabPage() {
                               size="sm"
                             />
                             <span className="font-mono">
-                              Artifact: {finding.evidence?.[0]?.artifactPath || 'inline'}
+                              {t('app.lab.artifact', { path: finding.evidence?.[0]?.artifactPath || t('app.lab.inline') })}
                             </span>
                           </div>
                         </div>

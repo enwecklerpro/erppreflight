@@ -10,7 +10,7 @@ import { CheckCircle2, FileText, FolderPlus, Loader2, Play, Search, ShieldAlert,
 import { TargetReleaseEnum, type ProblemRouteResponse, type Severity } from '@erppreflight/schemas';
 import { FormField, FormInput, FormSelect, FormTextarea } from '@/components/form';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
-import { useT } from '@/i18n/client';
+import { useLabel, useT } from '@/i18n/client';
 import { createProject, fetchProjects, fetchProjectFiles, type ProjectRecord } from '@/lib/api-client';
 import {
   fetchAnalysisFindings,
@@ -65,6 +65,7 @@ export default function AnalyzeRoute() {
 
 function AnalyzePage() {
   const t = useT();
+  const domainLabel = useLabel();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [route, setRoute] = React.useState<ProblemRouteResponse | null>(null);
@@ -456,7 +457,7 @@ function AnalyzePage() {
                       />
                       <span>
                         <span className="block font-semibold text-foreground">{e.engineName}</span>
-                        <span className="block text-[10px] text-muted-foreground">{e.domain}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
+                        <span className="block text-[10px] text-muted-foreground">{domainLabel('app.workspace.engineDomains', e.domain)}{e.acceptedFormats.length ? ` · ${e.acceptedFormats.join(', ')}` : ''}</span>
                       </span>
                     </label>
                   );

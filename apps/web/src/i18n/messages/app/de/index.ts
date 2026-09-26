@@ -32,6 +32,10 @@ import { status, demo, changelog, trust, procurement, feedback, onboarding } fro
 import { objects } from './objects';
 import { changesets } from './changesets';
 import { traceability } from './traceability';
+import { integrations } from './integrations';
+import { findings } from './findings';
+import { lab } from './lab';
+import { workspace } from './workspace';
 
 export const appDe: AppMessages = {
   ui,
@@ -73,4 +77,8 @@ export const appDe: AppMessages = {
   objects,
   changesets,
   traceability,
+  integrations,
+  findings,
+  workspace,
+  lab,
 };

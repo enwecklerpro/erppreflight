@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useT } from '@/i18n/client';
+import { useErrorText, useFmt, useT } from '@/i18n/client';
 import {
   AlertTriangle,
   Ban,
@@ -44,36 +44,44 @@ export function StatusBadge({ tone, icon: Icon, label, title }: { tone: Tone; ic
 }
 
 export function HealthBadge({ status }: { status: string }) {
+  const t = useT();
   switch (status) {
     case 'HEALTHY':
-      return <StatusBadge tone="ok" icon={CheckCircle2} label="Healthy" />;
+      return <StatusBadge tone="ok" icon={CheckCircle2} label={t('app.integrations.health.HEALTHY')} />;
     case 'DEGRADED':
-      return <StatusBadge tone="warn" icon={AlertTriangle} label="Degraded" />;
+      return <StatusBadge tone="warn" icon={AlertTriangle} label={t('app.integrations.health.DEGRADED')} />;
     case 'UNHEALTHY':
-      return <StatusBadge tone="bad" icon={XCircle} label="Unhealthy" />;
+      return <StatusBadge tone="bad" icon={XCircle} label={t('app.integrations.health.UNHEALTHY')} />;
     default:
-      return <StatusBadge tone="neutral" icon={HelpCircle} label="Not checked" />;
+      return <StatusBadge tone="neutral" icon={HelpCircle} label={t('app.integrations.health.UNKNOWN')} />;
   }
 }
 
 export function CircuitBadge({ state }: { state: string }) {
-  if (state === 'OPEN') return <StatusBadge tone="bad" icon={Ban} label="Circuit open" title="Calls are blocked after repeated failures" />;
-  if (state === 'HALF_OPEN') return <StatusBadge tone="warn" icon={CircleDashed} label="Circuit half-open" />;
-  return <StatusBadge tone="neutral" icon={Zap} label="Circuit closed" />;
+  const t = useT();
+  if (state === 'OPEN') {
+    return <StatusBadge tone="bad" icon={Ban} label={t('app.integrations.circuit.open')} title={t('app.integrations.circuit.openHint')} />;
+  }
+  if (state === 'HALF_OPEN') return <StatusBadge tone="warn" icon={CircleDashed} label={t('app.integrations.circuit.halfOpen')} />;
+  return <StatusBadge tone="neutral" icon={Zap} label={t('app.integrations.circuit.closed')} />;
 }
 
+const OUTCOMES: Record<string, [Tone, React.ElementType]> = {
+  SUCCESS: ['ok', CheckCircle2],
+  SUCCEEDED: ['ok', CheckCircle2],
+  FAILED: ['bad', XCircle],
+  DEAD: ['bad', CircleSlash],
+  BLOCKED: ['warn', Ban],
+  CONFLICT: ['warn', AlertTriangle],
+  SKIPPED: ['neutral', CircleDashed],
+  PENDING: ['info', Clock],
+};
+
 export function OutcomeBadge({ outcome }: { outcome: string }) {
-  const map: Record<string, [Tone, React.ElementType, string]> = {
-    SUCCESS: ['ok', CheckCircle2, 'Success'],
-    SUCCEEDED: ['ok', CheckCircle2, 'Delivered'],
-    FAILED: ['bad', XCircle, 'Failed'],
-    DEAD: ['bad', CircleSlash, 'Gave up'],
-    BLOCKED: ['warn', Ban, 'Blocked'],
-    CONFLICT: ['warn', AlertTriangle, 'Conflict'],
-    SKIPPED: ['neutral', CircleDashed, 'Skipped'],
-    PENDING: ['info', Clock, 'Pending'],
-  };
-  const [tone, icon, label] = map[outcome] ?? ['neutral', HelpCircle, outcome];
+  const t = useT();
+  const known = OUTCOMES[outcome];
+  const [tone, icon] = known ?? ['neutral', HelpCircle];
+  const label = known ? t(`app.integrations.outcome.${outcome as 'SUCCESS'}`) : outcome;
   return <StatusBadge tone={tone} icon={icon} label={label} />;
 }
 
@@ -117,24 +125,42 @@ export function PanelLoading({ rows = 3, label }: { rows?: number; label: string
   );
 }
 
+/** Raw (untranslated) server message; components use `useIntegrationText().errorText` for display. */
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
-  return 'Unexpected error';
+  return '';
+}
+
+/** Locale-aware helpers shared by the integration panels (dates, relative times, API errors). */
+export function useIntegrationText() {
+  const t = useT();
+  const fmt = useFmt();
+  const errText = useErrorText();
+  return React.useMemo(
+    () => ({
+      t,
+      errorText: (err: unknown) => errText(err, t('app.integrations.common.unexpectedError')),
+      formatDate: (v: string | null | undefined) => fmt.dateTime(v),
+      relative: (v: string | null | undefined) => (v ? fmt.relative(v) : t('app.integrations.common.never')),
+    }),
+    [t, fmt, errText]
+  );
 }
 
 export function PanelError({ error, onRetry, what }: { error: unknown; onRetry: () => void; what: string }) {
+  const { t, errorText } = useIntegrationText();
   return (
     <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
       <div className="flex items-start gap-2 text-destructive">
         <AlertTriangle className="size-4 shrink-0 mt-0.5" aria-hidden="true" />
         <div>
-          <p className="font-semibold">Could not load {what}</p>
-          <p className="opacity-90">{errorMessage(error)}</p>
+          <p className="font-semibold">{t('app.integrations.common.couldNotLoad', { what })}</p>
+          <p className="opacity-90">{errorText(error)}</p>
         </div>
       </div>
       <Button variant="secondary" onClick={onRetry}>
-        <RefreshCw className="size-3.5" aria-hidden="true" /> Retry
+        <RefreshCw className="size-3.5" aria-hidden="true" /> {t('app.integrations.common.retry')}
       </Button>
     </div>
   );
@@ -192,6 +218,7 @@ export function ConfirmButton({
   variant?: 'danger' | 'secondary' | 'primary';
   busy?: boolean;
 }) {
+  const t = useT();
   const [armed, setArmed] = React.useState(false);
   React.useEffect(() => {
     if (!armed) return;
@@ -207,12 +234,12 @@ export function ConfirmButton({
     );
   }
   return (
-    <span className="inline-flex items-center gap-1" role="group" aria-label="Confirm action">
+    <span className="inline-flex items-center gap-1" role="group" aria-label={t('app.integrations.common.confirmAction')}>
       <Button variant={variant} onClick={() => { setArmed(false); onConfirm(); }} autoFocus>
         {confirmLabel}
       </Button>
       <Button variant="ghost" onClick={() => setArmed(false)}>
-        Cancel
+        {t('app.integrations.common.cancel')}
       </Button>
     </span>
   );
@@ -220,11 +247,12 @@ export function ConfirmButton({
 
 /** Displays a secret exactly once with a copy button. */
 export function OneTimeSecret({ label, value, onDismiss }: { label: string; value: string; onDismiss: () => void }) {
+  const t = useT();
   const [copied, setCopied] = React.useState(false);
   return (
     <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs space-y-2">
       <p className="font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-        <ShieldAlert className="size-3.5" aria-hidden="true" /> {label} — shown only once. Store it securely now.
+        <ShieldAlert className="size-3.5" aria-hidden="true" /> {t('app.integrations.common.oneTimeSecret', { label })}
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 break-all rounded bg-background border border-border px-2 py-1 font-mono text-[11px]">{value}</code>
@@ -234,30 +262,15 @@ export function OneTimeSecret({ label, value, onDismiss }: { label: string; valu
             navigator.clipboard?.writeText(value).catch(() => undefined);
             setCopied(true);
           }}
-          aria-label="Copy to clipboard"
+          aria-label={t('app.integrations.common.copyToClipboard')}
         >
           {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? t('app.integrations.common.copied') : t('app.integrations.common.copy')}
         </Button>
         <Button variant="ghost" onClick={onDismiss}>
-          Done
+          {t('app.integrations.common.done')}
         </Button>
       </div>
     </div>
   );
-}
-
-export function formatDate(v: string | null | undefined): string {
-  if (!v) return '—';
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
-}
-
-export function relative(v: string | null | undefined): string {
-  if (!v) return 'never';
-  const s = Math.round((Date.now() - new Date(v).getTime()) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
 }

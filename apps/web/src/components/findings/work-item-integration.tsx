@@ -11,7 +11,7 @@ import {
   fetchWorkItems,
   previewWorkItem,
 } from '@/lib/api/integrations';
-import { Button, PanelError, RemediationBadge, errorMessage } from '@/components/integrations/ui';
+import { Button, PanelError, RemediationBadge, useIntegrationText } from '@/components/integrations/ui';
 import { connectorKeys } from '@/components/integrations/connectors-panel';
 import { workItemKeys } from '@/components/integrations/work-items-panel';
 
@@ -23,6 +23,7 @@ const WORK_ITEM_TYPES = new Set(['SAP_CLOUD_ALM', 'JIRA', 'AZURE_DEVOPS', 'SERVI
  * confirmation and a connector with write access. Nothing is simulated.
  */
 export function WorkItemIntegration({ findingId }: { findingId: string }) {
+  const { t, errorText } = useIntegrationText();
   const qc = useQueryClient();
   const connectors = useQuery({ queryKey: connectorKeys.all, queryFn: fetchConnectors });
   const linked = useQuery({ queryKey: workItemKeys.forFinding(findingId), queryFn: () => fetchWorkItems({ findingId }) });
@@ -48,10 +49,10 @@ export function WorkItemIntegration({ findingId }: { findingId: string }) {
   });
 
   if (connectors.isLoading || linked.isLoading) {
-    return <div role="status" aria-label="Loading work item connectors" className="h-8 rounded bg-muted/60 dark:bg-muted-dark/60 motion-safe:animate-pulse" />;
+    return <div role="status" aria-label={t('app.findings.workItem.loading')} className="h-8 rounded bg-muted/60 dark:bg-muted-dark/60 motion-safe:animate-pulse" />;
   }
   if (connectors.isError || linked.isError) {
-    return <PanelError error={connectors.error ?? linked.error} onRetry={() => { connectors.refetch(); linked.refetch(); }} what="work item connectors" />;
+    return <PanelError error={connectors.error ?? linked.error} onRetry={() => { connectors.refetch(); linked.refetch(); }} what={t('app.findings.workItem.what')} />;
   }
 
   const alreadyLinked = new Set((linked.data ?? []).map((w) => w.connectorId));
@@ -59,13 +60,13 @@ export function WorkItemIntegration({ findingId }: { findingId: string }) {
   return (
     <div className="space-y-2">
       {(linked.data ?? []).length > 0 && (
-        <ul className="space-y-1" aria-label="Linked work items">
+        <ul className="space-y-1" aria-label={t('app.findings.workItem.linked')}>
           {linked.data!.map((w) => (
             <li key={w.id} className="flex flex-wrap items-center gap-2 text-[11px]">
               {w.externalUrl ? (
                 <a href={w.externalUrl} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 font-mono text-primary hover:underline">
                   {w.externalKey ?? w.externalId} <ExternalLink className="size-3" aria-hidden="true" />
-                  <span className="sr-only">(opens in new tab)</span>
+                  <span className="sr-only">{t('app.integrations.common.opensInNewTab')}</span>
                 </a>
               ) : (
                 <span className="font-mono">{w.externalKey ?? w.externalId}</span>
@@ -78,15 +79,14 @@ export function WorkItemIntegration({ findingId }: { findingId: string }) {
       )}
       {candidates.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
-          No work item connector is configured.{' '}
+          {t('app.findings.workItem.noConnector')}{' '}
           <Link href="/integrations?tab=connectors" className="text-primary hover:underline">
-            Connect SAP Cloud ALM, Jira, Azure DevOps or ServiceNow
+            {t('app.findings.workItem.connectLink')}
           </Link>
-          .
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor={`wi-connector-${findingId}`} className="sr-only">Target work management system</label>
+          <label htmlFor={`wi-connector-${findingId}`} className="sr-only">{t('app.findings.workItem.targetSystem')}</label>
           <select
             id={`wi-connector-${findingId}`}
             value={selected?.id ?? ''}
@@ -99,18 +99,21 @@ export function WorkItemIntegration({ findingId }: { findingId: string }) {
             {candidates.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
-                {alreadyLinked.has(c.id) ? ' (linked)' : ''}
+                {alreadyLinked.has(c.id) ? t('app.findings.workItem.linkedSuffix') : ''}
               </option>
             ))}
           </select>
           {selected && selected.accessMode === 'READ_ONLY' ? (
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-              <Lock className="size-3" aria-hidden="true" /> Read-only connector —{' '}
-              <Link href="/integrations?tab=connectors" className="text-primary hover:underline">allow writes</Link> to create items
+              <Lock className="size-3" aria-hidden="true" /> {t('app.findings.workItem.readOnly')}{' '}
+              <Link href="/integrations?tab=connectors" className="text-primary hover:underline">
+                {t('app.findings.workItem.allowWrites')}
+              </Link>
+              {t('app.findings.workItem.toCreate')}
             </span>
           ) : selected && !alreadyLinked.has(selected.id) ? (
             <Button variant="secondary" onClick={() => doPreview.mutate()} busy={doPreview.isPending}>
-              <Eye className="size-3" aria-hidden="true" /> Preview work item
+              <Eye className="size-3" aria-hidden="true" /> {t('app.findings.workItem.preview')}
             </Button>
           ) : null}
         </div>
@@ -119,19 +122,19 @@ export function WorkItemIntegration({ findingId }: { findingId: string }) {
         <div className="rounded-md border border-border bg-background p-2 space-y-2">
           <p className="text-[11px] font-semibold">
             {preview.preview.title}
-            <span className="font-normal text-muted-foreground"> → {preview.connector.name}{preview.preview.externalProjectId ? ` (project ${preview.preview.externalProjectId})` : ''}</span>
+            <span className="font-normal text-muted-foreground"> → {preview.connector.name}{preview.preview.externalProjectId ? t('app.findings.workItem.projectSuffix', { project: preview.preview.externalProjectId }) : ''}</span>
           </p>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{preview.preview.body}</pre>
           <div className="flex gap-2">
             <Button onClick={() => create.mutate()} busy={create.isPending}>
-              <Send className="size-3" aria-hidden="true" /> Create work item in {preview.connector.name}
+              <Send className="size-3" aria-hidden="true" /> {t('app.findings.workItem.create', { connector: preview.connector.name })}
             </Button>
-            <Button variant="ghost" onClick={() => setPreview(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setPreview(null)}>{t('app.integrations.common.cancel')}</Button>
           </div>
         </div>
       )}
       {(doPreview.isError || create.isError) && (
-        <p role="alert" className="text-[11px] text-destructive">{errorMessage(doPreview.error ?? create.error)}</p>
+        <p role="alert" className="text-[11px] text-destructive">{errorText(doPreview.error ?? create.error)}</p>
       )}
     </div>
   );

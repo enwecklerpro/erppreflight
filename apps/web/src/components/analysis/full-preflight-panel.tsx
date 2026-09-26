@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, GitMerge, Layers, Loader2, PlayCircle, Rocket } from 'lucide-react';
 import type { Severity } from '@erppreflight/schemas';
-import { useT } from '@/i18n/client';
+import { useFmt, useT } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/translate';
 import {
   fetchAnalysisFindings,
@@ -135,19 +135,20 @@ function Stat({ label, value, testId }: { label: string; value: React.ReactNode;
 
 export function FullPreflightSummary({ view, projectId }: { view: OrchestrationView; projectId: string }) {
   const t = useT();
+  const fmt = useFmt();
   const s = view.summary;
-  const created = new Date(view.analysis.createdAt);
+  const created = fmt.dateTime(view.analysis.createdAt);
   if (!s) {
     return (
       <p className="text-xs text-muted-foreground" role="status">
-        {t('fullPreflight.lastRun', { date: created.toLocaleString(), status: view.analysis.status })}
+        {t('fullPreflight.lastRun', { date: created, status: view.analysis.status })}
       </p>
     );
   }
   return (
     <div className="space-y-5" data-testid="full-preflight-summary">
       <p className="text-xs text-muted-foreground">
-        {t('fullPreflight.lastRun', { date: created.toLocaleString(), status: view.analysis.status })}
+        {t('fullPreflight.lastRun', { date: created, status: view.analysis.status })}
       </p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Stat label={t('fullPreflight.artifactsAnalyzed')} value={s.totals.artifactsAnalyzed} testId="fpp-artifacts" />
@@ -157,7 +158,7 @@ export function FullPreflightSummary({ view, projectId }: { view: OrchestrationV
         <Stat label={t('fullPreflight.checksFailed')} value={s.totals.checksFailed} />
         <Stat label={t('fullPreflight.rulesEvaluated')} value={s.totals.rulesEvaluated} />
       </div>
-      <div className="flex flex-wrap gap-2" aria-label="severity">
+      <div className="flex flex-wrap gap-2" aria-label={t('app.findings.columns.severity')}>
         {SEVERITY_ORDER.filter((sev) => (s.bySeverity[sev] ?? 0) > 0).map((sev) => (
           <span key={sev} className="inline-flex items-center gap-1 text-xs">
             <SeverityBadge severity={sev} size="sm" /> <span className="font-semibold">{s.bySeverity[sev]}</span>
