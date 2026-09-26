@@ -1,0 +1,11 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "POST",
+    "url": "/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder",
+    "headers": {
+      "x-csrf-token": "Required"
+    },
+    "body": "CSRF token validation failed"
+  }
+}

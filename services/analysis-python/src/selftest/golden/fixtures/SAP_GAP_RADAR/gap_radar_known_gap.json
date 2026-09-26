@@ -1,0 +1,9 @@
+{
+  "requirement_id": "REQ-TRM-789",
+  "title": "Physical Commodity Hedging Multi-Currency Settlement",
+  "requirement": "Automated physical commodity futures settlement known product gap on public cloud roadmap",
+  "description": "Automated physical commodity futures settlement known product gap on public cloud roadmap",
+  "target_edition": "Public",
+  "target_release": "2408",
+  "module": "TRM"
+}

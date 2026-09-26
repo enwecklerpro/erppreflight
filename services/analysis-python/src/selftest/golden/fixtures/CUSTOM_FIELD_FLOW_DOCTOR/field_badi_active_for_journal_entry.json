@@ -1,0 +1,22 @@
+{
+  "field_name": "YY1_PROJECT_CODE",
+  "hops": [
+    {
+      "source_context": "MM_SUPPLIER_INVOICE_ITEM",
+      "target_context": "FI_JOURNAL_ENTRY_ITEM"
+    }
+  ],
+  "field_definitions": {
+    "MM_SUPPLIER_INVOICE_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    },
+    "FI_JOURNAL_ENTRY_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    }
+  },
+  "active_badis": [
+    "BADI_FINS_ACDOC_EXT_PERSISTENCE"
+  ]
+}

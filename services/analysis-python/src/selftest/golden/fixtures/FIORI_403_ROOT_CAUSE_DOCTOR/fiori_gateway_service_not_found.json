@@ -1,0 +1,14 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "GET",
+    "url": "/sap/opu/odata/sap/ZC_ORDERS_SRV/$metadata"
+  },
+  "iwfnd_error_log": [
+    {
+      "error_code": "/IWFND/CM_MGW/020 NO_SYSTEM_ALIAS",
+      "message": "No system alias found for service ZC_ORDERS_SRV",
+      "service_name": "ZC_ORDERS_SRV"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "description": "Software collection referencing an unexported custom CDS view not present in export or target system",
+  "export_id": "EXP_2026_09_MISSING",
+  "target_release": "S4HC_2408",
+  "collections": [
+    {
+      "collection_id": "SC_ANALYTICS",
+      "name": "Analytics Reporting Collection",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_ANALYTICS_QUERY",
+          "item_type": "CDS_VIEW",
+          "status": "PUBLISHED",
+          "dependencies": [
+            "SC_INVENTORY:YY1_CDS_ORDER_DETAIL"
+          ]
+        }
+      ]
+    }
+  ],
+  "target_system_collections": [
+    "SC_BASE_DATA"
+  ],
+  "target_system_items": []
+}

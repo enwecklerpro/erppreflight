@@ -1,0 +1,20 @@
+{
+  "target_release": "S4HC_2408",
+  "target_country": "US",
+  "activities": [
+    {
+      "activity_id": "ZIMG_CUSTOM_TAX_OVERRIDE",
+      "activity_name": "Custom Dynamic Tax Jurisdiction Engine",
+      "module": "FI",
+      "target_table": "ZTTAX_RULES",
+      "country_code": "US"
+    },
+    {
+      "activity_id": "SIMG_IT_ASSET_DEPRECIATION_CALC",
+      "activity_name": "Italian Local Statutory Depreciation Method",
+      "module": "FI",
+      "target_table": "T090NA",
+      "country_code": "IT"
+    }
+  ]
+}

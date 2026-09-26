@@ -1,0 +1,44 @@
+{
+  "project_id": "proj-demo-domain1",
+  "extensions": [
+    {
+      "object_name": "YY1_PROJECT_CODE",
+      "object_type": "CUSTOM_FIELD",
+      "business_context": "MM_PURCHASE_ORDER_ITEM",
+      "status": "ACTIVE"
+    },
+    {
+      "object_name": "YY1_UNUSED_OBSOLETE_FIELD",
+      "object_type": "CUSTOM_FIELD",
+      "business_context": "SD_SALES_ORDER_ITEM",
+      "status": "INACTIVE"
+    },
+    {
+      "object_name": "CDS_PURCHASE_ORDERS",
+      "object_type": "CDS_VIEW",
+      "status": "ACTIVE"
+    },
+    {
+      "object_name": "FORM_PURCHASE_ORDER",
+      "object_type": "FORM_TEMPLATE",
+      "status": "ACTIVE"
+    },
+    {
+      "object_name": "API_PURCHASING_ANALYTICS",
+      "object_type": "ODATA_API",
+      "status": "ACTIVE"
+    }
+  ],
+  "dependencies": {
+    "YY1_PROJECT_CODE": [
+      "CDS_PURCHASE_ORDERS",
+      "FORM_PURCHASE_ORDER"
+    ],
+    "CDS_PURCHASE_ORDERS": [
+      "API_PURCHASING_ANALYTICS"
+    ],
+    "FORM_PURCHASE_ORDER": [],
+    "API_PURCHASING_ANALYTICS": [],
+    "YY1_UNUSED_OBSOLETE_FIELD": []
+  }
+}

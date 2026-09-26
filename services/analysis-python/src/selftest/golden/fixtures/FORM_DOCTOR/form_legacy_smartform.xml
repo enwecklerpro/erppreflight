@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SMARTFORM name="/1BCDWB/SF00000042">
+    <HEADER>
+        <FORMNAME>Z_PURCHASE_ORDER_LEGACY</FORMNAME>
+        <DEVCLASS>Z_MM_FORMS</DEVCLASS>
+        <ORIGLANG>D</ORIGLANG>
+    </HEADER>
+    <PAGES>
+        <PAGE name="FIRST">
+            <WINDOWS>
+                <WINDOW name="MAIN" type="MAIN">
+                    <TEXT>
+                        <T_LINES>
+                            <LINE>/E ITEM_LINE</LINE>
+                            <LINE>* Material: &amp;EKPO-MATNR&amp;</LINE>
+                            <LINE>* Quantity: &amp;EKPO-MENGE&amp; &amp;EKPO-MEINS&amp;</LINE>
+                        </T_LINES>
+                    </TEXT>
+                </WINDOW>
+                <WINDOW name="HEADER_LOGO" type="GRAPHIC"/>
+            </WINDOWS>
+        </PAGE>
+    </PAGES>
+</SMARTFORM>

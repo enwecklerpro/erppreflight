@@ -1,0 +1,24 @@
+{
+  "system_id": "PRD_ECC60",
+  "target_release": "S4HC_2408",
+  "objects": [
+    {
+      "name": "BAPI_MATERIAL_SAVEDATA",
+      "type": "BAPI",
+      "executions": 85000,
+      "caller_systems": ["MES_FACTORY_1", "PLM_TEAMCENTER"]
+    },
+    {
+      "name": "ORDERS05",
+      "type": "IDOC",
+      "executions": 120000,
+      "direction": "INBOUND"
+    },
+    {
+      "name": "RFC_READ_TABLE",
+      "type": "RFC",
+      "executions": 14000,
+      "is_custom": false
+    }
+  ]
+}

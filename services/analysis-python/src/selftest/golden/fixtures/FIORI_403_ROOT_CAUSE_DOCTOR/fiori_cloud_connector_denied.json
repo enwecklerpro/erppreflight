@@ -1,0 +1,14 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "GET",
+    "url": "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
+  },
+  "cloud_connector_logs": [
+    {
+      "resource_path": "/sap/opu/odata/sap/API_PRODUCT_SRV",
+      "status": "DENIED",
+      "reason": "Resource not exposed in access control"
+    }
+  ]
+}

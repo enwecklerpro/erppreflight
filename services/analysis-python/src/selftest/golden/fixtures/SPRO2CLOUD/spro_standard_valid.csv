@@ -1,0 +1,5 @@
+ActivityID,ActivityName,Module,TargetTable,CountryCode
+SIMG_CFMENUOLSDVOFA,Define Billing Types,SD,TVFK,DE
+SIMG_CFMENUOLSDVOV8,Define Sales Document Types,SD,TVAK,DE
+SIMG_CFMENUOLMEOMH5,Define Purchasing Document Types,MM,T161,DE
+SIMG_CFMENUORKSOKP3,Define Settlement Profiles,CO,TKO08,DE

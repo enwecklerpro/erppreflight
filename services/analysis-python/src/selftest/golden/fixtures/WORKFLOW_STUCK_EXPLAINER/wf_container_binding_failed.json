@@ -1,0 +1,31 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000045012",
+      "wi_type": "W",
+      "wi_stat": "READY",
+      "wi_rh_task": "TS00008267"
+    }
+  ],
+  "agent_traces": [
+    {
+      "wi_id": "0000045012",
+      "resolved_agents": [
+        "USER_MGR_01"
+      ],
+      "resolved_count": 1
+    }
+  ],
+  "logs": [],
+  "containers": [
+    {
+      "wi_id": "0000045012",
+      "elements": {
+        "PurchaseOrder": ""
+      },
+      "binding_errors": [
+        "Element PURCHASEORDER is initial"
+      ]
+    }
+  ]
+}

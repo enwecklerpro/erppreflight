@@ -1,0 +1,15 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "GET",
+    "url": "/sap/bc/srt/rfc/sap/zws_invoice"
+  },
+  "ucon_rules": [
+    {
+      "service_name": "ZWS_INVOICE",
+      "scenario_id": "ZCS_INVOICE",
+      "is_blocked": true,
+      "reason": "Not in communication assembly"
+    }
+  ]
+}

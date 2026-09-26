@@ -1,0 +1,49 @@
+{
+  "description": "Sequence inversion where older transport version is scheduled to import after newer version",
+  "transports": {
+    "DEVK900050": [
+      "PROG ZPAYMENT_RUN"
+    ],
+    "DEVK900060": [
+      "PROG ZPAYMENT_RUN"
+    ]
+  },
+  "e070": [
+    {
+      "trkorr": "DEVK900050",
+      "trfunction": "K",
+      "trstatus": "R",
+      "as4user": "DEV1",
+      "as4date": "20260901",
+      "as4time": "100000",
+      "timestamp": "20260901100000"
+    },
+    {
+      "trkorr": "DEVK900060",
+      "trfunction": "K",
+      "trstatus": "R",
+      "as4user": "DEV2",
+      "as4date": "20260915",
+      "as4time": "140000",
+      "timestamp": "20260915140000"
+    }
+  ],
+  "e071": [
+    {
+      "trkorr": "DEVK900050",
+      "pgmid": "R3TR",
+      "object": "PROG",
+      "obj_name": "ZPAYMENT_RUN"
+    },
+    {
+      "trkorr": "DEVK900060",
+      "pgmid": "R3TR",
+      "object": "PROG",
+      "obj_name": "ZPAYMENT_RUN"
+    }
+  ],
+  "planned_sequence": [
+    "DEVK900060",
+    "DEVK900050"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "description": "Mutually dependent software collections forming a direct directed cycle (SC_FINANCE <-> SC_SALES)",
+  "export_id": "EXP_2026_09_CIRCULAR",
+  "target_release": "S4HC_2408",
+  "collections": [
+    {
+      "collection_id": "SC_FINANCE",
+      "name": "Finance Key User Extensions",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_CDS_JOURNAL_EXT",
+          "item_type": "CDS_VIEW",
+          "status": "PUBLISHED",
+          "dependencies": [
+            "SC_SALES:YY1_SALES_DOC_FIELD"
+          ]
+        }
+      ]
+    },
+    {
+      "collection_id": "SC_SALES",
+      "name": "Sales Key User Extensions",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_SALES_DOC_FIELD",
+          "item_type": "CUSTOM_FIELD",
+          "status": "PUBLISHED",
+          "dependencies": []
+        },
+        {
+          "item_id": "APP_VAR_SO_MANAGE",
+          "item_type": "APP_VARIANT",
+          "status": "PUBLISHED",
+          "dependencies": [
+            "SC_FINANCE:YY1_CDS_JOURNAL_EXT"
+          ]
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "SC_FINANCE": [
+      "SC_SALES"
+    ],
+    "SC_SALES": [
+      "SC_FINANCE"
+    ]
+  }
+}

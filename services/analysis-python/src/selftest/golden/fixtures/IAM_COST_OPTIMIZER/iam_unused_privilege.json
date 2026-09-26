@@ -1,0 +1,59 @@
+{
+  "roles": [
+    {
+      "role_name": "Z_MM_BUYER_RESTRICTED",
+      "description": "Standard Operational Purchasing Role",
+      "catalogs": [
+        "SAP_MM_BC_PO_PROC"
+      ],
+      "assigned_users": [
+        "BUYER_01",
+        "BUYER_02"
+      ],
+      "authorizations": [
+        {
+          "object": "S_TABU_DIS",
+          "field": "ACTVT",
+          "value": "02"
+        }
+      ]
+    }
+  ],
+  "catalogs": [
+    {
+      "catalog_id": "SAP_MM_BC_PO_PROC",
+      "catalog_name": "Purchasing Operational Processing",
+      "apps": [
+        "ME51N",
+        "ME21N"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "user_id": "BUYER_01",
+      "assigned_roles": [
+        "Z_MM_BUYER_RESTRICTED"
+      ]
+    },
+    {
+      "user_id": "BUYER_02",
+      "assigned_roles": [
+        "Z_MM_BUYER_RESTRICTED"
+      ]
+    }
+  ],
+  "price_categories": {},
+  "usage_records": [
+    {
+      "user_id": "BUYER_01",
+      "app_id": "ME21N",
+      "execution_count": 140
+    },
+    {
+      "user_id": "BUYER_02",
+      "app_id": "ME51N",
+      "execution_count": 85
+    }
+  ]
+}

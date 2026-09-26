@@ -1,0 +1,15 @@
+{
+  "http_response": {
+    "status_code": 403,
+    "method": "GET",
+    "url": "/sap/opu/odata/sap/C_SALESORDER_CDS/$metadata"
+  },
+  "icf_services": [
+    {
+      "service_path": "/sap/opu/odata/sap/C_SALESORDER_CDS",
+      "is_active": false
+    }
+  ],
+  "su53_traces": [],
+  "ucon_rules": []
+}

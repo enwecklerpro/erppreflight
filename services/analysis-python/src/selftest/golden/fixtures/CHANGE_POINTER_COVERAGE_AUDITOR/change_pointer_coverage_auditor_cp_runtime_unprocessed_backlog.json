@@ -1,0 +1,1 @@
+{"message_type": "MATMAS", "target_message_type": "MATMAS", "bd61_active": true, "bd50_msg_types": ["MATMAS"], "bd52_fields": [["MARA", "MATKL"]], "expected_fields": [["MARA", "MATKL"]], "bdcp2_samples": [{"message_type": "MATMAS", "table": "MARA", "field": "MATKL", "process_status": " ", "count": 250}]}
