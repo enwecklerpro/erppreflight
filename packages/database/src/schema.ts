@@ -7,6 +7,7 @@ import * as eventsSchemas from './schema/events';
 import * as accountSchemas from './schema/account';
 import * as knowledgeSchemas from './schema/knowledge';
 import * as knowledgeArticleSchemas from './schema/knowledge-articles';
+import * as orchestrationSchemas from './schema/orchestration';
 import * as findingLifecycleSchemas from './schema/finding-lifecycle';
 
 export const schema = {
@@ -19,6 +20,7 @@ export const schema = {
   ...accountSchemas,
   ...knowledgeSchemas,
   ...knowledgeArticleSchemas,
+  ...orchestrationSchemas,
   ...findingLifecycleSchemas,
 };
 
@@ -32,6 +34,7 @@ export * from './schema/events';
 export * from './schema/account';
 export * from './schema/knowledge';
 export * from './schema/knowledge-articles';
+export * from './schema/orchestration';
 export * from './schema/finding-lifecycle';
 
 // Export types for core

@@ -25,6 +25,7 @@
     "smoke:commercial": "python3 scripts/e2e-commercial-smoke.py",
     "smoke:commercial-ui": "node scripts/e2e-commercial-ui.cjs",
     "smoke:account-ui": "node scripts/e2e-account-ui-smoke.cjs",
+    "smoke:analyze": "node scripts/e2e-analyze-smoke.cjs",
     "smoke:findings": "node scripts/e2e-findings-smoke.cjs"
   },
   "devDependencies": {

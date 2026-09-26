@@ -26,6 +26,8 @@ export const LOCALIZED_PUBLIC_PREFIXES = ['/solutions', '/knowledge', '/legal'] 
 export const AUTH_REQUIRED_PREFIXES = [
   '/dashboard',
   '/projects',
+  '/analyze',
+  '/reports',
   '/inspector',
   '/templates',
   '/artifacts',

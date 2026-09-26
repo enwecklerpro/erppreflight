@@ -1,4 +1,5 @@
 import { CANONICAL_ENGINES } from '../../lib/api-client';
+import { analyzeEn } from './analyze.en';
 import { findingLifecycleEn } from './finding-lifecycle.en';
 
 /**
@@ -46,6 +47,7 @@ export const en = {
     settings: 'Settings',
     admin: 'Admin',
     analyze: 'Analyze',
+    reports: 'Reports',
     billing: 'Billing',
     audit: 'Audit log',
     retention: 'Data retention',
@@ -528,6 +530,7 @@ export const en = {
     home: 'Go to the homepage',
     knowledge: 'Browse the knowledge base',
   },
+  ...analyzeEn,
   findingLifecycle: findingLifecycleEn,
 };
 

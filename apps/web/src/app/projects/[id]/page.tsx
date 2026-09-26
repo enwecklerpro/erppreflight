@@ -51,6 +51,10 @@ import { queryKeys } from '../../../lib/query/query-keys';
 import { SapNativeArtifactCenter } from '@/components/sap-native-artifact-center';
 import { WhatIfSimulationPanel } from '@/components/changesets/what-if-simulation-panel';
 import { ReportExportPanel } from '@/components/commercial/report-export-panel';
+import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress-stepper';
+import { FullPreflightPanel } from '@/components/analysis/full-preflight-panel';
+import { ProjectTabLabel, RunFullPreflightLabel, RunProgressDisclosure } from '@/components/analysis/project-workspace-extras';
+import { ProjectContextForm } from '@/components/projects/project-context-form';
 
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
 
@@ -60,7 +64,7 @@ export default function ProjectWorkspacePage() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher'
+    'overview' | 'findings' | 'objects' | 'sap-native' | 'simulation' | 'artifacts' | 'history' | 'launcher' | 'preflight' | 'context'
   >('overview');
   const [selectedEngines, setSelectedEngines] = useState<string[]>([
     'OPD_GUARD',
@@ -403,6 +407,15 @@ export default function ProjectWorkspacePage() {
               Support Bundle
             </button>
             <button
+              type="button"
+              onClick={() => setActiveTab('preflight')}
+              data-testid="open-full-preflight"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-card border border-primary text-primary text-xs font-semibold rounded-lg hover:bg-muted transition-colors"
+            >
+              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+              <RunFullPreflightLabel />
+            </button>
+            <button
               onClick={() => setActiveTab('launcher')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
             >
@@ -423,6 +436,8 @@ export default function ProjectWorkspacePage() {
             { id: 'artifacts', label: 'Artifact Dropzone', icon: UploadCloud },
             { id: 'history', label: 'Run History', icon: History },
             { id: 'launcher', label: 'Analysis Launcher', icon: Play },
+            { id: 'preflight', label: <ProjectTabLabel tab="preflight" />, icon: FlaskConical },
+            { id: 'context', label: <ProjectTabLabel tab="context" />, icon: GitBranch },
           ].map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -430,6 +445,7 @@ export default function ProjectWorkspacePage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
+                data-testid={`tab-${tab.id}`}
                 className={`pb-3 flex items-center gap-2 font-semibold border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? 'border-primary text-primary'
@@ -1162,6 +1178,7 @@ export default function ProjectWorkspacePage() {
                     <ReportExportPanel projectId={projectId} analysisId={run.id} />
                   </div>
                 )}
+                <RunProgressDisclosure analysisId={run.id} />
                 </div>
               ))}
             </div>
@@ -1243,6 +1260,8 @@ export default function ProjectWorkspacePage() {
               )}
             </div>
           )}
+
+          {activeAnalysisId && <AnalysisProgressStepper analysisId={activeAnalysisId} />}
 
           <fieldset>
             <legend className="text-xs font-bold text-foreground">
@@ -1395,6 +1414,11 @@ export default function ProjectWorkspacePage() {
           </div>
         </div>
       )}
+      {/* Tab: Full Project Preflight (Part 01 §1.6) */}
+      {activeTab === 'preflight' && <FullPreflightPanel projectId={projectId} />}
+
+      {/* Tab: Project mode context (Part 01 §1.5) */}
+      {activeTab === 'context' && <ProjectContextForm key={project.updatedAt ?? project.id} project={project} />}
     </div>
   );
 }

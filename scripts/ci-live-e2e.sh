@@ -202,6 +202,10 @@ LIVE=${PIPESTATUS[0]}
 log "running UI smoke (scripts/e2e-ui-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" node scripts/e2e-ui-smoke.cjs "$ART/screenshots" 2>&1 | tee "$ART/smoke-ui.log"
 UI=${PIPESTATUS[0]}
+log "running Analyze / Full Preflight / reports hub smoke (scripts/e2e-analyze-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
+  node scripts/e2e-analyze-smoke.cjs "$ART/screenshots-analyze" 2>&1 | tee "$ART/smoke-analyze.log"
+ANALYZE=${PIPESTATUS[0]}
 log "running finding lifecycle + Test Lab smoke (scripts/e2e-findings-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
   node scripts/e2e-findings-smoke.cjs "$ART/screenshots-findings" 2>&1 | tee "$ART/smoke-findings.log"
@@ -221,8 +225,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI findings-smoke exit=$FINDINGS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up

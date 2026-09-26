@@ -18,6 +18,7 @@ import { ExportModule } from './modules/export/export.module';
 import { EnginesModule } from './modules/engines/engines.module';
 import { FindingsModule } from './modules/findings/findings.module';
 import { AnalysesModule } from './modules/analyses/analyses.module';
+import { ProblemRouterModule } from './modules/router/router.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -80,6 +81,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     EnginesModule,
     FindingsModule,
     AnalysesModule,
+    ProblemRouterModule,
     DashboardModule,
     OrganizationsModule,
     AdminModule,

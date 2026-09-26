@@ -17,6 +17,11 @@ import {
   RELEASED_OBJECTS_CONFIG_KEY,
   ReleasedObjectsConfiguration,
 } from '../knowledge-graph/released-objects.provider';
+import { AnalysisProgressTracker } from './analysis-progress';
+import { correlate, type EngineCallRecord, type PreflightSummary } from './orchestration/correlation';
+import { buildRegressionTests, REGRESSION_TEST_VERSION, type TestSourceFinding } from './orchestration/regression-tests';
+
+export type { EngineCallRecord, PreflightSummary };
 import {
   FindingLifecycleReconciler,
   LifecycleRunContext,
@@ -51,6 +56,23 @@ export interface AnalysisRunInput {
   legacyRawContent?: string | null;
   legacyArtifactS3Key?: string | null;
   legacyArtifactType?: ArtifactType;
+  /**
+   * Orchestrated runs (Full Project Preflight / planned launches): explicit
+   * engine -> artifact assignments, optionally with companion artifacts injected
+   * into the engine configuration (e.g. FormDoctor `xdp_content`). When absent,
+   * every engine runs on every artifact (original behaviour).
+   */
+  assignments?: EngineAssignmentInput[];
+  /** Dependency stages; engines inside one stage run in parallel (bounded by `concurrency`). */
+  stages?: EngineType[][];
+  concurrency?: number;
+  kind?: 'STANDARD' | 'FULL_PREFLIGHT';
+}
+
+export interface EngineAssignmentInput {
+  engine: EngineType;
+  fileId: string;
+  companions?: Array<{ fileId: string; configKey: string }>;
 }
 
 export type EngineRunOutcome = 'COMPLETED' | 'PARTIAL' | 'FAILED';
@@ -59,6 +81,47 @@ export interface AnalysisRunResult {
   finalStatus: EngineRunOutcome;
   totalFindings: number;
   engineOutcomes: Record<string, EngineRunOutcome>;
+  /** Per engine x artifact call outcome (orchestration summary input). */
+  calls?: EngineCallRecord[];
+  summary?: PreflightSummary;
+  testsGenerated?: number;
+}
+
+interface WorkUnit {
+  engine: EngineType;
+  artifact: PreparedArtifact;
+  companions: Array<{ configKey: string; artifact: PreparedArtifact }>;
+}
+
+type AnalysisFindingRow = TestSourceFinding & { technicalDetails: Record<string, unknown> | null };
+
+function safeObject(value: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(value);
+    return v && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function toStringArray(value: unknown): string[] {
+  const v = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) => (typeof x === 'string' ? x : x && typeof x === 'object' ? String((x as any).name ?? (x as any).id ?? '') : String(x)))
+    .filter((x) => x.length > 0);
+}
+
+/** Runs `worker` over `items` with at most `limit` in flight; preserves no ordering guarantees. */
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await worker(item);
+    }
+  });
+  await Promise.all(lanes);
 }
 
 /** Artifact formats that are binary and must be transported base64-encoded. */
@@ -265,7 +328,7 @@ export class AnalysisExecutor {
   }
 
   async run(input: AnalysisRunInput): Promise<AnalysisRunResult> {
-    const { analysisId, organizationId, projectId, engineTypes, targetRelease } = input;
+    const { analysisId, organizationId, projectId, targetRelease } = input;
 
     const runningRes = await this.db.query(
       `UPDATE analyses SET status = 'RUNNING' WHERE id = $1 AND organization_id = $2 RETURNING created_at`,
@@ -278,140 +341,81 @@ export class AnalysisExecutor {
     const createdAt = runningRes?.rows?.[0]?.created_at;
     const evaluationDate = createdAt ? new Date(createdAt).toISOString().slice(0, 10) : undefined;
 
-    const artifacts = await this.prepareArtifacts(input);
-    if (artifacts.length === 0) {
-      throw new Error(`Analysis ${analysisId} has no resolvable artifacts to analyse`);
+    const progress = await AnalysisProgressTracker.resume(this.db, organizationId, analysisId, this.logger);
+
+    // --- Stage: PARSING (fetch + decode every artifact) ---------------------------------
+    await progress.start('PARSING', { artifacts: input.files?.length ?? 0 });
+    let artifacts: PreparedArtifact[];
+    try {
+      artifacts = await this.prepareArtifacts(input);
+      if (artifacts.length === 0) {
+        throw new Error(`Analysis ${analysisId} has no resolvable artifacts to analyse`);
+      }
+    } catch (err: any) {
+      await progress.fail(String(err?.message ?? err), 'PARSING');
+      throw err;
     }
+    await progress.complete('PARSING', {
+      artifacts: artifacts.length,
+      bytes: artifacts.reduce((n, a) => n + (a.rawContent?.length ?? 0), 0),
+    });
+
+    // --- Stage: RUNNING_RULES ------------------------------------------------------------
+    const units = this.buildWorkUnits(input, artifacts);
+    const stages = this.groupUnitsIntoStages(input, units);
+    const concurrency = input.stages?.length ? Math.max(1, Math.min(8, input.concurrency ?? 4)) : 1;
 
     let totalFindings = 0;
+    const calls: EngineCallRecord[] = [];
+    const perEngine = new Map<EngineType, { completed: number; partial: number; failed: number; units: number }>();
+    for (const u of units) {
+      const s = perEngine.get(u.engine) ?? { completed: 0, partial: 0, failed: 0, units: 0 };
+      s.units++;
+      perEngine.set(u.engine, s);
+    }
+    const knowledgeCache = new Map<string, ReleasedObjectsConfiguration | null>();
+    const recordedSnapshots = new Set<string>();
+    let done = 0;
+
+    const lifecycleRun = await this.lifecycle.beginRun({ analysisId, organizationId, projectId, targetRelease });
+
+    await progress.start('RUNNING_RULES', {
+      done: 0,
+      total: units.length,
+      stages: stages.map((s) => [...new Set(s.map((u) => u.engine))]),
+      parallel: concurrency > 1,
+    });
+
+    for (let stageIdx = 0; stageIdx < stages.length; stageIdx++) {
+      const stageUnits = stages[stageIdx];
+      await runPool(stageUnits, concurrency, async (unit) => {
+        const record = await this.executeUnit(unit, input, evaluationDate, knowledgeCache, recordedSnapshots, lifecycleRun);
+        totalFindings += record.persisted;
+        calls.push(record.call);
+        const s = perEngine.get(unit.engine)!;
+        if (record.call.outcome === 'COMPLETED') s.completed++;
+        else if (record.call.outcome === 'PARTIAL') s.partial++;
+        else s.failed++;
+        done++;
+        await progress.progress('RUNNING_RULES', {
+          done,
+          total: units.length,
+          stage: stageIdx + 1,
+          lastEngine: unit.engine,
+          findings: totalFindings,
+        });
+      });
+    }
+
     let completedCalls = 0;
     let partialCalls = 0;
     let failedCalls = 0;
     const engineOutcomes: Record<string, EngineRunOutcome> = {};
-    const knowledgeCache = new Map<string, ReleasedObjectsConfiguration | null>();
-    const recordedSnapshots = new Set<string>();
-    const lifecycleRun = await this.lifecycle.beginRun({ analysisId, organizationId, projectId, targetRelease });
-
-    for (const engine of engineTypes) {
-      let engineCompleted = 0;
-      let engineFailed = 0;
-      let enginePartial = 0;
-
-      for (const artifact of artifacts) {
-        const label = `Engine '${engine}' on artifact '${artifact.fileName ?? artifact.storagePath ?? 'inline'}'`;
-        const callStarted = Date.now();
-        const observe = (outcome: EngineRunOutcome) => {
-          try {
-            this.onEngineCall?.(engine, outcome, Date.now() - callStarted);
-          } catch {
-            /* metrics must never break analysis */
-          }
-        };
-        try {
-          const knowledgeConfig = await this.knowledgeConfiguration(
-            engine,
-            artifact,
-            input,
-            knowledgeCache,
-            recordedSnapshots
-          );
-          const wirePayload = toWireJobRequest({
-            jobId: analysisId,
-            tenantId: organizationId,
-            projectId,
-            engineType: engine,
-            targetRelease,
-            artifactS3Key: artifact.storagePath,
-            artifactType: artifact.artifactType,
-            configuration: {
-              ...(evaluationDate ? { evaluation_date: evaluationDate } : {}),
-              ...(input.configuration ?? {}),
-              ...(artifact.fileId ? { sourceFileId: artifact.fileId } : {}),
-              ...(artifact.fileName ? { sourceFileName: artifact.fileName } : {}),
-              ...knowledgeConfig,
-            },
-            rawContent: artifact.rawContent,
-            rawContentEncoding: artifact.rawContentEncoding,
-          });
-
-          const res = await fetch(`${this.analysisUrl}/api/v1/analyze`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-              'X-Tenant-Id': organizationId,
-            },
-            body: JSON.stringify(wirePayload),
-          });
-
-          if (!res.ok) {
-            const errText = await res.text();
-            this.logger.error(`${label} failed [HTTP ${res.status}]: ${errText}`);
-            observe('FAILED');
-            engineFailed++;
-            continue;
-          }
-
-          const validated = AnalysisJobResponseSchema.parse(await res.json());
-
-          if (validated.status === 'FAILED') {
-            this.logger.error(
-              `${label} reported FAILED: ${validated.errorMessage ?? 'no error message'} (diagnostic findings not persisted)`
-            );
-            observe('FAILED');
-            engineFailed++;
-            continue;
-          }
-
-          if (validated.findings.length > 0) {
-            totalFindings += await this.persistFindings(
-              organizationId,
-              projectId,
-              analysisId,
-              engine,
-              validated.findings,
-              {
-                run: lifecycleRun,
-                artifactName: artifact.fileName ?? artifact.storagePath ?? 'inline',
-                sourceFileId: artifact.fileId,
-                engineVersion: engineVersionOf(validated.metrics),
-                ruleVersions: ruleVersionsOf(validated.metrics),
-                knowledgeSnapshotId:
-                  (knowledgeConfig as { released_objects?: { snapshotId?: string } })[RELEASED_OBJECTS_CONFIG_KEY]
-                    ?.snapshotId ?? null,
-              }
-            );
-          }
-          if (validated.status === 'COMPLETED') {
-            this.lifecycle.markEvaluated(lifecycleRun, engine, artifact.fileName ?? artifact.storagePath ?? 'inline');
-          }
-
-          if (validated.status === 'PARTIAL') {
-            this.logger.warn(
-              `${label} reported PARTIAL: ${validated.errorMessage ?? 'no error message'}`
-            );
-            observe('PARTIAL');
-            enginePartial++;
-          } else {
-            observe('COMPLETED');
-            engineCompleted++;
-          }
-        } catch (err: any) {
-          this.logger.warn(`${label} execution failed: ${err?.message ?? err}`);
-          observe('FAILED');
-          engineFailed++;
-        }
-      }
-
-      completedCalls += engineCompleted;
-      partialCalls += enginePartial;
-      failedCalls += engineFailed;
-      engineOutcomes[engine] =
-        engineFailed === artifacts.length
-          ? 'FAILED'
-          : engineCompleted === artifacts.length
-          ? 'COMPLETED'
-          : 'PARTIAL';
+    for (const [engine, s] of perEngine) {
+      completedCalls += s.completed;
+      partialCalls += s.partial;
+      failedCalls += s.failed;
+      engineOutcomes[engine] = s.failed === s.units ? 'FAILED' : s.completed === s.units ? 'COMPLETED' : 'PARTIAL';
     }
 
     const totalCalls = completedCalls + partialCalls + failedCalls;
@@ -422,19 +426,301 @@ export class AnalysisExecutor {
         ? 'FAILED'
         : 'PARTIAL';
 
-    await this.lifecycle.finishRun(lifecycleRun);
+    await progress.complete('RUNNING_RULES', {
+      done,
+      total: units.length,
+      completed: completedCalls,
+      partial: partialCalls,
+      failed: failedCalls,
+      findings: totalFindings,
+    });
 
+    // --- Stage: MATCHING_EVIDENCE (evidence integrity + cross-engine correlation) --------
+    let summary: PreflightSummary | undefined;
+    let findingRows: AnalysisFindingRow[] = [];
+    await progress.start('MATCHING_EVIDENCE');
+    try {
+      findingRows = await this.loadFindingsForPostProcessing(organizationId, analysisId);
+      const withEvidence = findingRows.filter((f) => f.evidence.some((e) => e.sha256)).length;
+      summary = correlate(
+        findingRows.map((f) => ({
+          id: f.id,
+          engine: f.engine,
+          ruleId: f.ruleId,
+          severity: f.severity,
+          category: f.category,
+          title: f.title,
+          confidenceClass: f.confidenceClass,
+          affectedObjects: f.affectedObjects,
+          fingerprint: f.fingerprint,
+          artifactPaths: f.evidence.map((e) => e.artifactPath).filter((p): p is string => Boolean(p)),
+          technicalDetails: f.technicalDetails,
+        })),
+        calls
+      );
+      await this.db.query(
+        `UPDATE analyses SET orchestration = COALESCE(orchestration, '{}'::jsonb) || $1::jsonb WHERE id = $2 AND organization_id = $3`,
+        [JSON.stringify({ summary, calls: calls.slice(0, 500) }), analysisId, organizationId],
+        { tenantId: organizationId }
+      );
+      await progress.complete('MATCHING_EVIDENCE', {
+        findings: findingRows.length,
+        withEvidence,
+        withoutEvidence: findingRows.length - withEvidence,
+        duplicates: summary.totals.duplicates,
+        correlatedGroups: summary.totals.correlatedGroups,
+      });
+    } catch (err: any) {
+      this.logger.warn(`Evidence matching / correlation failed for ${analysisId}: ${err?.message ?? err}`);
+      await progress.fail(`Evidence matching failed: ${err?.message ?? err}`, 'MATCHING_EVIDENCE');
+    }
+
+    // --- Stage: GENERATING_TESTS ---------------------------------------------------------
+    let testsGenerated = 0;
+    try {
+      const tests = buildRegressionTests(findingRows, targetRelease);
+      if (tests.length === 0) {
+        await progress.skip('GENERATING_TESTS', 'No evidence-backed BLOCKER/CRITICAL/MAJOR finding to derive a regression test from.');
+      } else {
+        await progress.start('GENERATING_TESTS', { eligible: tests.length });
+        await this.db.withTenantTransaction(organizationId, async (client) => {
+          for (const t of tests) {
+            await client.query(
+              `INSERT INTO tests (id, organization_id, project_id, finding_id, title, test_type, steps, expected_result, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')`,
+              [uuidv4(), organizationId, projectId, t.findingId, t.title, t.testType, JSON.stringify(t.steps), t.expectedResult]
+            );
+          }
+        });
+        testsGenerated = tests.length;
+        await progress.complete('GENERATING_TESTS', { generated: testsGenerated, version: REGRESSION_TEST_VERSION });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Regression test generation failed for ${analysisId}: ${err?.message ?? err}`);
+      await progress.fail(`Test generation failed: ${err?.message ?? err}`, 'GENERATING_TESTS');
+    }
+
+    // --- Stage: FINALIZING ---------------------------------------------------------------
+    await progress.start('FINALIZING');
+    await this.lifecycle.finishRun(lifecycleRun);
     await this.db.query(
       `UPDATE analyses SET status = $1, completed_at = NOW() WHERE id = $2 AND organization_id = $3`,
       [finalStatus, analysisId, organizationId],
       { tenantId: organizationId }
     );
+    await progress.complete('FINALIZING', { status: finalStatus, findings: totalFindings, tests: testsGenerated });
 
     this.logger.log(
       `Analysis ${analysisId} finished with status ${finalStatus}: ${completedCalls} completed, ${partialCalls} partial, ${failedCalls} failed engine/artifact runs; ${totalFindings} findings persisted`
     );
 
-    return { finalStatus, totalFindings, engineOutcomes };
+    return { finalStatus, totalFindings, engineOutcomes, calls, summary, testsGenerated };
+  }
+
+  /**
+   * Work units: explicit planner assignments when given, otherwise every engine over
+   * every artifact (engine-major order, the original behaviour).
+   */
+  private buildWorkUnits(input: AnalysisRunInput, artifacts: PreparedArtifact[]): WorkUnit[] {
+    if (input.assignments && input.assignments.length > 0) {
+      const byId = new Map(artifacts.filter((a) => a.fileId).map((a) => [a.fileId as string, a]));
+      const units: WorkUnit[] = [];
+      for (const asg of input.assignments) {
+        const artifact = byId.get(asg.fileId);
+        if (!artifact) {
+          this.logger.warn(`Assignment ${asg.engine} -> ${asg.fileId} references an artifact that is not part of the run; skipped`);
+          continue;
+        }
+        const companions = (asg.companions ?? [])
+          .map((c) => ({ configKey: c.configKey, artifact: byId.get(c.fileId) }))
+          .filter((c): c is { configKey: string; artifact: PreparedArtifact } => Boolean(c.artifact));
+        units.push({ engine: asg.engine, artifact, companions });
+      }
+      return units;
+    }
+    const units: WorkUnit[] = [];
+    for (const engine of input.engineTypes) {
+      for (const artifact of artifacts) units.push({ engine, artifact, companions: [] });
+    }
+    return units;
+  }
+
+  private groupUnitsIntoStages(input: AnalysisRunInput, units: WorkUnit[]): WorkUnit[][] {
+    if (!input.stages || input.stages.length === 0) return [units];
+    const stages: WorkUnit[][] = [];
+    const placed = new Set<WorkUnit>();
+    for (const stageEngines of input.stages) {
+      const stageUnits = units.filter((u) => stageEngines.includes(u.engine));
+      stageUnits.forEach((u) => placed.add(u));
+      if (stageUnits.length) stages.push(stageUnits);
+    }
+    const rest = units.filter((u) => !placed.has(u));
+    if (rest.length) stages.push(rest);
+    return stages;
+  }
+
+  private async executeUnit(
+    unit: WorkUnit,
+    input: AnalysisRunInput,
+    evaluationDate: string | undefined,
+    knowledgeCache: Map<string, ReleasedObjectsConfiguration | null>,
+    recordedSnapshots: Set<string>,
+    lifecycleRun?: LifecycleRunContext
+  ): Promise<{ call: EngineCallRecord; persisted: number }> {
+    const { analysisId, organizationId, projectId, targetRelease } = input;
+    const { engine, artifact } = unit;
+    const label = `Engine '${engine}' on artifact '${artifact.fileName ?? artifact.storagePath ?? 'inline'}'`;
+    const started = Date.now();
+    const call: EngineCallRecord = {
+      engine,
+      fileId: artifact.fileId,
+      fileName: artifact.fileName,
+      outcome: 'FAILED',
+      findings: 0,
+      rulesEvaluated: 0,
+      durationMs: 0,
+      error: null,
+    };
+    let persisted = 0;
+    try {
+      const knowledgeConfig = await this.knowledgeConfiguration(engine, artifact, input, knowledgeCache, recordedSnapshots);
+      const companionConfig: Record<string, unknown> = {};
+      for (const c of unit.companions) {
+        if (c.artifact.rawContentEncoding === 'utf-8' && c.artifact.rawContent !== null) {
+          companionConfig[c.configKey] = c.artifact.rawContent;
+        }
+      }
+      const wirePayload = toWireJobRequest({
+        jobId: analysisId,
+        tenantId: organizationId,
+        projectId,
+        engineType: engine,
+        targetRelease,
+        artifactS3Key: artifact.storagePath,
+        artifactType: artifact.artifactType,
+        configuration: {
+          ...(evaluationDate ? { evaluation_date: evaluationDate } : {}),
+          ...(input.configuration ?? {}),
+          ...(artifact.fileId ? { sourceFileId: artifact.fileId } : {}),
+          ...(artifact.fileName ? { sourceFileName: artifact.fileName } : {}),
+          ...companionConfig,
+          ...knowledgeConfig,
+        },
+        rawContent: artifact.rawContent,
+        rawContentEncoding: artifact.rawContentEncoding,
+      });
+
+      const res = await fetch(`${this.analysisUrl}/api/v1/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Tenant-Id': organizationId,
+        },
+        body: JSON.stringify(wirePayload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        this.logger.error(`${label} failed [HTTP ${res.status}]: ${errText}`);
+        call.error = `HTTP ${res.status}`;
+        return { call, persisted };
+      }
+
+      const validated = AnalysisJobResponseSchema.parse(await res.json());
+      call.rulesEvaluated = validated.metrics?.rulesEvaluated ?? 0;
+
+      if (validated.status === 'FAILED') {
+        this.logger.error(
+          `${label} reported FAILED: ${validated.errorMessage ?? 'no error message'} (diagnostic findings not persisted)`
+        );
+        call.error = (validated.errorMessage ?? 'engine reported FAILED').slice(0, 300);
+        return { call, persisted };
+      }
+
+      if (validated.findings.length > 0) {
+        persisted = await this.persistFindings(
+          organizationId,
+          projectId,
+          analysisId,
+          engine,
+          validated.findings,
+          lifecycleRun
+            ? {
+                run: lifecycleRun,
+                artifactName: artifact.fileName ?? artifact.storagePath ?? 'inline',
+                sourceFileId: artifact.fileId,
+                engineVersion: engineVersionOf(validated.metrics),
+                ruleVersions: ruleVersionsOf(validated.metrics),
+                knowledgeSnapshotId:
+                  (knowledgeConfig as { released_objects?: { snapshotId?: string } })[RELEASED_OBJECTS_CONFIG_KEY]
+                    ?.snapshotId ?? null,
+              }
+            : undefined
+        );
+      }
+      if (validated.status === 'COMPLETED' && lifecycleRun) {
+        this.lifecycle.markEvaluated(lifecycleRun, engine, artifact.fileName ?? artifact.storagePath ?? 'inline');
+      }
+      call.findings = persisted;
+
+      if (validated.status === 'PARTIAL') {
+        this.logger.warn(`${label} reported PARTIAL: ${validated.errorMessage ?? 'no error message'}`);
+        call.outcome = 'PARTIAL';
+        call.error = validated.errorMessage ? validated.errorMessage.slice(0, 300) : null;
+      } else {
+        call.outcome = 'COMPLETED';
+      }
+    } catch (err: any) {
+      this.logger.warn(`${label} execution failed: ${err?.message ?? err}`);
+      call.error = String(err?.message ?? err).slice(0, 300);
+    } finally {
+      call.durationMs = Date.now() - started;
+      try {
+        this.onEngineCall?.(engine, call.outcome, call.durationMs);
+      } catch {
+        /* metrics must never break analysis */
+      }
+    }
+    return { call, persisted };
+  }
+
+  /** Findings of this analysis with their evidence pointers (for correlation + tests). */
+  private async loadFindingsForPostProcessing(organizationId: string, analysisId: string): Promise<AnalysisFindingRow[]> {
+    const res = await this.db.query(
+      `SELECT f.id, f.engine, f.rule_id, f.severity, f.category, f.title, f.confidence_class, f.remediation,
+              f.affected_objects, f.fingerprint, f.technical_details,
+              COALESCE(
+                json_agg(json_build_object('artifactPath', e.artifact_path, 'lineNumber', e.line_number, 'sha256', e.sha256)
+                         ORDER BY e.artifact_path, e.line_number) FILTER (WHERE e.id IS NOT NULL),
+                '[]'::json
+              ) AS evidence
+         FROM findings f
+         LEFT JOIN evidence e ON e.finding_id = f.id AND e.organization_id = f.organization_id
+        WHERE f.organization_id = $1 AND f.analysis_id = $2
+        GROUP BY f.id
+        ORDER BY f.id`,
+      [organizationId, analysisId],
+      { tenantId: organizationId }
+    );
+    return (res?.rows ?? []).map((r: any) => ({
+      id: String(r.id),
+      engine: String(r.engine),
+      ruleId: String(r.rule_id),
+      severity: String(r.severity),
+      category: r.category ?? null,
+      title: String(r.title ?? ''),
+      confidenceClass: r.confidence_class ?? null,
+      remediation: r.remediation ?? null,
+      affectedObjects: toStringArray(r.affected_objects),
+      fingerprint: r.fingerprint ?? null,
+      technicalDetails: typeof r.technical_details === 'string' ? safeObject(r.technical_details) : r.technical_details ?? null,
+      evidence: (Array.isArray(r.evidence) ? r.evidence : []).map((e: any) => ({
+        artifactPath: e?.artifactPath ?? null,
+        lineNumber: typeof e?.lineNumber === 'number' ? e.lineNumber : e?.lineNumber ? Number(e.lineNumber) : null,
+        sha256: e?.sha256 ?? null,
+      })),
+    }));
   }
 
   private async persistFindings(

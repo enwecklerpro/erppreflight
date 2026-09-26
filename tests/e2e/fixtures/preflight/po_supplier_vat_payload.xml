@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PurchaseOrder>
+    <Header>
+        <PurchaseOrder>4500001234</PurchaseOrder>
+        <Supplier>100045</Supplier>
+    </Header>
+</PurchaseOrder>
