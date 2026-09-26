@@ -1,5 +1,6 @@
 {
   "target_user": "TEST_RETIRED_USER",
+  "evaluation_date": "2026-09-15",
   "users": [
     {
       "bname": "TEST_RETIRED_USER",

@@ -228,7 +228,8 @@ def sniff_format(text: str) -> InputFormat:
     if len(lines) >= 2:
         for delim in (",", ";", "\t", "|"):
             counts = [ln.count(delim) for ln in lines]
-            if counts[0] >= 1 and all(c >= 1 for c in counts):
+            # Header row delimited and at least half of the sampled rows too (tolerates corrupt rows).
+            if counts[0] >= 1 and sum(1 for c in counts if c >= 1) * 2 >= len(counts):
                 return InputFormat.CSV
     return InputFormat.TEXT
 
@@ -277,11 +278,8 @@ def _validate_csv(contract: InputContract, prefix: str, text: str, where: str) -
     if not contract.csv_signal_columns:
         return
     first = next((ln for ln in text.splitlines() if ln.strip()), "")
-    try:
-        dialect = csv.Sniffer().sniff(first, delimiters=",;\t|")
-        delim = dialect.delimiter
-    except csv.Error:
-        delim = ","
+    # Deterministic delimiter choice: the candidate occurring most often in the header row.
+    delim = max((",", ";", "\t", "|"), key=lambda d: (first.count(d), d == ","))
     header = next(csv.reader(io.StringIO(first), delimiter=delim), [])
     cols = {normalize_header(h) for h in header}
     wanted = {normalize_header(c) for c in contract.csv_signal_columns}

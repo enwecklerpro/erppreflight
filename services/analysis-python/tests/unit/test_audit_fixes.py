@@ -80,7 +80,7 @@ async def test_decom_target_without_tables_is_insufficient_input():
 
 @pytest.mark.asyncio
 async def test_decom_missing_required_tables_withholds_safe_verdict():
-    payload = {"target_user": "JDOE", "users": [{"bname": "JDOE", "lock_status": 64}]}
+    payload = {"target_user": "JDOE", "evaluation_date": "2026-09-15", "users": [{"bname": "JDOE", "lock_status": 64}]}
     resp = await run(EngineType.SAFE_DECOMMISSION_PREFLIGHT, raw_content=json.dumps(payload))
     assert "DECOM_SAFE_FOR_ARCHIVING" not in rules(resp)
     withheld = [f for f in resp.findings if f.rule_id == "DECOM_INSUFFICIENT_INPUT"]
@@ -412,7 +412,8 @@ async def test_unexpected_engine_exception_not_leaked(monkeypatch):
         raise AttributeError("'list' object has no attribute 'get' /internal/path/secret")
 
     monkeypatch.setattr(engine, "analyze", boom)
-    resp = await run(EngineType.IAM_COST_OPTIMIZER, raw_content="{}")
+    # A contract-valid payload so the (monkeypatched) engine body actually runs.
+    resp = await run(EngineType.IAM_COST_OPTIMIZER, raw_content='{"roles": [{"role_name": "Z_ROLE"}]}')
     assert resp.status == AnalysisStatus.FAILED
     assert rules(resp) == ["IAM_INVALID_INPUT"]
     assert "/internal/path" not in resp.model_dump_json()
