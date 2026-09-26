@@ -8,9 +8,10 @@ import { ArchiveSafetyGuard } from './archive-safety.guard';
 import { ClamAvScanner } from './clamav.scanner';
 import { IngestionService } from './ingestion.service';
 import { FilesController } from './files.controller';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, StorageModule, RedactionModule],
+  imports: [ConfigModule, DatabaseModule, StorageModule, RedactionModule, BillingModule],
   controllers: [FilesController],
   providers: [
     MimeMagicValidator,

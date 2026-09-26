@@ -41,6 +41,10 @@ import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { resolveRedisConnectionOptions } from './modules/jobs/redis-connection.factory';
 import { TelemetryModule } from './modules/telemetry/telemetry.module';
+import { UsageModule } from './modules/usage/usage.module';
+import { RetentionModule } from './modules/retention/retention.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
+import { SupportModule } from './modules/support/support.module';
 
 @Module({
   imports: [
@@ -91,6 +95,10 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
     AiGatewayModule,
     BillingModule,
     TelemetryModule,
+    UsageModule,
+    RetentionModule,
+    FeatureFlagsModule,
+    SupportModule,
   ],
 })
 export class AppModule implements NestModule {

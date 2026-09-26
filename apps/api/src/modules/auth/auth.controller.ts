@@ -19,6 +19,13 @@ import {
   LOGIN_RATE_LIMIT,
   REGISTER_RATE_LIMIT,
 } from './guards/auth-rate-limit.guard';
+import { Audited } from '../audit/audited.decorator';
+
+/** Session events are recorded fail-closed: no audit row, no session token. */
+const sessionFromResult = (result: any) => ({
+  organizationId: result?.user?.organizationId,
+  actorId: result?.user?.id,
+});
 
 export const SESSION_COOKIE_NAME = 'erppreflight_session';
 export const SESSION_COOKIE_OPTIONS = {
@@ -36,6 +43,14 @@ export class AuthController {
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
   @AuthRateLimit(REGISTER_RATE_LIMIT)
+  @Audited({
+    action: 'auth.registered',
+    targetType: 'USER',
+    targetId: ({ result }) => result?.user?.id,
+    security: true,
+    tenantFromResult: sessionFromResult,
+    payload: ({ result }) => ({ email: result?.user?.email ?? null, role: result?.user?.role ?? null }),
+  })
   async register(
     @Body() dto: RegisterDto,
     @Res({ passthrough: true }) res: Response,
@@ -51,6 +66,16 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthRateLimitGuard)
   @AuthRateLimit(LOGIN_RATE_LIMIT)
+  @Audited({
+    action: 'auth.login.succeeded',
+    targetType: 'USER',
+    targetId: ({ result }) => result?.user?.id,
+    security: true,
+    tenantFromResult: sessionFromResult,
+    payload: ({ result }) => ({ email: result?.user?.email ?? null }),
+    failureAction: 'auth.login.failed',
+    failureTenant: 'loginEmail',
+  })
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,

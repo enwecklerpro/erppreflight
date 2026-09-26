@@ -52,6 +52,11 @@ describe('DashboardService', () => {
       })
       .mockResolvedValueOnce({
         rows: [{ total: 1, active: 1 }],
+      })
+      .mockResolvedValueOnce({ rows: [{ last24h: 1, last7d: 3, last30d: 7, failed7d: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ count: 4 }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'p1', name: 'Proj 1', latest_analysis_id: 'a1', blockers: 1, criticals: 2 }],
       });
 
     const summary = await service.getSummary('org-1');
@@ -63,5 +68,10 @@ describe('DashboardService', () => {
     expect(summary.enginesOperational).toBe('19 / 19');
     expect(summary.recentProjects.length).toBe(1);
     expect(summary.recentAnalyses.length).toBe(1);
+    expect(summary.analysisActivity).toEqual({ last24h: 1, last7d: 3, last30d: 7, failed7d: 1 });
+    expect(summary.newFindings7d).toBe(4);
+    expect(summary.projectsAtRisk).toEqual([
+      { id: 'p1', name: 'Proj 1', blockers: 1, criticals: 2, latestAnalysisId: 'a1' },
+    ]);
   });
 });

@@ -16,18 +16,77 @@ import { TenancyGuard } from '../tenancy/tenancy.guard';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestPresignedUploadDto } from '@erppreflight/schemas';
+import { Audited, AuditContext } from '../audit/audited.decorator';
+import { Metered, MeteredContext } from '../usage/metered.decorator';
+import { EntitlementGuard, RequireEntitlement } from '../billing/guards/entitlement.guard';
+
+/** Upload result → audit action (quarantine outcomes are security events). */
+function uploadAction({ result }: AuditContext): string {
+  if (result?.status === 'QUARANTINED') return 'artifact.quarantined';
+  if (result?.status === 'CLEAN') return 'artifact.uploaded';
+  if (result?.uploadUrl) return 'artifact.upload_requested';
+  return 'artifact.upload_processed';
+}
+
+function uploadPayload({ result, request }: AuditContext): Record<string, unknown> {
+  return {
+    projectId: request.params?.projectId ?? null,
+    status: result?.status ?? (result?.uploadUrl ? 'PENDING_UPLOAD' : null),
+    fileName: request.file?.originalname ?? request.body?.fileName ?? null,
+    detectedFormat: result?.detectedFormat ?? null,
+    checksumSha256: result?.checksumSha256 ?? null,
+    redactionsCount: result?.redactionsCount ?? null,
+    virusName: result?.virusName ?? null,
+  };
+}
+
+function uploadedBytes({ request, result }: MeteredContext): number {
+  if (result?.status !== 'CLEAN' && result?.status !== 'QUARANTINED') return 0;
+  if (request.file?.size) return Number(request.file.size);
+  const raw = request.body?.content ?? request.body?.rawContent;
+  return typeof raw === 'string' ? Buffer.byteLength(raw, 'utf-8') : 0;
+}
+
+const processedUpload = ({ result }: MeteredContext) =>
+  result?.status === 'CLEAN' || result?.status === 'QUARANTINED' ? 1 : 0;
+
+const UPLOAD_AUDIT = {
+  action: uploadAction,
+  targetType: 'ARTIFACT',
+  targetId: ({ result }: AuditContext) => result?.fileId,
+  payload: uploadPayload,
+};
+
+const UPLOAD_METERS = [
+  {
+    metric: 'ARTIFACT_UPLOAD' as const,
+    quantity: processedUpload,
+    resourceType: 'ARTIFACT',
+    resourceId: ({ result }: MeteredContext) => result?.fileId,
+    metadata: ({ result }: MeteredContext) => ({ status: result?.status ?? null }),
+  },
+  {
+    metric: 'ARTIFACT_BYTES' as const,
+    quantity: uploadedBytes,
+    resourceType: 'ARTIFACT',
+    resourceId: ({ result }: MeteredContext) => result?.fileId,
+  },
+];
 
 // Multipart uploads are buffered in memory before quarantine; cap them (default 100 MB,
 // matching the web client) so a single request cannot exhaust API memory. Multer answers 413.
 const MAX_UPLOAD_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_SIZE_MB) || 100) * 1024 * 1024;
 
 @Controller(['projects/:projectId/files', 'projects/:projectId/artifacts'])
-@UseGuards(JwtAuthGuard, TenancyGuard)
+@UseGuards(JwtAuthGuard, TenancyGuard, EntitlementGuard)
 export class FilesController {
   constructor(private readonly ingestionService: IngestionService) {}
 
   @Post()
+  @RequireEntitlement('UPLOAD_ARTIFACT')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
+  @Audited(UPLOAD_AUDIT)
+  @Metered(...UPLOAD_METERS)
   async uploadArtifact(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
@@ -101,6 +160,8 @@ export class FilesController {
   }
 
   @Post('presign-upload')
+  @RequireEntitlement('UPLOAD_ARTIFACT')
+  @Audited(UPLOAD_AUDIT)
   async presignUpload(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
@@ -116,6 +177,8 @@ export class FilesController {
   }
 
   @Post(':fileId/confirm')
+  @Audited(UPLOAD_AUDIT)
+  @Metered(...UPLOAD_METERS)
   async confirmUpload(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
@@ -125,6 +188,12 @@ export class FilesController {
   }
 
   @Get(':fileId/presign-download')
+  @Audited({
+    action: 'artifact.download_url_issued',
+    targetType: 'ARTIFACT',
+    targetId: ({ params }) => params.fileId,
+    payload: ({ params }) => ({ projectId: params.projectId }),
+  })
   async presignDownload(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,

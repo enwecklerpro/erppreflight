@@ -18,6 +18,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
 import { WebhooksService } from './webhooks.service';
 import { CreateWebhookDto } from './dto/webhook.dto';
+import { Audited } from '../audit/audited.decorator';
 
 /** Webhook management: interactive owner / security-admin sessions only (no API keys). */
 @ApiTags('Webhooks')
@@ -31,6 +32,21 @@ export class WebhooksController {
 
   @Post()
   @ApiOperation({ summary: 'Register a new webhook endpoint with auto-generated signing secret' })
+  @Audited({
+    action: 'webhook.created',
+    targetType: 'WEBHOOK',
+    targetId: ({ result }) => result?.id,
+    security: true,
+    payload: ({ body }) => {
+      let host: string | null = null;
+      try {
+        host = new URL(String(body?.url)).host;
+      } catch {
+        host = null;
+      }
+      return { host, events: Array.isArray(body?.events) ? body.events.slice(0, 50) : [] };
+    },
+  })
   async create(@CurrentTenant() orgId: string, @Req() req: any, @Body() dto: CreateWebhookDto) {
     return await this.webhooksService.create(orgId, req.user.id, dto);
   }
@@ -43,6 +59,7 @@ export class WebhooksController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a webhook endpoint' })
+  @Audited({ action: 'webhook.deleted', targetType: 'WEBHOOK', targetId: ({ params }) => params.id, security: true })
   async remove(@CurrentTenant() orgId: string, @Param('id', new ParseUUIDPipe()) id: string) {
     return await this.webhooksService.remove(orgId, id);
   }
