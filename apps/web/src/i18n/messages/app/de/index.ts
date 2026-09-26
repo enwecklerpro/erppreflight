@@ -35,6 +35,7 @@ import { traceability } from './traceability';
 import { magicLink } from './magicLink';
 import { analysisRun } from './analysisRun';
 import { tenantAccess } from './tenantAccess';
+import { governance } from './governance';
 
 export const appDe: AppMessages = {
   ui,
@@ -79,4 +80,5 @@ export const appDe: AppMessages = {
   magicLink,
   analysisRun,
   tenantAccess,
+  governance,
 };

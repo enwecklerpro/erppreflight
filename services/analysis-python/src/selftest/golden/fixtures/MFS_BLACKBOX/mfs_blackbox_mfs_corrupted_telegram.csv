@@ -1,0 +1,4 @@
+timestamp,type,hu_id,cp,seq_no,sender_plc,receiver_plc,status,time_sec
+2026-09-24T03:14:00Z,MOVE,HU_VALID,CP01,1,PLC01,EWM,OK,1.0
+MALFORMED_LINE_WITHOUT_COLUMNS
+2026-09-24T03:14:02Z,,HU_NO_TYPE,CP01,2,PLC01,EWM,OK,2.0

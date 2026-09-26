@@ -1,0 +1,14 @@
+{
+  "target_user": "GHOST_USER",
+  "evaluation_date": "2026-09-15",
+  "users": [
+    {
+      "bname": "TEST_RETIRED_USER",
+      "user_type": "A",
+      "lock_status": 128
+    }
+  ],
+  "jobs": [],
+  "rfc_destinations": [],
+  "work_items": []
+}

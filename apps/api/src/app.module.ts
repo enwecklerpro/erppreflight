@@ -56,6 +56,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PublicToolsModule } from './modules/public-tools/public-tools.module';
 import { TenantAccessModule } from './modules/tenant-access/tenant-access.module';
 import { ImpersonationMiddleware } from './modules/tenant-access/impersonation.middleware';
+import { GovernanceModule } from './modules/governance/governance.module';
 
 @Module({
   imports: [
@@ -120,6 +121,7 @@ import { ImpersonationMiddleware } from './modules/tenant-access/impersonation.m
     NotificationsModule,
     PublicToolsModule,
     TenantAccessModule,
+    GovernanceModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -1,0 +1,28 @@
+{
+  "description": "Software collection containing a draft BAdI implementation (SC_DRAFT_ITEM_INCLUDED)",
+  "export_id": "EXP_2026_09_DRAFT",
+  "target_release": "S4HC_2408",
+  "collections": [
+    {
+      "collection_id": "SC_LOGISTICS",
+      "name": "Logistics Key User Extensions",
+      "version": "1.0",
+      "items": [
+        {
+          "item_id": "YY1_PALLET_COUNT",
+          "item_type": "CUSTOM_FIELD",
+          "status": "PUBLISHED",
+          "dependencies": []
+        },
+        {
+          "item_id": "BADI_GOODS_RECEIPT_VALIDATION",
+          "item_type": "CUSTOM_LOGIC",
+          "status": "DRAFT",
+          "dependencies": [
+            "YY1_PALLET_COUNT"
+          ]
+        }
+      ]
+    }
+  ]
+}

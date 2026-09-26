@@ -1,0 +1,29 @@
+{
+  "sid": "QAS",
+  "client": "100",
+  "rfc_destinations": [
+    {
+      "destination": "SAP_QA_CENTRAL",
+      "target_host": "qas-app01.erp.example.internal"
+    }
+  ],
+  "scot": {
+    "smtp_active": true,
+    "redirect_all_to": "qa-catchall@test.corp"
+  },
+  "logical_systems": [
+    {
+      "client": "100",
+      "logical_system": "QASCLNT100",
+      "expected_logical_system": "QASCLNT100",
+      "bdls_executed": true
+    }
+  ],
+  "printers": [
+    {
+      "printer_name": "LP_PRD_WAREHOUSE",
+      "is_production_printer": true,
+      "destination_host": "prd-print01.example.internal"
+    }
+  ]
+}

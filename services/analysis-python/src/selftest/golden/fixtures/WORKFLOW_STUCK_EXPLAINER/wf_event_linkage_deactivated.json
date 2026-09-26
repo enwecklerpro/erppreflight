@@ -1,0 +1,29 @@
+{
+  "headers": [
+    {
+      "wi_id": "0000045012",
+      "wi_type": "W",
+      "wi_stat": "READY",
+      "wi_rh_task": "TS00008267"
+    }
+  ],
+  "agent_traces": [
+    {
+      "wi_id": "0000045012",
+      "resolved_agents": [
+        "USER_MGR_01"
+      ],
+      "resolved_count": 1
+    }
+  ],
+  "logs": [],
+  "event_linkages": [
+    {
+      "objtype": "BUS2012",
+      "event": "RELEASED",
+      "rectype": "WS90000001",
+      "active": false,
+      "feedback_flag": "X"
+    }
+  ]
+}

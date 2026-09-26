@@ -31,7 +31,8 @@
     "smoke:i18n": "node scripts/e2e-i18n-smoke.cjs",
     "smoke:session-security": "node scripts/e2e-session-security-smoke.cjs",
     "smoke:analysis-lifecycle": "node scripts/e2e-analysis-lifecycle-smoke.cjs",
-    "smoke:tenant-admin": "node scripts/e2e-tenant-admin-smoke.cjs"
+    "smoke:tenant-admin": "node scripts/e2e-tenant-admin-smoke.cjs",
+    "smoke:admin-governance": "node scripts/e2e-admin-governance-smoke.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",

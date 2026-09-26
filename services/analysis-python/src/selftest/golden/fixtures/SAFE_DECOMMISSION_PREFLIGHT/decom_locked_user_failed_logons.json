@@ -1,0 +1,28 @@
+{
+  "target_user": "TEST_RETIRED_USER",
+  "evaluation_date": "2026-09-15",
+  "users": [
+    {
+      "bname": "TEST_RETIRED_USER",
+      "user_type": "A",
+      "lock_status": 128
+    }
+  ],
+  "jobs": [],
+  "rfc_destinations": [],
+  "work_items": [],
+  "sm20": [
+    {
+      "user": "TEST_RETIRED_USER",
+      "event_type": "FAILED_LOGON",
+      "timestamp": "2026-09-14T08:00:00",
+      "success": false
+    },
+    {
+      "user": "TEST_RETIRED_USER",
+      "event_type": "FAILED_LOGON",
+      "timestamp": "2026-09-14T08:05:00",
+      "success": false
+    }
+  ]
+}

@@ -79,7 +79,7 @@ describe('AI Gateway & Entitlements Billing Suite', () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          content: [{ text: '{"explanation": "mocked", "remediationSteps": ["step1"]}' }],
+          content: [{ type: 'text', text: '{"explanation": "mocked", "remediationSteps": ["step1"]}' }],
           usage: { input_tokens: 10, output_tokens: 10 }
         })
       });

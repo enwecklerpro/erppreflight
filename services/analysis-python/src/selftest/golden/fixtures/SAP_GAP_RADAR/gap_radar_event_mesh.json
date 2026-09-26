@@ -1,0 +1,9 @@
+{
+  "requirement_id": "REQ-LOG-001",
+  "title": "Real-time High Value PO External Notification",
+  "requirement": "Trigger external webhook event mesh on purchase order release when total value exceeds 100,000 EUR",
+  "description": "Trigger external webhook event mesh on purchase order release when total value exceeds 100,000 EUR",
+  "target_edition": "Public",
+  "target_release": "2408",
+  "module": "MM"
+}

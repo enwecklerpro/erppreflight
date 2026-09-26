@@ -69,6 +69,15 @@ DATABASE_URL=postgres://owner:…@host/db pnpm --filter @erppreflight/api knowle
 * Admin: `POST /api/v1/knowledge-graph/admin/sync` (super admin), log at `GET …/admin/sync-runs`,
   ROSA upload `POST …/admin/rosa-import`, curation `POST …/admin/curated-objects` + `POST …/admin/objects/:id/review`
   (Draft → In review → Approved → Published).
+* Source Sync Admin (web `/admin/sources`, API `GET /api/v1/admin/sources`): per adapter last run, last successful
+  sync, freshness against a configurable threshold, failed runs (30 days), item counts, changed records of the latest
+  snapshot and `POST …/admin/sources/:adapterId/retry` (Cloudification only; ROSA is a file import). The hourly
+  freshness check (`platform-governance` queue, `SOURCE_FRESHNESS_CRON`, default `41 * * * *`; also
+  `POST …/admin/sources/freshness-check`) opens one `knowledge_source_alerts` row per stale *critical* source, notifies
+  every super admin in-app (`knowledge.source_stale`) and by e-mail, and resolves the alert when the source is fresh
+  again. The Cloudification Repository is critical by default (threshold 192 h).
+* Knowledge Admin graph view (web `/admin/knowledge`, API `GET /api/v1/admin/knowledge-graph/{summary,objects,conflicts}`):
+  object records with evidence sources, release validity, last verification and facts on which sources disagree.
 
 After every published snapshot, release watches whose objects changed are re-evaluated; each changed watch writes
 `release_watch_events` and a `release_watch.changed` outbox event.

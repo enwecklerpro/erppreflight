@@ -1,0 +1,52 @@
+{
+  "conveyor_edges": [
+    ["CP01", "CP02"],
+    ["CP02", "CP03"]
+  ],
+  "telegrams": [
+    {
+      "timestamp": "2026-09-24T03:14:20.000Z",
+      "time_sec": 20.0,
+      "type": "MOVE",
+      "hu_id": "HU_9922",
+      "cp": "CP01",
+      "seq_no": 301,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "OK"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:20.500Z",
+      "time_sec": 20.5,
+      "type": "MOVE",
+      "hu_id": "HU_9922",
+      "cp": "CP01",
+      "seq_no": 301,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "RETRY_1"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:21.000Z",
+      "time_sec": 21.0,
+      "type": "MOVE",
+      "hu_id": "HU_9922",
+      "cp": "CP01",
+      "seq_no": 301,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "RETRY_2"
+    },
+    {
+      "timestamp": "2026-09-24T03:14:26.000Z",
+      "time_sec": 26.0,
+      "type": "TIMEOUT",
+      "hu_id": "HU_9922",
+      "cp": "CP01",
+      "seq_no": 301,
+      "sender_plc": "PLC01",
+      "receiver_plc": "EWM",
+      "status": "ERR_TIMEOUT"
+    }
+  ]
+}

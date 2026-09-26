@@ -1,0 +1,29 @@
+{
+  "sid": "QAS",
+  "client": "100",
+  "rfc_destinations": [
+    {
+      "destination": "SAP_QA_CENTRAL",
+      "target_host": "qas-app01.erp.example.internal"
+    }
+  ],
+  "scot": {
+    "smtp_active": true,
+    "redirect_all_to": "qa-catchall@test.corp"
+  },
+  "logical_systems": [
+    {
+      "client": "100",
+      "logical_system": "QASCLNT100",
+      "expected_logical_system": "QASCLNT100",
+      "bdls_executed": true
+    }
+  ],
+  "jobs": [
+    {
+      "job_name": "F110_PAYMENT_RUN_DAILY",
+      "status": "S",
+      "periodic": true
+    }
+  ]
+}

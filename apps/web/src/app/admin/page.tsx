@@ -35,6 +35,7 @@ import {
   AdminQueueData,
 } from '../../lib/api-client';
 import { BusinessPanel, FeatureFlagsPanel, IncidentsPanel, SupportConsolePanel } from '@/components/admin/ops-panels';
+import { GovernanceLinks } from '@/components/admin/governance/governance-links';
 import { ErrorState } from '@/components/commercial/states';
 import { useEngineDomainLabel } from '@/components/engine-matrix';
 import { useFmt, useLabel, useMessages, useT } from '@/i18n/client';
@@ -233,6 +234,8 @@ export default function SuperAdminPortal() {
           })}
         </div>
       </div>
+
+      <GovernanceLinks />
 
       {activeTab === 'business' && <BusinessPanel />}
       {activeTab === 'incidents' && <IncidentsPanel />}

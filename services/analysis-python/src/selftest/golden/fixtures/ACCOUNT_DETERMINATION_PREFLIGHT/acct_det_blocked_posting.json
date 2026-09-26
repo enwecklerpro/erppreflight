@@ -1,0 +1,29 @@
+{
+  "chart_of_accounts": "CA01",
+  "company_code": "1000",
+  "obyc_rules": [
+    {
+      "chart_of_accounts": "CA01",
+      "transaction_key": "BSX",
+      "valuation_class": "3000",
+      "gl_account": "140000"
+    }
+  ],
+  "vkoa_rules": [],
+  "ska1_accounts": [
+    {
+      "chart_of_accounts": "CA01",
+      "gl_account": "140000",
+      "xsperr": true,
+      "name": "Raw Materials Stock (Blocked)"
+    }
+  ],
+  "skb1_accounts": [
+    {
+      "company_code": "1000",
+      "gl_account": "140000",
+      "xsperr": false
+    }
+  ],
+  "valuation_classes": []
+}

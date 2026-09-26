@@ -1,0 +1,188 @@
+{
+  "baseline": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "SAP S/4HANA Purchase Order API",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/A_PurchaseOrder": {
+        "get": {
+          "summary": "Retrieve purchase orders",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Success"
+            }
+          }
+        },
+        "post": {
+          "summary": "Create purchase order",
+          "requestBody": {
+            "required": false
+          },
+          "responses": {
+            "201": {
+              "description": "Created"
+            }
+          }
+        }
+      },
+      "/A_PurchaseOrder('{PurchaseOrder}')": {
+        "get": {
+          "summary": "Get specific purchase order"
+        },
+        "delete": {
+          "summary": "Cancel purchase order"
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "PurchaseOrder": {
+          "type": "object",
+          "required": [
+            "PurchaseOrderID"
+          ],
+          "properties": {
+            "PurchaseOrderID": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "CompanyCode": {
+              "type": "string",
+              "maxLength": 4
+            },
+            "TaxJurisdictionCode": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "OrderStatus": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "PENDING",
+                "APPROVED",
+                "REJECTED"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "candidate": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "SAP S/4HANA Purchase Order API",
+      "version": "2.0.0"
+    },
+    "paths": {
+      "/A_PurchaseOrder": {
+        "get": {
+          "summary": "Retrieve purchase orders",
+          "parameters": [
+            {
+              "name": "$top",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "integer"
+              }
+            },
+            {
+              "name": "X-Audit-Token",
+              "in": "query",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Success"
+            }
+          }
+        },
+        "post": {
+          "summary": "Create purchase order",
+          "requestBody": {
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "description": "Created"
+            }
+          }
+        }
+      },
+      "/A_PurchaseOrder('{PurchaseOrder}')": {
+        "get": {
+          "summary": "Get specific purchase order"
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "PurchaseOrder": {
+          "type": "object",
+          "required": [
+            "PurchaseOrderID"
+          ],
+          "properties": {
+            "PurchaseOrderID": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "CompanyCode": {
+              "type": "string",
+              "maxLength": 2
+            },
+            "OrderStatus": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "APPROVED",
+                "REJECTED"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "integrations": [
+    {
+      "integration_id": "SALESFORCE_INTEGRATION_01",
+      "name": "Salesforce CRM Procurement Sync",
+      "system_type": "SALESFORCE",
+      "consumed_endpoints": [
+        "/A_PurchaseOrder",
+        "/A_PurchaseOrder('{PurchaseOrder}')"
+      ],
+      "consumed_fields": {
+        "PurchaseOrder": [
+          "PurchaseOrderID",
+          "TaxJurisdictionCode",
+          "CompanyCode"
+        ]
+      },
+      "consumed_operations": {
+        "/A_PurchaseOrder('{PurchaseOrder}')": [
+          "DELETE",
+          "GET"
+        ]
+      }
+    }
+  ]
+}

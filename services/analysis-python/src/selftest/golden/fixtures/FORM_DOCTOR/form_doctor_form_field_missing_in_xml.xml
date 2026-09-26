@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+    <Header>
+        <InvoiceID>90001234</InvoiceID>
+        <InvoiceDate>2026-09-24</InvoiceDate>
+        <Supplier>
+            <ID>100045</ID>
+            <Name>Bosch Rexroth AG</Name>
+        </Supplier>
+        <TotalAmount Currency="EUR">14250.00</TotalAmount>
+        <PaymentTerms>NT30</PaymentTerms>
+    </Header>
+    <Items>
+        <Item>
+            <LineNumber>10</LineNumber>
+            <ProductDescription>Hydraulic Directional Valve</ProductDescription>
+            <Quantity>5</Quantity>
+            <NetPrice>2850.00</NetPrice>
+        </Item>
+    </Items>
+</Invoice>

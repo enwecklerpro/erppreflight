@@ -1,0 +1,39 @@
+{
+  "message_type": "MATMAS",
+  "target_message_type": "MATMAS",
+  "change_document_object": "MATERIAL",
+  "bd61_active": true,
+  "bd50_msg_types": [
+    "DEBMAS"
+  ],
+  "bd52_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ]
+  ],
+  "expected_fields": [
+    [
+      "MARA",
+      "MATKL"
+    ],
+    [
+      "MARA",
+      "MEINS"
+    ]
+  ],
+  "dd04l_metadata": {
+    "MARA-MATKL": {
+      "change_document_flag": true,
+      "data_element": "MATKL"
+    },
+    "MARA-MEINS": {
+      "change_document_flag": true,
+      "data_element": "MEINS"
+    }
+  }
+}

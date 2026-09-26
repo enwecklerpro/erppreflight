@@ -36,6 +36,7 @@ import { traceability } from './traceability';
 import { magicLink } from './magicLink';
 import { analysisRun } from './analysisRun';
 import { tenantAccess } from './tenantAccess';
+import { governance } from './governance';
 
 export const appEn = {
   ui,
@@ -80,6 +81,7 @@ export const appEn = {
   magicLink,
   analysisRun,
   tenantAccess,
+  governance,
 };
 
 export type AppMessages = typeof appEn;

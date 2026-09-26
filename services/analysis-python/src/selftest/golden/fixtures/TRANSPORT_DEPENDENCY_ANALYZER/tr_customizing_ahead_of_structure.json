@@ -1,0 +1,51 @@
+{
+  "description": "Customizing table keys transported without or ahead of Workbench structural table definition",
+  "transports": {
+    "DEVK900070": [
+      "TABL ZPRICING_CONFIG"
+    ],
+    "DEVK900080": [
+      "TABU ZPRICING_CONFIG"
+    ]
+  },
+  "e070": [
+    {
+      "trkorr": "DEVK900070",
+      "trfunction": "K",
+      "trstatus": "R",
+      "as4user": "ARCHITECT",
+      "as4date": "20260910",
+      "as4time": "100000"
+    },
+    {
+      "trkorr": "DEVK900080",
+      "trfunction": "W",
+      "trstatus": "R",
+      "as4user": "CONSULTANT",
+      "as4date": "20260912",
+      "as4time": "150000"
+    }
+  ],
+  "e071": [
+    {
+      "trkorr": "DEVK900070",
+      "pgmid": "R3TR",
+      "object": "TABL",
+      "obj_name": "ZPRICING_CONFIG"
+    }
+  ],
+  "e071k": [
+    {
+      "trkorr": "DEVK900080",
+      "pgmid": "R3TR",
+      "object": "TABU",
+      "obj_name": "ZPRICING_CONFIG",
+      "tablename": "ZPRICING_CONFIG",
+      "tabkey": "100*"
+    }
+  ],
+  "planned_sequence": [
+    "DEVK900080",
+    "DEVK900070"
+  ]
+}

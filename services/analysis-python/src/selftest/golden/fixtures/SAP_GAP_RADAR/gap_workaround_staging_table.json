@@ -1,0 +1,3 @@
+{
+  "requirement": "Load legacy price lists through a staging table and nightly batch job emulation"
+}

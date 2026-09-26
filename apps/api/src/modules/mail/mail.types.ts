@@ -20,7 +20,9 @@ export type MailTemplateId =
   | 'TRIAL_EXTENDED'
   | 'SUPPORT_TICKET_CREATED'
   | 'SUPPORT_TICKET_REPLY'
-  | 'SUPPORT_TICKET_STATUS_CHANGED';
+  | 'SUPPORT_TICKET_STATUS_CHANGED'
+  // Platform governance (source sync admin)
+  | 'KNOWLEDGE_SOURCE_STALE';
 
 export interface MailMessage {
   to: string;

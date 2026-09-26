@@ -1,0 +1,19 @@
+{
+  "field_name": "YY1_LONG_DESC",
+  "hops": [
+    {
+      "source_context": "MM_PURCHASE_ORDER_ITEM",
+      "target_context": "MM_SUPPLIER_INVOICE_ITEM"
+    }
+  ],
+  "field_definitions": {
+    "MM_PURCHASE_ORDER_ITEM": {
+      "type": "CHAR",
+      "length": 50
+    },
+    "MM_SUPPLIER_INVOICE_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    }
+  }
+}

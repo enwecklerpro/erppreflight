@@ -1,0 +1,19 @@
+{
+  "field_name": "ZPROJECT_CODE",
+  "hops": [
+    {
+      "source_context": "MM_PURCHASE_ORDER_ITEM",
+      "target_context": "MM_SUPPLIER_INVOICE_ITEM"
+    }
+  ],
+  "field_definitions": {
+    "MM_PURCHASE_ORDER_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    },
+    "MM_SUPPLIER_INVOICE_ITEM": {
+      "type": "CHAR",
+      "length": 20
+    }
+  }
+}

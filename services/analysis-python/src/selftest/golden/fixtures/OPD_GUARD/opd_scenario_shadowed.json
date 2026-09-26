@@ -1,0 +1,27 @@
+{
+  "scenario": {
+    "DocumentType": "NB",
+    "CompanyCode": "1000",
+    "PurchasingOrg": "DE01",
+    "Supplier": "100045"
+  },
+  "tables": {
+    "Channel": [
+      {
+        "row_number": 1,
+        "COND_DocumentType": "*",
+        "RESULT": "PRINT"
+      },
+      {
+        "row_number": 2,
+        "COND_DocumentType": "NB",
+        "RESULT": "EMAIL"
+      },
+      {
+        "row_number": 3,
+        "COND_DocumentType": "FO",
+        "RESULT": "EDI"
+      }
+    ]
+  }
+}
