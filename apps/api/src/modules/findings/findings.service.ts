@@ -391,48 +391,39 @@ export class FindingsService {
   }
 
   /**
-   * Part 15.7 & 15.8: Finding-to-Task Work Item Creation
-   * Dispatches finding remediation to real Cloud ALM / Jira connectors.
-   * Completely eliminates simulated task IDs and Math.random() calls.
+   * Part 15.7 & 15.8: Finding-to-Task Work Item Creation.
+   * Delegates to the connector framework (TraceabilityService → WorkItemsService):
+   * the work item is created in the selected, configured connector or the call
+   * reports NOT_CONFIGURED. No task ids are ever simulated.
    */
   async createWorkItem(
     tenantId: string,
     findingId: string,
     userId: string,
-    dto: {
-      system?: string;
-      title?: string;
-      process?: string;
-      tokenUrl?: string;
-      clientId?: string;
-      clientSecret?: string;
-      apiBaseUrl?: string;
-      jiraEmail?: string;
-      jiraApiToken?: string;
-    }
+    dto: { connectorId?: string; system?: string; confirm?: boolean; dryRun?: boolean }
   ) {
     const finding = await this.findById(tenantId, findingId);
-    const system = (dto.system || 'SAP_CLOUD_ALM').toUpperCase();
+    const system = dto.system ? dto.system.toUpperCase() : undefined;
 
     if (this.traceability) {
-      return await this.traceability.createRemediationTask(tenantId, finding.projectId, {
-        findingId: finding.id,
-        externalSystem: system as any,
-        tokenUrl: dto.tokenUrl,
-        clientId: dto.clientId,
-        clientSecret: dto.clientSecret,
-        apiBaseUrl: dto.apiBaseUrl,
-        jiraEmail: dto.jiraEmail,
-        jiraApiToken: dto.jiraApiToken,
-      });
+      return await this.traceability.createRemediationTask(
+        tenantId,
+        finding.projectId,
+        {
+          findingId: finding.id,
+          ...(dto.connectorId ? { connectorId: dto.connectorId } : {}),
+          ...(system ? { externalSystem: system } : {}),
+          confirm: dto.confirm === true,
+          dryRun: dto.dryRun === true,
+        },
+        userId
+      );
     }
 
-    // Default truthful response if TraceabilityService connector is unconfigured
     return {
       success: false,
-      status: 'CREDENTIALS_REQUIRED',
-      error: `External work management system '${system}' requires configured credentials.`,
-      externalSystem: system,
+      status: 'NOT_CONFIGURED',
+      error: 'The work item connector framework is not available in this deployment.',
       findingId: finding.id,
     };
   }

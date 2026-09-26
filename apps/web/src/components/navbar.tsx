@@ -31,6 +31,7 @@ import {
   LifeBuoy,
   Network,
   Bell,
+  Cable,
 } from 'lucide-react';
 import { NavMoreMenu, type NavLinkItem } from './nav-more-menu';
 import { NotificationsBell } from './notifications/notifications-bell';
@@ -69,7 +70,7 @@ export function Navbar() {
 
   // Part 01 §1.3: a short primary bar (Home, Projects, Analyze, Knowledge[, Reports])
   // and secondary areas in a menu. Items appear only when their page exists:
-  // Reports, Notifications, Integrations and Billing have no page yet.
+  // Reports has no page yet.
   // "Analyze" leads to the project workspaces, where the analysis launcher lives.
   const appPrimary: NavLinkItem[] = [
     { key: 'dashboard', label: t('nav.dashboard'), href: '/dashboard', icon: LayoutDashboard },
@@ -85,6 +86,7 @@ export function Navbar() {
     { key: 'notifications', label: t('nav.notifications'), href: '/notifications', icon: Bell },
     { key: 'landscapes', label: t('nav.landscapes'), href: '/landscapes', icon: Server },
     { key: 'agent-gate', label: t('nav.agentGate'), href: '/agent-gate', icon: Bot },
+    { key: 'integrations', label: t('nav.integrations'), href: '/integrations', icon: Cable },
     { key: 'matrix', label: t('nav.matrix'), href: '/matrix', icon: ShieldCheck },
     { key: 'settings', label: t('nav.settings'), href: '/settings', icon: Sliders },
     { key: 'billing', label: t('nav.billing'), href: '/settings/billing', icon: CreditCard },
@@ -137,7 +139,7 @@ export function Navbar() {
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
               <Layers className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
+            <span className="hidden sm:inline text-xl font-bold tracking-tight text-foreground whitespace-nowrap">
               ERP Preflight
             </span>
           </Link>
@@ -169,7 +171,7 @@ export function Navbar() {
           })}
         </nav>
 
-        <div className="flex items-center space-x-3 text-xs">
+        <div className="flex items-center space-x-2 sm:space-x-3 text-xs">
           <NavMoreMenu
             label={t('nav.more')}
             menuLabel={t('nav.secondary')}
@@ -201,7 +203,7 @@ export function Navbar() {
           <LanguageSwitcher />
 
           {currentUser ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <NotificationsBell />
               <OrganizationSwitcher homeOrganizationId={currentUser.organizationId} />
               <div className="hidden xl:flex flex-col items-end">

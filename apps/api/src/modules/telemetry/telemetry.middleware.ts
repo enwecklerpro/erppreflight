@@ -4,6 +4,7 @@ import { TelemetryService } from './telemetry.service';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { TenancyContext } from '@erppreflight/tenancy';
+import { runWithRequestContext } from '../../observability/request-context';
 
 @Injectable()
 export class TelemetryMiddleware implements NestMiddleware {
@@ -12,7 +13,10 @@ export class TelemetryMiddleware implements NestMiddleware {
 
   use(req: Request, res: Response, next: NextFunction) {
     const startTime = performance.now();
-    const requestId = uuidv4();
+    // Honour a well-formed upstream request id (reverse proxy), otherwise mint one.
+    const incomingId = req.headers['x-request-id'];
+    const requestId =
+      typeof incomingId === 'string' && /^[A-Za-z0-9._-]{8,128}$/.test(incomingId) ? incomingId : uuidv4();
 
     // 1. W3C TraceContext and X-Trace-Id resolution/injection
     let traceId = req.headers['x-trace-id'] as string;
@@ -44,7 +48,7 @@ export class TelemetryMiddleware implements NestMiddleware {
     // 2. Track duration and response status code upon response completion
     res.on('finish', () => {
       const elapsedMs = performance.now() - startTime;
-      this.telemetryService.recordHttpRequestDuration(elapsedMs);
+      this.telemetryService.recordHttpRequestDuration(elapsedMs, req.method, res.statusCode);
       this.telemetryService.incrementHttpRequests(req.method, res.statusCode);
 
       // Never throw from a 'finish' listener: an uncaught error here crashes the process.
@@ -52,8 +56,10 @@ export class TelemetryMiddleware implements NestMiddleware {
       
       const logData = {
         requestId,
+        traceId,
         method: req.method,
-        url: req.originalUrl || req.url,
+        // Query strings may carry tokens: log the path only.
+        url: String(req.originalUrl || req.url || '').split('?')[0],
         userAgent: req.headers['user-agent'],
         tenantId,
         statusCode: res.statusCode,
@@ -61,9 +67,13 @@ export class TelemetryMiddleware implements NestMiddleware {
         contentLength: res.get('content-length'),
       };
 
-      this.logger.log(JSON.stringify(logData));
+      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'log';
+      this.logger[level](JSON.stringify({ msg: 'request completed', ...logData }));
     });
 
-    next();
+    runWithRequestContext(
+      { requestId, traceId, method: req.method, path: String(req.originalUrl || req.url || '').split('?')[0] },
+      () => next()
+    );
   }
 }

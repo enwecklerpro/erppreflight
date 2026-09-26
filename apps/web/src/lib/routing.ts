@@ -31,6 +31,7 @@ export const AUTH_REQUIRED_PREFIXES = [
   '/artifacts',
   '/landscapes',
   '/agent-gate',
+  '/integrations',
   '/settings',
   '/admin',
   '/onboarding',

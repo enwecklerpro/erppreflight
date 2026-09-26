@@ -9,6 +9,7 @@ from src.core.runner import EngineRunner
 from src.models.enums import EngineType
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse
+from src.observability import engine_span
 
 router = APIRouter(prefix="/api/v1", tags=["Analysis"])
 logger = logging.getLogger("erppreflight.analysis.api")
@@ -17,16 +18,28 @@ logger = logging.getLogger("erppreflight.analysis.api")
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze_artifact(request: AnalysisRequest) -> AnalysisResponse:
     """Dispatches analysis execution to registered preflight engine."""
-    try:
-        return await EngineRunner.execute(request)
-    except EngineNotFoundError as e:
+    with engine_span(request.engine_type.value) as span:
+        try:
+            response = await EngineRunner.execute(request)
+        except Exception as e:
+            span.record_exception(e)
+            if not isinstance(e, EngineNotFoundError):
+                logger.exception("analysis execution failed for job %s", request.job_id)
+            return _raise_http(e)
+        span.set_attribute("erppreflight.analysis.status", str(response.status.value))
+        span.set_attribute("erppreflight.findings.count", len(response.findings))
+        if response.metrics is not None:
+            span.set_attribute("erppreflight.execution_ms", int(response.metrics.execution_time_ms or 0))
+        return response
+
+
+def _raise_http(e: Exception) -> AnalysisResponse:
+    if isinstance(e, EngineNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except Exception:  # noqa: BLE001 — log internally, never leak exception text to callers
-        logger.exception("analysis execution failed for job %s", request.job_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Analysis execution failed due to an internal error.",
-        )
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Analysis execution failed due to an internal error.",
+    )
 
 
 def _catalog_summary(entries: List[Dict[str, Any]]) -> Dict[str, Any]:

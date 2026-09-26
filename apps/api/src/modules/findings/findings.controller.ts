@@ -286,7 +286,7 @@ export class FindingsController {
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,
     @Param('id') id: string,
-    @Body() body: { system?: string; title?: string; process?: string }
+    @Body() body: { connectorId?: string; system?: string; confirm?: boolean; dryRun?: boolean }
   ) {
     return this.findingsService.createWorkItem(tenantId, id, userId, body || {});
   }
