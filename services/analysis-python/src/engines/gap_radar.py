@@ -17,6 +17,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -31,6 +34,8 @@ from src.models.request import AnalysisRequest
 from src.models.response import AnalysisMetrics, AnalysisResponse
 from src.platform.confidence import ConfidenceClassifier
 from src.platform.evidence import EvidenceEngine
+from src.core.exceptions import EngineInputError
+from src.parsers.json_input import parse_json_payload
 
 
 class ResolutionTier(int, Enum):
@@ -149,12 +154,96 @@ def _locate_token_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Opt
     return None, None, ""
 
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+from pydantic import model_validator
+
+
+def _gap(verdict: str, title: str, sev: Severity, remediation: str) -> RuleSpec:
+    return RuleSpec(f"GAP_RADAR_{verdict}", title, sev, remediation, "MIGRATION_CLEAN_CORE")
+
+
+RULES = rule_catalog(
+    _gap("SUPPORTED_STANDARD", "Requirement met by standard scope item (tier 1)", Severity.INFO,
+         "Activate the SAP Best Practices scope item; do not build custom objects for this requirement."),
+    _gap("SUPPORTED_CONFIGURATION", "Requirement met by configuration (tier 2)", Severity.INFO,
+         "Configure via the SSCUI / Central Business Configuration activity; record it in the configuration "
+         "workbook."),
+    _gap("SUPPORTED_KEY_USER", "Requirement met by key-user extensibility (tier 3)", Severity.INFO,
+         "Implement with Custom Fields / Custom Logic / Custom CDS Views apps and transport via Software "
+         "Collections."),
+    _gap("SUPPORTED_DEVELOPER_EXTENSIBILITY", "Requirement met by developer extensibility (tier 4/7)",
+         Severity.INFO,
+         "Implement in ABAP Cloud (RAP / released BAdI) in a tier-1 software component; no classic enhancements."),
+    _gap("SUPPORTED_RELEASED_CDS", "Requirement met by released CDS views (tier 5)", Severity.INFO,
+         "Consume the released (C1) CDS view; never read the underlying tables."),
+    _gap("SUPPORTED_RELEASED_API", "Requirement met by released API (tier 6)", Severity.INFO,
+         "Use the released OData/SOAP API with a Communication Arrangement."),
+    _gap("SUPPORTED_BUSINESS_EVENT", "Requirement met by business events (tier 8)", Severity.INFO,
+         "Subscribe to the released business event via SAP Event Mesh / Advanced Event Mesh (Enterprise Event "
+         "Enablement)."),
+    _gap("SUPPORTED_SIDE_BY_SIDE", "Requirement met side-by-side on SAP BTP (tier 9)", Severity.INFO,
+         "Build the extension on SAP BTP (CAP / Build Apps) using released APIs and events."),
+    _gap("SUPPORTED_WORKAROUND", "Requirement only met by a workaround (tier 10)", Severity.MINOR,
+         "Document the workaround, its owner and an exit plan; re-check at every release."),
+    _gap("BLOCKED_CLEAN_CORE_VIOLATION", "Requirement implies a Clean Core violation (tier 11)", Severity.CRITICAL,
+         "Direct table writes / modifications are not possible in the cloud; redesign against released APIs, "
+         "RAP business objects or BAdIs."),
+    _gap("KNOWN_PRODUCT_GAP", "Known product gap (tier 11)", Severity.MAJOR,
+         "Track the SAP roadmap item, raise an influence request, or cover the gap with a BTP extension."),
+    _gap("UNKNOWN_REQUIREMENT", "Requirement could not be classified (tier 12)", Severity.MINOR,
+         "Refine the requirement statement (process, object, integration point) and re-run, or assess manually."),
+)
+
+
+class GapRequirementsInput(ContractModel):
+    """Requirements JSON: {'requirements': [...]}, a single {'requirement': '…'} / {'text': '…'} or a list."""
+    requirements: Optional[List[Any]] = None
+    requirement: Optional[str] = None
+    text: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_requirement(self) -> "GapRequirementsInput":
+        for r in self.requirements or []:
+            if isinstance(r, str) and r.strip():
+                return self
+            if isinstance(r, dict) and str(r.get("requirement") or "").strip():
+                return self
+        if (self.requirement or "").strip() or (self.text or "").strip():
+            return self
+        raise insufficient("No requirement statement supplied ('requirement', 'text' or 'requirements').")
+
+
+def _gap_text_check(text: str) -> Optional[str]:
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    if len(words) < 3:
+        return "a plain-text requirement must be a statement of at least three words."
+    return None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON, InputFormat.TEXT),
+    summary=(
+        "Business / technical requirement statements: JSON {'requirements': [{'requirement': '…', 'scope_items': "
+        "[...]}]}, {'requirement': '…'}, a JSON list, or a plain-text requirement statement."
+    ),
+    required=("At least one non-empty requirement statement",),
+    json_model=GapRequirementsInput,
+    json_array_field="requirements",
+    text_check=_gap_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class GapRadarEngine(BaseEngine):
     """Engine resolving customer requirements against SAP Cloud Clean Core hierarchy."""
 
     engine_type = EngineType.SAP_GAP_RADAR
     rule_prefix = "GAP_RADAR"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "SAP Gap Radar"
     description = "Fit-to-standard vs custom delta analyzer with Clean Core recommendations"
     version = "1.0.0"
@@ -495,29 +584,28 @@ class GapRadarEngine(BaseEngine):
 
         # Parse requirements from raw_text or configuration
         items: List[RequirementItem] = []
-        if raw_text:
-            try:
-                parsed = json.loads(raw_text)
-                if isinstance(parsed, dict):
-                    if "requirements" in parsed and isinstance(parsed["requirements"], list):
-                        for r in parsed["requirements"]:
-                            if isinstance(r, dict):
-                                items.append(RequirementItem(**r))
-                            elif isinstance(r, str):
-                                items.append(RequirementItem(requirement=r))
-                    elif "requirement" in parsed:
-                        items.append(RequirementItem(**parsed))
-                    elif "text" in parsed:
-                        items.append(RequirementItem(requirement=parsed["text"]))
-                elif isinstance(parsed, list):
-                    for r in parsed:
+        if raw_text and raw_text[:1] in ("{", "["):
+            parsed = parse_json_payload(raw_text, self.rule_prefix)
+            if isinstance(parsed, dict):
+                if "requirements" in parsed and isinstance(parsed["requirements"], list):
+                    for r in parsed["requirements"]:
                         if isinstance(r, dict):
                             items.append(RequirementItem(**r))
                         elif isinstance(r, str):
                             items.append(RequirementItem(requirement=r))
-            except Exception:
-                # Plain text requirement statement
-                items.append(RequirementItem(requirement=raw_text))
+                elif "requirement" in parsed:
+                    items.append(RequirementItem(**parsed))
+                elif "text" in parsed:
+                    items.append(RequirementItem(requirement=parsed["text"]))
+            elif isinstance(parsed, list):
+                for r in parsed:
+                    if isinstance(r, dict):
+                        items.append(RequirementItem(**r))
+                    elif isinstance(r, str):
+                        items.append(RequirementItem(requirement=r))
+        elif raw_text:
+            # Plain text requirement statement
+            items.append(RequirementItem(requirement=raw_text))
 
         if not items and request.configuration:
             cfg = request.configuration
@@ -530,8 +618,12 @@ class GapRadarEngine(BaseEngine):
                     elif isinstance(r, str):
                         items.append(RequirementItem(requirement=r))
 
+        items = [it for it in items if it.requirement and it.requirement.strip()]
         if not items:
-            items.append(RequirementItem(requirement=""))
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No requirement statement supplied; nothing can be classified against the Clean Core tiers.",
+            )
 
         primary_tier = ResolutionTier.TIER_12_UNKNOWN
         primary_verdict = "UNKNOWN_REQUIREMENT"

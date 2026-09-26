@@ -1,9 +1,14 @@
 import json
+import logging
+import os
+import threading
 import time
+import tracemalloc
 from typing import Any, Dict, List, Optional
 
 from src.config import get_settings
 from src.core.base_engine import BaseEngine
+from src.core.contracts import validate_request_input
 from src.core.exceptions import EngineInputError
 from src.core.registry import EngineRegistry
 from src.models.enums import AnalysisStatus, ConfidenceClass, Severity, TrustLevel
@@ -25,6 +30,48 @@ OPTION_CONFIG_KEYS = frozenset({
     "artifact_path", "file_name",
     "evaluation_date", "snapshot_date",
 })
+
+
+logger = logging.getLogger("erppreflight.analysis.runner")
+
+
+class UndeclaredRuleError(AssertionError):
+    """Raised in strict mode when an engine emits a finding code missing from its declared catalog."""
+
+
+def _strict_rule_catalog() -> bool:
+    return os.environ.get("ERPP_STRICT_RULE_CATALOG", "").strip().lower() in ("1", "true", "yes")
+
+
+class _MemoryTracer:
+    """Reference-counted tracemalloc session so concurrent analyses share one trace (Axiom 2 #11).
+
+    Peak memory is process-wide while tracing is active; with concurrent requests it is an upper bound
+    for the individual analysis."""
+
+    _lock = threading.Lock()
+    _active = 0
+    _owned = False
+
+    @classmethod
+    def start(cls) -> None:
+        with cls._lock:
+            if cls._active == 0:
+                if not tracemalloc.is_tracing():
+                    tracemalloc.start()
+                    cls._owned = True
+                tracemalloc.reset_peak()
+            cls._active += 1
+
+    @classmethod
+    def stop(cls) -> int:
+        with cls._lock:
+            peak = tracemalloc.get_traced_memory()[1] if tracemalloc.is_tracing() else 0
+            cls._active = max(0, cls._active - 1)
+            if cls._active == 0 and cls._owned:
+                tracemalloc.stop()
+                cls._owned = False
+            return int(peak)
 
 
 def _has_structured_config(configuration: Dict[str, Any]) -> bool:
@@ -75,8 +122,19 @@ class EngineRunner:
 
     @classmethod
     async def execute(cls, request: AnalysisRequest) -> AnalysisResponse:
-        start_time = time.perf_counter()
         engine = EngineRegistry.get(request.engine_type)
+        start_time = time.perf_counter()
+        _MemoryTracer.start()
+        peak = 0
+        try:
+            response = await cls._execute(request, engine, start_time)
+        finally:
+            peak = _MemoryTracer.stop()
+        cls._record_telemetry(engine, response, start_time, peak)
+        return response
+
+    @classmethod
+    async def _execute(cls, request: AnalysisRequest, engine: BaseEngine, start_time: float) -> AnalysisResponse:
         settings = get_settings()
         prefix = engine.get_rule_prefix()
 
@@ -113,6 +171,8 @@ class EngineRunner:
             ), settings)
 
         try:
+            # Explicit per-engine input contract (formats + Pydantic model) before any rule runs.
+            validate_request_input(engine, request)
             response = await engine.analyze(request)
         except EngineInputError as e:
             return cls._finalize(request, cls._input_failure(
@@ -120,9 +180,13 @@ class EngineRunner:
                 line_number=e.line_number, column_number=e.column_number, details=e.details,
             ), settings)
         except Exception as e:  # noqa: BLE001 — never leak raw exception text to callers
+            logger.warning(
+                "engine %s rejected input for job %s: %s", engine.engine_type.value, request.job_id,
+                type(e).__name__,
+            )
             return cls._finalize(request, cls._input_failure(
                 request, engine, f"{prefix}_INVALID_INPUT",
-                f"Input could not be processed: unexpected payload shape ({type(e).__name__}).",
+                "Input could not be processed: the payload does not have the structure this engine requires.",
                 start_time,
             ), settings)
 
@@ -163,6 +227,25 @@ class EngineRunner:
     # ------------------------------------------------------------------
     @classmethod
     def _finalize(cls, request: AnalysisRequest, response: AnalysisResponse, settings) -> AnalysisResponse:
+        # Axiom 2 #5/#14: every emitted code must be declared in the engine's rule catalog, and every
+        # finding carries remediation text (catalog text fills an empty engine-specific remediation).
+        engine = EngineRegistry.get(request.engine_type)
+        catalog = engine.get_rule_catalog()
+        undeclared = sorted({f.rule_id for f in response.findings if f.rule_id not in catalog})
+        if undeclared:
+            if _strict_rule_catalog():
+                raise UndeclaredRuleError(
+                    f"{engine.engine_type.value} emitted undeclared finding codes: {undeclared}"
+                )
+            logger.error("engine %s emitted undeclared finding codes %s", engine.engine_type.value, undeclared)
+            if response.metrics is None:
+                response.metrics = AnalysisMetrics()
+            response.metrics.additional_metrics["undeclaredRuleIds"] = undeclared
+        for finding in response.findings:
+            spec = catalog.get(finding.rule_id)
+            if spec is not None and not (finding.remediation or "").strip():
+                finding.remediation = spec.remediation
+
         # H5: secret redaction on every evidence snippet before anything leaves the service
         redactor = SecretRedactionEngine(tenant_id=request.tenant_id)
         for finding in response.findings:
@@ -198,6 +281,32 @@ class EngineRunner:
             finding.fingerprint = fp
             finding.id = compute_finding_id(fp, request.job_id, ordinal)
         return response
+
+    @classmethod
+    def _record_telemetry(cls, engine: BaseEngine, response: AnalysisResponse, start_time: float, peak: int) -> None:
+        """Axiom 2 #11: duration, peak memory, rules evaluated, finding count and unknown-finding rate."""
+        if response.metrics is None:
+            response.metrics = AnalysisMetrics()
+        m = response.metrics
+        m.execution_time_ms = int((time.perf_counter() - start_time) * 1000)
+        total = len(response.findings)
+        unknown = sum(1 for f in response.findings if f.confidence == ConfidenceClass.UNKNOWN)
+        m.peak_memory_bytes = peak
+        m.finding_count = total
+        m.unknown_finding_count = unknown
+        m.unknown_finding_rate = round(unknown / total, 4) if total else 0.0
+        m.rules_declared = len(engine.finding_codes)
+        m.additional_metrics["telemetry"] = {
+            "durationMs": m.execution_time_ms,
+            "peakMemoryBytes": peak,
+            "rulesEvaluated": m.rules_evaluated,
+            "rulesDeclared": m.rules_declared,
+            "findingCount": total,
+            "unknownFindingCount": unknown,
+            "unknownFindingRate": m.unknown_finding_rate,
+            "engineVersion": engine.version,
+            "status": response.status.value,
+        }
 
     @classmethod
     def _input_failure(

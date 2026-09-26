@@ -23,12 +23,16 @@ import csv
 import hashlib
 import io
 import json
+import re
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     EngineType,
@@ -43,6 +47,7 @@ from src.models.evidence import Evidence
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.platform.confidence import ConfidenceClassifier
+from src.core.exceptions import EngineInputError
 
 
 # ============================================================================
@@ -558,8 +563,9 @@ class EccArtifactParser:
                                 artifact_path=artifact_path,
                             ))
                 return items
-            except Exception:
-                pass
+            except (ValueError, RecursionError, TypeError, AttributeError):
+                # Malformed JSON is never re-read as CSV lines; the contract reports ECC_PARSE_ERROR.
+                return []
 
         # Case 2: Delimited CSV / TSV
         sample_line = next((line_item for line_item in clean.splitlines() if not line_item.strip().startswith("#") and line_item.strip()), (clean.splitlines()[0] if clean.splitlines() else ""))
@@ -700,10 +706,115 @@ class EccArtifactParser:
 # 4. ECC2CLOUD NAVIGATOR ENGINE IMPLEMENTATION
 # ============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+from pydantic import model_validator
+
+RULES = rule_catalog(
+    RuleSpec(
+        "ECC_TCODE_SUCCESSOR_FOUND", "Fiori / cloud successor available for transaction", Severity.INFO,
+        "Plan user adoption of the listed Fiori successor app and assign the business role/catalog; retire the "
+        "classic transaction from roles.", "Fiori Modernization",
+    ),
+    RuleSpec(
+        "ECC_TCODE_OBSOLETE_REDESIGN", "Transaction requires process redesign or is not in the cloud catalog",
+        Severity.MAJOR,
+        "Run a fit-to-standard workshop for the process behind the transaction; map it to the named successor "
+        "concept or a standard Fiori app, otherwise to a BTP extension.", "Process Redesign",
+    ),
+    RuleSpec(
+        "ECC_TCODE_NO_EQUIVALENT_BLOCKER", "Classic transaction prohibited in S/4HANA Cloud", Severity.BLOCKER,
+        "The transaction (e.g. SE38, SM30-based maintenance) has no cloud equivalent; move the use case to ADT / "
+        "ABAP Cloud development, key-user apps or SAP BTP.", "Migration Blocker",
+    ),
+    RuleSpec(
+        "ECC_TCODE_CUSTOM_CODE_REVIEW", "Custom Z/Y transaction needs Clean Core review", Severity.MAJOR,
+        "Re-implement the custom dynpro as a RAP-based Fiori Elements app in ABAP Cloud (tier 1) or a BTP "
+        "side-by-side extension; run the Clean Core Object Guard on its source.", "Clean Core Custom Code",
+    ),
+    RuleSpec(
+        "ECC_BAPI_RFC_MODERNIZATION_FOUND", "Released API successor for BAPI/RFC interface", Severity.INFO,
+        "Re-point the integration to the listed released OData/SOAP API (Communication Arrangement) before "
+        "cut-over.", "Interface Modernization",
+    ),
+    RuleSpec(
+        "ECC_BAPI_RFC_UNRELEASED_BLOCKER", "Unreleased BAPI / RFC interface", Severity.MAJOR,
+        "Unreleased RFC/BAPI calls are not permitted from outside in S/4HANA Cloud; migrate the caller to a "
+        "released API (api.sap.com) or wrap the logic in a custom released OData service.",
+        "Interface Modernization",
+    ),
+    RuleSpec(
+        "ECC_IDOC_MODERNIZATION_EVENT_MESH", "IDoc interface has an event / API successor", Severity.INFO,
+        "Replace the IDoc with the listed business event (SAP Event Mesh / Advanced Event Mesh) or released API "
+        "and adapt the middleware mapping.", "Interface Modernization",
+    ),
+    RuleSpec(
+        "ECC_IDOC_UNSUPPORTED_BLOCKER", "IDoc type not supported in the cloud target", Severity.BLOCKER,
+        "Redesign the integration with a released API or event; the IDoc basic type cannot be used in the target "
+        "edition.", "Interface Modernization",
+    ),
+)
+
+_ECC_NAME_KEYS = ("object_name", "tcode", "transaction", "name", "interface")
+
+
+class EccUsageInput(ContractModel):
+    """ST03N usage / interface inventory as JSON rows (list, or {'items'|'usage'|'objects': [...]})."""
+    items: Optional[List[Any]] = None
+    usage: Optional[List[Any]] = None
+    objects: Optional[List[Any]] = None
+
+    @model_validator(mode="after")
+    def _require_objects(self) -> "EccUsageInput":
+        rows = self.items or self.usage or self.objects or [self.model_extra or {}]
+        for row in rows:
+            if isinstance(row, dict) and any(str(row.get(k) or "").strip() for k in _ECC_NAME_KEYS):
+                return self
+        raise insufficient(
+            "No transactions or interfaces found: each row needs 'tcode' / 'transaction' / 'object_name' / "
+            "'name' / 'interface'."
+        )
+
+
+_ECC_LINE = re.compile(r"^[A-Za-z0-9_/]{2,60}(\s+\d+)?$")
+
+
+def _ecc_text_check(text: str) -> Optional[str]:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if not lines:
+        return "no transaction codes found."
+    bad = next((i for i, ln in enumerate(lines, 1) if not _ECC_LINE.match(ln)), None)
+    if bad is not None:
+        return (
+            "plain-text input must list one transaction code / interface name per line, optionally followed by "
+            f"an execution count (line {bad} does not match)."
+        )
+    return None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.CSV, InputFormat.JSON, InputFormat.TEXT),
+    summary=(
+        "ST03N / SUIM usage export: CSV with a TCode / Transaction / object_name column (optional "
+        "ExecutionCount, AvgResponseTimeMs, UserCount), interface inventory JSON rows {name, type, executions}, "
+        "or 'TCODE [count]' lines."
+    ),
+    required=("At least one transaction code or interface name",),
+    json_model=EccUsageInput,
+    json_array_field="items",
+    csv_signal_columns=("TCode", "Transaction", "object_name", "interface_name", "name", "object", "Report"),
+    text_check=_ecc_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class ECC2CloudEngine(BaseEngine):
     engine_type = EngineType.ECC2CLOUD_NAVIGATOR
     rule_prefix = "ECC"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "ECC2Cloud Navigator"
     description = "Custom code remediation, obsolete transaction / table migration roadmap"
     version = "2.0.0"
@@ -721,6 +832,12 @@ class ECC2CloudEngine(BaseEngine):
         for art in request.artifacts:
             if art.raw_content:
                 raw_items.extend(EccArtifactParser.parse(art.raw_content, art.file_name))
+
+        if not raw_items:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No transactions or interfaces could be read from the payload; no migration verdict produced.",
+            )
 
         # Metrics counters
         total_objects = len(raw_items)

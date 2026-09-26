@@ -17,6 +17,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     AnalysisStatus,
@@ -172,12 +175,89 @@ def _locate_line_in_text(raw_text: str, token: str) -> Tuple[Optional[int], Opti
     return None, None, ""
 
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+from pydantic import model_validator
+
+RULES = rule_catalog(
+    RuleSpec(
+        "FIELD_NAME_INVALID_PREFIX", "Custom field name violates key-user naming", Severity.MAJOR,
+        "Key-user custom fields must use the YY1_ prefix (developer extensibility: ZZ1_). Recreate the field in "
+        "the 'Custom Fields' app with a compliant technical name and migrate data before transport.",
+        "EXTENSIBILITY_GOVERNANCE",
+    ),
+    RuleSpec(
+        "FIELD_MISSING_TARGET_CONTEXT", "Custom field not enabled in target business context", Severity.CRITICAL,
+        "In the 'Custom Fields' app open the field, tab 'UIs and Reports' / 'Business Scenarios', and enable it "
+        "for the target business context; publish the field again.", "DATA_MODEL_INTEGRITY",
+    ),
+    RuleSpec(
+        "FIELD_TYPE_MISMATCH", "Incompatible field type or length across a propagation hop", Severity.MAJOR,
+        "Align type and length of the custom field in both business contexts (a key-user field cannot change "
+        "type after publishing — create a new field and migrate), otherwise values are truncated or rejected.",
+        "DATA_MODEL_INTEGRITY",
+    ),
+    RuleSpec(
+        "FIELD_PROPAGATION_BLOCKED", "Custom field cannot propagate across this hop", Severity.CRITICAL,
+        "Activate the SAP-delivered business scenario for the hop (Custom Fields > Business Scenarios) or route "
+        "the value through the supported intermediate document contexts.", "DOCUMENT_FLOW",
+    ),
+    RuleSpec(
+        "FIELD_BADI_REQUIRED_NOT_FOUND", "Required Cloud BAdI implementation missing", Severity.MAJOR,
+        "Implement and publish the listed Cloud BAdI in the 'Custom Logic' app so the field value is copied "
+        "into the target context (e.g. BADI_FINS_ACDOC_EXT_PERSISTENCE for journal entry items).", "CUSTOM_LOGIC",
+    ),
+    RuleSpec(
+        "FIELD_PROPAGATION_REQUIRES_BADI", "Propagation relies on custom BAdI logic", Severity.INFO,
+        "Keep the BAdI implementation under regression test; it must be re-validated after every upgrade.",
+        "CUSTOM_LOGIC",
+    ),
+)
+
+
+class CustomFieldFlowInput(ContractModel):
+    """Custom field registry entry with its propagation hops."""
+    field_name: Optional[str] = None
+    id: Optional[str] = None
+    hops: Optional[List[Any]] = None
+    field_definitions: Optional[Dict[str, Any]] = None
+    active_scenarios: Optional[List[Any]] = None
+    active_badis: Optional[List[Any]] = None
+    badi_implementations: Optional[List[Any]] = None
+
+    @model_validator(mode="after")
+    def _require_field_and_flow(self) -> "CustomFieldFlowInput":
+        if not (self.field_name or self.id):
+            raise insufficient("No custom field supplied: provide 'field_name'.")
+        if not self.hops and not self.field_definitions:
+            raise insufficient(
+                "No propagation data supplied: provide 'hops' and/or per-context 'field_definitions' for the field."
+            )
+        return self
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.JSON,),
+    summary=(
+        "Custom field registry JSON: {'field_name': 'YY1_…', 'hops': [{source_context, target_context, …}], "
+        "'field_definitions': {context: {data_type, length, …}}, 'active_scenarios': [...], "
+        "'badi_implementations': [...]}."
+    ),
+    required=("field_name", "hops or field_definitions"),
+    json_model=CustomFieldFlowInput,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class CustomFieldFlowEngine(BaseEngine):
     """Engine verifying custom field lineage, hop compatibility, and BAdI requirements."""
 
     engine_type = EngineType.CUSTOM_FIELD_FLOW_DOCTOR
     rule_prefix = "FIELD"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
     name = "Custom Field Flow Doctor"
     description = "Extension field lineage from CDS views through BAPIs to UI annotations"
     version = "1.0.0"
