@@ -10,7 +10,7 @@ import { DatabaseService } from '../database/database.service';
  * Progress bookkeeping is best-effort: a failed write is logged and never fails or
  * alters the analysis itself.
  */
-export type ProgressEventStatus = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+export type ProgressEventStatus = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
 
 export interface ProgressState {
   stages: Record<AnalysisStage, StageSnapshot>;
@@ -43,7 +43,7 @@ export function computePercent(state: ProgressState): number {
     if (!snap) continue;
     if (snap.state === 'COMPLETED' || snap.state === 'SKIPPED' || snap.state === 'FAILED') {
       total += STAGE_WEIGHTS[s];
-    } else if (snap.state === 'RUNNING') {
+    } else if (snap.state === 'RUNNING' || snap.state === 'CANCELLED') {
       const done = Number((snap.detail as any)?.done);
       const of = Number((snap.detail as any)?.total);
       if (Number.isFinite(done) && Number.isFinite(of) && of > 0) {
@@ -118,6 +118,10 @@ export function applyTransition(
       break;
     case 'FAILED':
       next.stages[stage] = { ...prev, state: 'FAILED', startedAt: prev.startedAt ?? at, finishedAt: at, ...(mergedDetail ? { detail: mergedDetail } : {}) };
+      next.currentStage = stage;
+      break;
+    case 'CANCELLED':
+      next.stages[stage] = { ...prev, state: 'CANCELLED', startedAt: prev.startedAt ?? at, finishedAt: at, ...(mergedDetail ? { detail: mergedDetail } : {}) };
       next.currentStage = stage;
       break;
   }
@@ -197,6 +201,18 @@ export class AnalysisProgressTracker {
       this.state.currentStage ??
       'PARSING';
     return this.record(target, 'FAILED', { reason: reason.slice(0, 300) });
+  }
+
+  /**
+   * Marks the run as cancelled on the stage that was executing (or, for a run that never
+   * started, the first stage still pending). Later stages stay PENDING.
+   */
+  cancel(reason: string) {
+    const target =
+      ANALYSIS_STAGES.find((s) => this.state.stages[s]?.state === 'RUNNING') ??
+      ANALYSIS_STAGES.find((s) => this.state.stages[s]?.state === 'PENDING') ??
+      'FINALIZING';
+    return this.record(target, 'CANCELLED', { reason: reason.slice(0, 300), cancelled: true });
   }
 
   private async record(stage: AnalysisStage, status: ProgressEventStatus, detail?: Record<string, unknown>) {

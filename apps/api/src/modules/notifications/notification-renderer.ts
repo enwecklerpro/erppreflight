@@ -78,6 +78,12 @@ function uuidOrNull(v: unknown): string | null {
   return typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
 }
 
+/** Deep link to the analysis detail page (falls back to the project workspace). */
+function analysisLink(projectId: string | null, analysisId: string | null): string | null {
+  if (!projectId) return null;
+  return analysisId ? `/projects/${projectId}/analyses/${analysisId}` : `/projects/${projectId}`;
+}
+
 export function renderNotification(
   eventType: string,
   aggregateId: string,
@@ -95,7 +101,7 @@ export function renderNotification(
             ? `Analysis partially completed: ${total} finding${total === 1 ? '' : 's'}`
             : `Analysis completed: ${total} finding${total === 1 ? '' : 's'}`,
         body: `Engines: ${(payload.engineTypes ?? []).join(', ') || 'n/a'}. Target release: ${payload.targetRelease ?? 'n/a'}.`,
-        link: projectId ? `/projects/${projectId}` : null,
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: Array.isArray(payload.engineTypes) && payload.engineTypes.length === 1 ? String(payload.engineTypes[0]) : null,
         resourceType: 'ANALYSIS',
@@ -109,8 +115,8 @@ export function renderNotification(
       return {
         severity: 'MAJOR',
         title: 'Analysis failed',
-        body: str(payload.reason) ?? 'The analysis could not be completed. Open the project to review the run and retry.',
-        link: projectId ? `/projects/${projectId}` : null,
+        body: str(payload.reason) ?? 'The analysis could not be completed. Open the run to review the error and re-run it.',
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: null,
         resourceType: 'ANALYSIS',
@@ -131,7 +137,7 @@ export function renderNotification(
         severity: blocker > 0 ? 'BLOCKER' : 'CRITICAL',
         title: `${parts.join(' and ')} finding${blocker + critical === 1 ? '' : 's'} detected`,
         body: `Engines: ${(payload.engines ?? []).join(', ') || 'n/a'}. Review them before the next release gate.`,
-        link: projectId ? `/projects/${projectId}` : null,
+        link: analysisLink(projectId, uuidOrNull(payload.analysisId) ?? uuidOrNull(aggregateId)),
         projectId,
         engine: Array.isArray(payload.engines) && payload.engines.length === 1 ? String(payload.engines[0]) : null,
         resourceType: 'ANALYSIS',

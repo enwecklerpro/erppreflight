@@ -21,7 +21,7 @@ export class SapImportService {
   ): Promise<string> {
     const existing = await this.db.query(
       `SELECT id FROM analyses
-       WHERE organization_id = $1 AND project_id = $2 AND status = 'COMPLETED'
+       WHERE organization_id = $1 AND project_id = $2 AND status = 'COMPLETED' AND kind IN ('STANDARD', 'FULL_PREFLIGHT')
        ORDER BY created_at DESC LIMIT 1`,
       [organizationId, projectId]
     );

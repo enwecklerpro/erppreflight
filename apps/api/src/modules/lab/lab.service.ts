@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
@@ -24,6 +25,15 @@ import {
 } from '@erppreflight/schemas';
 import * as crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { LabAnalysisHandle, LabAnalysisRecorder } from './lab-analysis-recorder';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Options of a scenario execution that are not part of the scenario API contract. */
+export interface ScenarioRunOptions {
+  userId?: string | null;
+  rerunOfAnalysisId?: string | null;
+}
 
 export interface ExpectedFindingDef {
   ruleId: string;
@@ -76,12 +86,15 @@ export interface LabRunAssertionResult {
   payloadSha256: string;
   assertionLedger: LabAssertionItem[];
   findings: Finding[];
+  /** Test Lab analysis (kind LAB_SCENARIO) recording this run, when it ran inside a project. */
+  analysisId?: string | null;
 }
 
 @Injectable()
 export class LabService {
   private readonly logger = new Logger(LabService.name);
   private readonly analysisUrl: string;
+  private readonly recorder: LabAnalysisRecorder;
 
   constructor(
     private readonly db: DatabaseService,
@@ -91,6 +104,90 @@ export class LabService {
       this.config?.get<string>('ANALYSIS_SERVICE_URL') ||
       process.env.ANALYSIS_SERVICE_URL ||
       'http://localhost:8000';
+    this.recorder = new LabAnalysisRecorder(db, this.logger);
+  }
+
+  /**
+   * Starts the run-history record (kind LAB_SCENARIO) for a scenario executed inside a real
+   * project of the tenant; ad-hoc runs without a project are not recorded.
+   */
+  private async beginScenarioAnalysis(
+    dto: RunScenarioDto,
+    tenantId: string | undefined,
+    projectId: string | undefined,
+    engineType: EngineType,
+    targetRelease: TargetRelease,
+    options: ScenarioRunOptions
+  ): Promise<LabAnalysisHandle | null> {
+    if (!tenantId || !projectId || !UUID_RE.test(projectId)) return null;
+    const project = await this.db.query(`SELECT id FROM projects WHERE id = $1 AND organization_id = $2`, [projectId, tenantId], {
+      tenantId,
+    });
+    if (!project?.rows?.length) return null;
+    const scenarioId = dto.scenarioId && UUID_RE.test(dto.scenarioId) ? dto.scenarioId : null;
+    return this.recorder.begin({
+      organizationId: tenantId,
+      projectId,
+      userId: options.userId ?? null,
+      kind: 'LAB_SCENARIO',
+      engineTypes: [engineType],
+      targetRelease,
+      files: [],
+      total: 1,
+      trigger: options.rerunOfAnalysisId ? 'RERUN' : 'MANUAL',
+      scenarioId,
+      rerunOfAnalysisId: options.rerunOfAnalysisId ?? null,
+    });
+  }
+
+  /**
+   * Re-runs a LAB_SCENARIO analysis with the persisted scenario (payload + expected findings).
+   * Ad-hoc payloads are not stored, so their runs cannot be re-run (409).
+   */
+  async rerunScenarioAnalysis(
+    tenantId: string,
+    userId: string,
+    source: { id: string; projectId: string; scenarioId: string | null; targetRelease: string | null }
+  ): Promise<{ analysisId: string; status: string; engineTypes: string[]; targetRelease: string | null }> {
+    if (!source.scenarioId) {
+      throw new ConflictException({
+        code: 'RERUN_INPUTS_UNAVAILABLE',
+        message: 'This Test Lab run used an ad-hoc payload that is not stored; generate or save the scenario and run it again.',
+      });
+    }
+    const res = await this.db.query(
+      `SELECT id, project_id, domain, payload, expected_findings FROM synthetic_scenarios WHERE id = $1 AND organization_id = $2`,
+      [source.scenarioId, tenantId],
+      { tenantId }
+    );
+    const sc = res?.rows?.[0];
+    if (!sc) {
+      throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The scenario of this Test Lab run no longer exists.' });
+    }
+    const expected =
+      typeof sc.expected_findings === 'string' ? JSON.parse(sc.expected_findings) : Array.isArray(sc.expected_findings) ? sc.expected_findings : [];
+    const run = await this.runScenario(
+      {
+        domain: sc.domain,
+        payload: sc.payload,
+        scenarioId: sc.id,
+        projectId: source.projectId,
+        targetRelease: source.targetRelease ?? undefined,
+        expectedFindings: expected,
+      } as RunScenarioDto,
+      tenantId,
+      source.projectId,
+      { userId, rerunOfAnalysisId: source.id }
+    );
+    if (!run.analysisId) {
+      throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The project of this Test Lab run no longer exists.' });
+    }
+    const a = await this.db.query(`SELECT status, engine_types, target_release FROM analyses WHERE id = $1 AND organization_id = $2`, [run.analysisId, tenantId], {
+      tenantId,
+    });
+    const row = a?.rows?.[0] ?? {};
+    const engines = typeof row.engine_types === 'string' ? JSON.parse(row.engine_types) : row.engine_types ?? [];
+    return { analysisId: run.analysisId, status: row.status ?? 'COMPLETED', engineTypes: engines, targetRelease: row.target_release ?? null };
   }
 
   /**
@@ -829,6 +926,7 @@ export class LabService {
     dto: RunScenarioDto,
     tenantId?: string,
     projectId?: string,
+    options: ScenarioRunOptions = {},
   ): Promise<LabRunAssertionResult> {
     const runId = uuidv4();
     const executedAt = new Date().toISOString();
@@ -850,6 +948,9 @@ export class LabService {
     this.logger.log(
       `Executing Test Lab live run ${runId} for domain ${dto.domain} across engine ${engineType}`
     );
+
+    const lab = await this.beginScenarioAnalysis(dto, tenantId, projectId || dto.projectId, engineType, targetRelease, options);
+    const startedAt = Date.now();
 
     // 2. Prepare standardized Wire Request
     const wireRequest = toWireJobRequest({
@@ -873,6 +974,7 @@ export class LabService {
           'X-Tenant-Id': effectiveTenantId,
         },
         body: JSON.stringify(wireRequest),
+        ...(lab ? { signal: lab.cancellation.signal } : {}),
       });
 
       if (!response.ok) {
@@ -887,6 +989,13 @@ export class LabService {
 
       rawPythonResponse = await response.json();
     } catch (err: any) {
+      if (lab?.cancellation.cancelled) {
+        await this.recorder.cancelled(lab, this.scenarioSummary(dto, null, payloadHash, true));
+        throw new ConflictException({ code: 'ANALYSIS_CANCELLED', message: 'The Test Lab run was cancelled.' });
+      }
+      if (lab) {
+        await this.recorder.fail(lab, String(err?.message ?? err));
+      }
       if (err instanceof ServiceUnavailableException) {
         throw err;
       }
@@ -899,7 +1008,12 @@ export class LabService {
     }
 
     // 3. Validate response schema
-    const validated = AnalysisJobResponseSchema.parse(rawPythonResponse);
+    const parsedResponse = AnalysisJobResponseSchema.safeParse(rawPythonResponse);
+    if (!parsedResponse.success) {
+      if (lab) await this.recorder.fail(lab, 'Analysis service response failed schema validation.');
+      throw parsedResponse.error;
+    }
+    const validated = parsedResponse.data;
     const actualFindings: Finding[] = (validated.findings as Finding[]) || [];
 
     // 4. Resolve Expected Findings
@@ -934,7 +1048,23 @@ export class LabService {
       payloadSha256: payloadHash,
       assertionLedger: ledger.assertionLedger,
       findings: actualFindings,
+      analysisId: lab?.analysisId ?? null,
     };
+
+    if (lab) {
+      await this.recorder.step(lab, {
+        engine: engineType,
+        fileId: null,
+        fileName: null,
+        outcome: validated.status === 'FAILED' ? 'FAILED' : validated.status === 'PARTIAL' ? 'PARTIAL' : 'COMPLETED',
+        findings: actualFindings.length,
+        rulesEvaluated: validated.metrics?.rulesEvaluated || 0,
+        durationMs: Date.now() - startedAt,
+        error: validated.errorMessage ?? null,
+        engineVersion: (validated.metrics?.additionalMetrics as Record<string, any> | undefined)?.engineVersion ?? null,
+      });
+      await this.recorder.finish(lab, this.scenarioSummary(dto, runResult, payloadHash, false));
+    }
 
     // 6. Update last_run_result in DB if scenarioId is known
     if (dto.scenarioId && tenantId) {
@@ -954,6 +1084,32 @@ export class LabService {
     }
 
     return runResult;
+  }
+
+  private scenarioSummary(
+    dto: RunScenarioDto,
+    run: LabRunAssertionResult | null,
+    payloadSha256: string,
+    cancelled: boolean
+  ) {
+    const executed = run !== null && !cancelled;
+    return {
+      type: 'SCENARIO' as const,
+      trigger: 'MANUAL',
+      batchId: null,
+      total: 1,
+      passed: executed && run!.allPassed ? 1 : 0,
+      failed: executed && !run!.allPassed ? 1 : 0,
+      errored: 0,
+      scenario: {
+        scenarioId: dto.scenarioId ?? null,
+        domain: String(dto.domain),
+        verdict: run ? `${run.overallStatus}/${run.verdict}` : 'CANCELLED',
+        assertions: run?.assertionsCount ?? 0,
+        passedAssertions: run?.passedAssertions ?? 0,
+        payloadSha256,
+      },
+    };
   }
 
   /**

@@ -40,13 +40,16 @@ export class LabController {
     @Param('id') projectId?: string,
     @CurrentUser('organizationId') userOrgId?: string,
     @CurrentTenant() tenantId?: string,
+    @CurrentUser('id') userId?: string,
   ) {
     const effectiveTenantId = tenantId || userOrgId;
     const effectiveProjectId = projectId || dto.projectId;
+    // Runs inside a project are recorded as Test Lab analyses (kind LAB_SCENARIO) in the run history.
     return this.labService.runScenario(
       dto,
       effectiveTenantId,
       effectiveProjectId,
+      { userId: userId ?? null },
     );
   }
 
