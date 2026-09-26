@@ -18,12 +18,16 @@ import csv
 import hashlib
 import io
 import json
+import re
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from src.core.base_engine import BaseEngine
+from src.core.contracts import (
+    ContractModel, InputContract, InputFormat, KnowledgeSource, RuleSpec, insufficient, rule_catalog,
+)
 from src.core.registry import register_engine
 from src.models.enums import (
     EngineType,
@@ -38,6 +42,7 @@ from src.models.evidence import Evidence
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse, AnalysisMetrics
 from src.platform.confidence import ConfidenceClassifier
+from src.core.exceptions import EngineInputError
 
 
 # ============================================================================
@@ -576,9 +581,10 @@ class SproArtifactParser:
                                     artifact_path=artifact_path,
                                 ))
                 return items
-            except Exception:
-                # If JSON parsing fails, fall back to line-by-line CSV parser
-                pass
+            except (ValueError, RecursionError):
+                # Malformed JSON is never re-interpreted as CSV lines (that would turn garbage into
+                # "activities"); the engine contract reports it as SPRO_PARSE_ERROR.
+                return items
 
         # Case 2: Delimited CSV / TSV / Line-by-Line
         sample_line = next((line_item for line_item in clean_content.splitlines() if not line_item.strip().startswith("#") and line_item.strip()), (clean_content.splitlines()[0] if clean_content.splitlines() else ""))
@@ -661,10 +667,112 @@ class SproArtifactParser:
 # 4. SPRO2CLOUD ENGINE IMPLEMENTATION
 # ============================================================================
 
+# ==== ENGINE CONTRACT (rule catalog + input contract) ====
+from pydantic import model_validator
+
+RULES = rule_catalog(
+    RuleSpec(
+        "SPRO_MAPPING_EXACT", "IMG activity has an exact cloud SSCUI equivalent", Severity.INFO,
+        "Re-create the setting in the target tenant via the mapped SSCUI in 'Manage Your Solution' > Configure "
+        "Your Solution, under the listed scope item; no redesign required.", "Configuration Modernization",
+    ),
+    RuleSpec(
+        "SPRO_MAPPING_PARTIAL", "IMG activity only partially available in cloud", Severity.MINOR,
+        "Use the mapped SSCUI for the supported parameters; re-implement the restricted sub-parameters with "
+        "key-user extensibility or document them as a fit-to-standard deviation.", "Configuration Modernization",
+    ),
+    RuleSpec(
+        "SPRO_MAPPING_SCOPE_DEPENDENT", "Cloud setting requires scope item activation", Severity.MINOR,
+        "Activate the listed scope items in Central Business Configuration before configuring the SSCUI; "
+        "check licensing for the scope item.", "Scope Dependency",
+    ),
+    RuleSpec(
+        "SPRO_MAPPING_PROCESS_REDESIGN", "Legacy configuration concept requires process redesign", Severity.MAJOR,
+        "Redesign the process on the cloud successor concept named in the finding (e.g. Output Management "
+        "instead of NACE); plan it as a migration work package with business sign-off.", "Process Modernization",
+    ),
+    RuleSpec(
+        "SPRO_MAPPING_NOT_AVAILABLE", "IMG activity not available in S/4HANA Cloud Public Edition", Severity.CRITICAL,
+        "Treat as a cloud parity gap: adopt the standard process, move the requirement to a side-by-side "
+        "extension on SAP BTP, or reconsider the Private Edition.", "Cloud Parity Gap",
+    ),
+    RuleSpec(
+        "SPRO_MAPPING_NEEDS_REVIEW", "Uncataloged / custom configuration needs manual review", Severity.MINOR,
+        "The activity is not in the curated SPRO→SSCUI catalog snapshot. Assess it manually; custom Z/Y tables "
+        "can be rebuilt as Custom Business Objects or ABAP Cloud tables with a maintenance app.",
+        "Uncataloged Configuration",
+    ),
+)
+
+_SPRO_ROW_KEYS = ("activity_id", "activity", "id", "table_name", "table")
+
+
+class SproInput(ContractModel):
+    """SPRO / IMG export as JSON: a list of activity rows, {'activities': [...]} or a single row."""
+    activities: Optional[List[Any]] = None
+    items: Optional[List[Any]] = None
+
+    @model_validator(mode="after")
+    def _require_activities(self) -> "SproInput":
+        rows = self.activities or self.items or [self.model_extra or {}]
+        for row in rows:
+            if isinstance(row, dict) and any(str(row.get(k) or "").strip() for k in _SPRO_ROW_KEYS):
+                return self
+        raise insufficient(
+            "No IMG activities found: each row needs 'activity_id' (IMG activity / SIMG node) or 'table_name'."
+        )
+
+
+_SPRO_ID_LINE = re.compile(r"^[A-Za-z0-9_/]{2,80}$")
+
+
+def _spro_text_check(text: str) -> Optional[str]:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if not lines:
+        return "no IMG activity identifiers found."
+    bad = next((i for i, ln in enumerate(lines, 1) if not _SPRO_ID_LINE.match(ln)), None)
+    if bad is not None:
+        return (
+            "plain-text input must list one IMG activity ID or configuration table name per line "
+            f"(line {bad} is not an identifier)."
+        )
+    return None
+
+
+INPUT_CONTRACT = InputContract(
+    formats=(InputFormat.CSV, InputFormat.JSON, InputFormat.TEXT),
+    summary=(
+        "SPRO / IMG activity export: CSV with an activity (ActivityID / IMG activity / node) or table column, "
+        "JSON rows {'activity_id', 'table_name', 'module', 'country'} (list or {'activities': [...]}), or a plain "
+        "list of IMG activity IDs / table names, one per line."
+    ),
+    required=("At least one IMG activity ID or configuration table name",),
+    json_model=SproInput,
+    json_array_field="activities",
+    csv_signal_columns=(
+        "activity_id", "ActivityID", "activity", "img_activity", "node", "table_name", "TargetTable", "table",
+        "tablename",
+    ),
+    text_check=_spro_text_check,
+)
+
+
+# ==== END ENGINE CONTRACT ====
+
+
 @register_engine
 class SPRO2CloudEngine(BaseEngine):
     engine_type = EngineType.SPRO2CLOUD
     rule_prefix = "SPRO"
+    finding_codes = RULES
+    input_contract = INPUT_CONTRACT
+    knowledge_sources = (
+        KnowledgeSource(
+            name="SPRO/IMG -> SSCUI/CBC mapping catalog", location="src/engines/spro2cloud.py:SPRO_CATALOG",
+            source="Static seed catalog authored from SAP Help / SSCUI documentation; not yet migrated to the knowledge system",
+            release="S4HC_2408", verification_status="CURATED_UNVERIFIED", entries=len(SPRO_CATALOG),
+        ),
+    )
     name = "SPRO2Cloud"
     description = "On-premise IMG/SPRO configuration to Cloud CBC mapping and delta analysis"
     version = "2.0.0"
@@ -683,6 +791,13 @@ class SPRO2CloudEngine(BaseEngine):
         for art in request.artifacts:
             if art.raw_content:
                 raw_items.extend(SproArtifactParser.parse(art.raw_content, art.file_name))
+
+        if not raw_items:
+            raise EngineInputError(
+                f"{self.rule_prefix}_INSUFFICIENT_INPUT",
+                "No IMG activities or configuration tables could be read from the payload; "
+                "no cloud-readiness verdict can be produced.",
+            )
 
         # Metrics counters
         total_activities = len(raw_items)

@@ -13,8 +13,45 @@ from typing import Any, Dict
 
 from src.core.exceptions import EngineInputError
 
+# Maximum container nesting accepted in JSON artifacts. SAP exports are shallow (< 20 levels);
+# deeper documents are rejected before json.loads so hostile nesting cannot exhaust the stack.
+MAX_JSON_DEPTH = 64
 
-def parse_json_payload(text: str, rule_prefix: str) -> Any:
+
+def json_nesting_depth(text: str, limit: int = MAX_JSON_DEPTH) -> int:
+    """Returns the maximum array/object nesting depth (string-aware, O(n)); stops early past ``limit``."""
+    depth = 0
+    max_depth = 0
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > max_depth:
+                max_depth = depth
+                if max_depth > limit:
+                    return max_depth
+        elif ch in "]}":
+            depth -= 1
+    return max_depth
+
+
+def parse_json_payload(text: str, rule_prefix: str, max_depth: int = MAX_JSON_DEPTH) -> Any:
+    if json_nesting_depth(text, max_depth) > max_depth:
+        raise EngineInputError(
+            f"{rule_prefix}_PARSE_ERROR",
+            f"JSON payload nesting exceeds the supported depth of {max_depth} levels.",
+        )
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
@@ -27,6 +64,10 @@ def parse_json_payload(text: str, rule_prefix: str) -> Any:
     except RecursionError as exc:
         raise EngineInputError(
             f"{rule_prefix}_PARSE_ERROR", "JSON payload nesting exceeds the supported depth."
+        ) from exc
+    except ValueError as exc:  # e.g. integer literals beyond the interpreter's digit limit
+        raise EngineInputError(
+            f"{rule_prefix}_PARSE_ERROR", "JSON payload contains a value that cannot be represented."
         ) from exc
 
 

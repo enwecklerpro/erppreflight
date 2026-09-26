@@ -17,13 +17,17 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestPresignedUploadDto } from '@erppreflight/schemas';
 
+// Multipart uploads are buffered in memory before quarantine; cap them (default 100 MB,
+// matching the web client) so a single request cannot exhaust API memory. Multer answers 413.
+const MAX_UPLOAD_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_SIZE_MB) || 100) * 1024 * 1024;
+
 @Controller(['projects/:projectId/files', 'projects/:projectId/artifacts'])
 @UseGuards(JwtAuthGuard, TenancyGuard)
 export class FilesController {
   constructor(private readonly ingestionService: IngestionService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }))
   async uploadArtifact(
     @CurrentTenant() tenantId: string,
     @CurrentUser('id') userId: string,

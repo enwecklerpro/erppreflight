@@ -652,7 +652,7 @@ async def test_api_edmx_type_change_and_artifacts():
 
 @pytest.mark.asyncio
 async def test_api_missing_baseline_diagnostic():
-    """Verifies that omitting baseline returns diagnostic API_BASELINE_MISSING finding."""
+    """Omitting the baseline is missing required input: FAILED + API_INSUFFICIENT_INPUT (UNKNOWN), no verdict."""
     setup_domain3_engines()
     req = AnalysisRequest(
         job_id="11111111-0013-0001-0001-000000000001",
@@ -662,9 +662,11 @@ async def test_api_missing_baseline_diagnostic():
         raw_content=json.dumps({"candidate": {"openapi": "3.0.0"}}),
     )
     resp = await EngineRunner.execute(req)
+    assert resp.status == AnalysisStatus.FAILED
     assert len(resp.findings) == 1
-    assert resp.findings[0].rule_id == "API_BASELINE_MISSING"
-    assert resp.findings[0].severity == Severity.BLOCKER
+    assert resp.findings[0].rule_id == "API_INSUFFICIENT_INPUT"
+    assert resp.findings[0].confidence == ConfidenceClass.UNKNOWN
+    assert resp.findings[0].technical_details["missing"] == ["baseline"]
 
 
 # =============================================================================
@@ -1070,7 +1072,7 @@ async def test_remediation_6_non_breaking_operation_count_telemetry():
 
 @pytest.mark.asyncio
 async def test_remediation_7_bundled_payload_diagnoses_candidate_missing():
-    """Fix 7: Verifies bundled payload with baseline-only diagnoses API_CANDIDATE_MISSING."""
+    """Fix 7: bundled payload with baseline only -> FAILED + API_INSUFFICIENT_INPUT naming the candidate."""
     setup_domain3_engines()
     bundle_with_baseline_only = json.dumps({"baseline": {"openapi": "3.0.0", "paths": {}}})
     req = AnalysisRequest(
@@ -1082,7 +1084,8 @@ async def test_remediation_7_bundled_payload_diagnoses_candidate_missing():
     )
     resp = await EngineRunner.execute(req)
     assert resp.status == AnalysisStatus.FAILED
-    assert resp.findings[0].rule_id == "API_CANDIDATE_MISSING"
+    assert resp.findings[0].rule_id == "API_INSUFFICIENT_INPUT"
+    assert resp.findings[0].technical_details["missing"] == ["candidate"]
 
 
 @pytest.mark.asyncio

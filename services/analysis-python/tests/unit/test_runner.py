@@ -9,8 +9,8 @@ from src.models.enums import EngineType, AnalysisStatus, Severity, ConfidenceCla
 from pathlib import Path
 
 OPD_VALID_SCENARIO = (Path(__file__).resolve().parent.parent / "fixtures" / "domain1" / "opd_scenario_valid.json").read_text()
-# Minimal non-empty payload so mocked engines pass the runner's insufficient-input guard.
-MOCK_PAYLOAD = '{"mock": true}'
+# Minimal contract-valid OPD payload (a document scenario) so mocked engines pass the input gate.
+MOCK_PAYLOAD = '{"scenario": {"DocumentType": "NB"}}'
 
 
 @pytest.mark.asyncio
@@ -37,7 +37,7 @@ async def test_engine_runner_demotes_missing_evidence_to_unknown(monkeypatch):
 
     async def mock_analyze(request):
         f = Finding(
-            rule_id="RULE_NO_EV",
+            rule_id="OPD_UNREACHABLE_RULE",
             severity=Severity.MAJOR,
             category="CONFIG",
             title="Rule without evidence",
@@ -83,7 +83,7 @@ async def test_engine_runner_demotes_ai_request_to_inferred(monkeypatch):
 
     async def mock_analyze(request):
         f = Finding(
-            rule_id="RULE_AI_REQ",
+            rule_id="OPD_CHANNEL_INACTIVE",
             severity=Severity.CRITICAL,
             category="AI",
             title="AI generated finding claiming verified",
@@ -128,7 +128,7 @@ async def test_engine_runner_demotes_evidence_provenance_inferred(monkeypatch):
 
     async def mock_analyze(request):
         f = Finding(
-            rule_id="RULE_INFERRED_EV",
+            rule_id="OPD_RELEVANCE_SUPPRESSED",
             severity=Severity.MAJOR,
             category="INTEGRATION",
             title="Inferred evidence finding",
