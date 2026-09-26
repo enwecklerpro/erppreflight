@@ -292,6 +292,13 @@ services:
       EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
       KNOWLEDGE_SYNC_CRON: ${KNOWLEDGE_SYNC_CRON:-17 3 * * 1}
       KNOWLEDGE_CR_FILES: ${KNOWLEDGE_CR_FILES:-}
+      # Platform governance: hourly knowledge-source freshness check ('off' disables)
+      SOURCE_FRESHNESS_CRON: ${SOURCE_FRESHNESS_CRON:-41 * * * *}
+      # Tenant access administration: support ticket e-mails to the operator inbox
+      SUPPORT_INBOX_EMAIL: ${SUPPORT_INBOX_EMAIL:-}
+      SUPPORT_INBOX_LOCALE: ${SUPPORT_INBOX_LOCALE:-en}
+      # Client IP for IP allowlists / audit behind the Coolify reverse proxy (hop count)
+      TRUST_PROXY: ${TRUST_PROXY:-1}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health/liveness || exit 1"]
       interval: 10s
