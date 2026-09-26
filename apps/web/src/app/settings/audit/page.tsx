@@ -11,36 +11,38 @@ import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect } from '@/components/form/form-inputs';
 import { ErrorState, InlineSpinner, SkeletonBlock } from '@/components/commercial/states';
 import { fetchAuditLog, verifyAuditLedger, type AuditLogItem } from '@/lib/api/commercial';
+import { useFmt, useRichT, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const PAGE_SIZE = 25;
 
 const ACTION_GROUPS = [
-  { value: '', label: 'All actions' },
-  { value: 'auth.', label: 'Sign-in & sessions' },
-  { value: 'project.', label: 'Projects' },
-  { value: 'artifact.', label: 'Artifacts (upload / quarantine / download)' },
-  { value: 'analysis.', label: 'Analyses & engine runs' },
-  { value: 'report.', label: 'Reports & exports' },
-  { value: 'billing.', label: 'Billing & plan limits' },
-  { value: 'api_key.', label: 'API keys' },
-  { value: 'webhook.', label: 'Webhooks' },
-  { value: 'retention.', label: 'Retention & deletion' },
-  { value: 'support.', label: 'Support access' },
-  { value: 'admin.', label: 'Platform admin actions' },
-  { value: 'organization.', label: 'Organization settings' },
-];
+  { value: '', key: 'all' },
+  { value: 'auth.', key: 'auth' },
+  { value: 'project.', key: 'project' },
+  { value: 'artifact.', key: 'artifact' },
+  { value: 'analysis.', key: 'analysis' },
+  { value: 'report.', key: 'report' },
+  { value: 'billing.', key: 'billing' },
+  { value: 'api_key.', key: 'apiKey' },
+  { value: 'webhook.', key: 'webhook' },
+  { value: 'retention.', key: 'retention' },
+  { value: 'support.', key: 'support' },
+  { value: 'admin.', key: 'admin' },
+  { value: 'organization.', key: 'organization' },
+] as const;
 
 const dateField = z
   .string()
-  .regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Use YYYY-MM-DD');
+  .regex(/^(\d{4}-\d{2}-\d{2})?$/, vmsg('app.validation.dateFormat'));
 
 const FilterSchema = z
   .object({
-    action: z.string().max(100).regex(/^[a-z0-9_.-]*$/i, 'Letters, digits, dot, dash, underscore'),
+    action: z.string().max(100).regex(/^[a-z0-9_.-]*$/i, vmsg('app.validation.actionFormat')),
     from: dateField,
     to: dateField,
   })
-  .refine((v) => !v.from || !v.to || v.from <= v.to, { message: '"From" must be on or before "To"', path: ['to'] });
+  .refine((v) => !v.from || !v.to || v.from <= v.to, { message: vmsg('app.validation.dateRange'), path: ['to'] });
 
 type Filters = z.infer<typeof FilterSchema>;
 
@@ -51,6 +53,10 @@ function isSecurityAction(action: string) {
 }
 
 function AuditLogInner() {
+  const t = useT();
+  const rt = useRichT();
+  const fmt = useFmt();
+  const actionOptions = ACTION_GROUPS.map((g) => ({ value: g.value, label: t(`app.audit.groups.${g.key}`) }));
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -95,16 +101,13 @@ function AuditLogInner() {
   const [expanded, setExpanded] = React.useState<string | null>(null);
 
   return (
-    <div className="min-h-screen bg-background text-foreground py-8 px-4 sm:px-6 lg:px-8">
+    <div className="text-foreground">
       <div className="max-w-6xl mx-auto">
         <SettingsNav />
         <header className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Audit log</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Tamper-evident, append-only record of security and business events in this organization. Each entry is
-              SHA-256 chained to its predecessor.
-            </p>
+            <h1 className="text-2xl font-bold tracking-tight">{t('app.audit.title')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('app.audit.subtitle')}</p>
           </div>
           <button
             type="button"
@@ -113,30 +116,39 @@ function AuditLogInner() {
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             <ShieldCheck className="size-4" aria-hidden="true" />
-            {verify.isPending ? 'Verifying…' : 'Verify chain integrity'}
+            {verify.isPending ? t('app.audit.verifying') : t('app.audit.verify')}
           </button>
         </header>
 
         <div aria-live="polite" className="mb-4">
-          {verify.isError && <ErrorState title="Verification failed to run" error={verify.error} onRetry={() => verify.mutate()} />}
+          {verify.isError && <ErrorState title={t('app.audit.verifyFailed')} error={verify.error} onRetry={() => verify.mutate()} />}
           {verify.data &&
             (verify.data.isValid ? (
               <div role="status" data-testid="verify-result" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm flex items-start gap-3">
                 <ShieldCheck className="size-5 shrink-0" aria-hidden="true" />
                 <p>
-                  <strong>Chain intact.</strong> {verify.data.totalEventsVerified} events verified at{' '}
-                  {new Date(verify.data.verifiedAt).toLocaleString()} — no gaps, broken links or modified payloads.
+                  {rt('app.audit.intactRich', {
+                    count: verify.data.totalEventsVerified,
+                    date: fmt.dateTime(verify.data.verifiedAt),
+                    b: (c) => <strong>{c}</strong>,
+                  })}
                 </p>
               </div>
             ) : (
               <div role="alert" data-testid="verify-result" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
                 <p className="font-semibold inline-flex items-center gap-2">
-                  <ShieldX className="size-5" aria-hidden="true" /> Integrity anomalies detected ({verify.data.anomalies.length})
+                  <ShieldX className="size-5" aria-hidden="true" /> {t('app.audit.anomalies', { count: verify.data.anomalies.length })}
                 </p>
                 <ul className="mt-2 space-y-1 text-xs font-mono break-all">
                   {verify.data.anomalies.slice(0, 20).map((a, i) => (
                     <li key={i}>
-                      {a.anomalyType} at event #{a.eventIndex} ({a.eventId}) — expected {a.expectedValue}, found {a.actualValue}
+                      {t('app.audit.anomaly', {
+                        type: a.anomalyType,
+                        index: a.eventIndex,
+                        id: a.eventId,
+                        expected: String(a.expectedValue),
+                        actual: String(a.actualValue),
+                      })}
                     </li>
                   ))}
                 </ul>
@@ -152,19 +164,19 @@ function AuditLogInner() {
           }}
           noValidate
           className="rounded-xl border border-border bg-card p-4 mb-4 grid gap-3 sm:grid-cols-[2fr_1fr_1fr_auto] items-end"
-          aria-label="Filter audit log"
+          aria-label={t('app.audit.filterLabel')}
         >
           <form.Field
             name="action"
             children={(field) => (
-              <FormField id="audit-action" name={field.name} label="Action" error={field.state.meta.errors as any}>
+              <FormField id="audit-action" name={field.name} label={t('app.audit.action')} error={field.state.meta.errors as any}>
                 <FormSelect
                   value={field.state.value}
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
-                  options={ACTION_GROUPS.some((g) => g.value === field.state.value)
-                    ? ACTION_GROUPS
-                    : [...ACTION_GROUPS, { value: field.state.value, label: field.state.value }]}
+                  options={actionOptions.some((g) => g.value === field.state.value)
+                    ? actionOptions
+                    : [...actionOptions, { value: field.state.value, label: field.state.value }]}
                 />
               </FormField>
             )}
@@ -172,7 +184,7 @@ function AuditLogInner() {
           <form.Field
             name="from"
             children={(field) => (
-              <FormField id="audit-from" name={field.name} label="From" error={field.state.meta.errors as any}>
+              <FormField id="audit-from" name={field.name} label={t('app.audit.from')} error={field.state.meta.errors as any}>
                 <FormInput type="date" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
               </FormField>
             )}
@@ -180,7 +192,7 @@ function AuditLogInner() {
           <form.Field
             name="to"
             children={(field) => (
-              <FormField id="audit-to" name={field.name} label="To" error={field.state.meta.errors as any}>
+              <FormField id="audit-to" name={field.name} label={t('app.audit.to')} error={field.state.meta.errors as any}>
                 <FormInput type="date" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
               </FormField>
             )}
@@ -194,7 +206,7 @@ function AuditLogInner() {
                   disabled={!canSubmit}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  <Filter className="size-4" aria-hidden="true" /> Apply
+                  <Filter className="size-4" aria-hidden="true" /> {t('app.audit.apply')}
                 </button>
               )}
             />
@@ -207,7 +219,7 @@ function AuditLogInner() {
                 }}
                 className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
               >
-                <X className="size-4" aria-hidden="true" /> Clear
+                <X className="size-4" aria-hidden="true" /> {t('app.audit.clear')}
               </button>
             )}
           </div>
@@ -216,9 +228,9 @@ function AuditLogInner() {
         <section aria-labelledby="audit-table-heading" className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h2 id="audit-table-heading" className="text-sm font-semibold">
-              {query.data ? `${query.data.total} matching event${query.data.total === 1 ? '' : 's'}` : 'Events'}
+              {query.data ? t('app.audit.matching', { count: query.data.total }) : t('app.audit.events')}
             </h2>
-            {query.isFetching && !query.isLoading && <InlineSpinner label="Refreshing" />}
+            {query.isFetching && !query.isLoading && <InlineSpinner label={t('app.audit.refreshing')} />}
           </div>
           {query.isLoading ? (
             <div className="p-4 space-y-2" aria-busy="true">
@@ -228,11 +240,11 @@ function AuditLogInner() {
             </div>
           ) : query.isError ? (
             <div className="p-4">
-              <ErrorState title="Could not load the audit log" error={query.error} onRetry={() => query.refetch()} />
+              <ErrorState title={t('app.audit.loadFailed')} error={query.error} onRetry={() => query.refetch()} />
             </div>
           ) : query.data && query.data.items.length === 0 ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
-              No audit events match these filters. Clear the filters or widen the date range.
+              {t('app.audit.empty')}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -240,11 +252,11 @@ function AuditLogInner() {
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border">
                     <th scope="col" className="px-4 py-2 font-medium">#</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Time</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Action</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Actor</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Target</th>
-                    <th scope="col" className="px-4 py-2 font-medium">Details</th>
+                    <th scope="col" className="px-4 py-2 font-medium">{t('app.audit.colTime')}</th>
+                    <th scope="col" className="px-4 py-2 font-medium">{t('app.audit.colAction')}</th>
+                    <th scope="col" className="px-4 py-2 font-medium">{t('app.audit.colActor')}</th>
+                    <th scope="col" className="px-4 py-2 font-medium">{t('app.audit.colTarget')}</th>
+                    <th scope="col" className="px-4 py-2 font-medium">{t('app.audit.colDetails')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -255,23 +267,23 @@ function AuditLogInner() {
               </table>
             </div>
           )}
-          <nav className="flex items-center justify-between px-4 py-3 border-t border-border" aria-label="Audit log pages">
+          <nav className="flex items-center justify-between px-4 py-3 border-t border-border" aria-label={t('app.audit.pagesLabel')}>
             <button
               type="button"
               onClick={() => setCursors((c) => c.slice(0, -1))}
               disabled={cursors.length <= 1}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
             >
-              <ChevronLeft className="size-4" aria-hidden="true" /> Newer
+              <ChevronLeft className="size-4" aria-hidden="true" /> {t('app.audit.newer')}
             </button>
-            <span className="text-xs text-muted-foreground">Page {cursors.length}</span>
+            <span className="text-xs text-muted-foreground">{t('app.audit.page', { page: cursors.length })}</span>
             <button
               type="button"
               onClick={() => query.data?.nextCursor && setCursors((c) => [...c, query.data!.nextCursor!])}
               disabled={!query.data?.nextCursor}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
             >
-              Older <ChevronRight className="size-4" aria-hidden="true" />
+              {t('app.audit.older')} <ChevronRight className="size-4" aria-hidden="true" />
             </button>
           </nav>
         </section>
@@ -281,23 +293,25 @@ function AuditLogInner() {
 }
 
 function AuditRow({ item, expanded, onToggle }: { item: AuditLogItem; expanded: boolean; onToggle: () => void }) {
+  const t = useT();
+  const fmt = useFmt();
   const security = isSecurityAction(item.action);
   const outcome = typeof item.payload.outcome === 'string' ? item.payload.outcome : null;
   return (
     <>
       <tr className="border-b border-border/60 align-top">
         <td className="px-4 py-2 tabular-nums text-muted-foreground">{item.sequenceNum}</td>
-        <td className="px-4 py-2 whitespace-nowrap">{new Date(item.createdAt).toLocaleString()}</td>
+        <td className="px-4 py-2 whitespace-nowrap">{fmt.dateTime(item.createdAt)}</td>
         <td className="px-4 py-2">
           <span className="font-mono text-xs">{item.action}</span>
           {security && (
-            <span className="ml-2 inline-flex items-center gap-0.5 rounded border border-amber-500/50 px-1 text-[10px] font-semibold uppercase">
-              <ShieldCheck className="size-3" aria-hidden="true" /> Security
+            <span className="ml-2 inline-flex items-center gap-0.5 rounded border border-amber-500/50 px-1 text-[11px] font-semibold uppercase">
+              <ShieldCheck className="size-3" aria-hidden="true" /> {t('app.audit.security')}
             </span>
           )}
           {outcome === 'FAILURE' && (
-            <span className="ml-2 inline-flex items-center gap-0.5 rounded border border-destructive/50 px-1 text-[10px] font-semibold uppercase text-destructive">
-              <ShieldX className="size-3" aria-hidden="true" /> Failure
+            <span className="ml-2 inline-flex items-center gap-0.5 rounded border border-destructive/50 px-1 text-[11px] font-semibold uppercase text-destructive">
+              <ShieldX className="size-3" aria-hidden="true" /> {t('app.audit.failure')}
             </span>
           )}
         </td>
@@ -316,7 +330,7 @@ function AuditRow({ item, expanded, onToggle }: { item: AuditLogItem; expanded: 
             aria-expanded={expanded}
             className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
           >
-            {expanded ? 'Hide' : 'Show'}
+            {expanded ? t('app.audit.hide') : t('app.audit.show')}
           </button>
         </td>
       </tr>
@@ -324,8 +338,8 @@ function AuditRow({ item, expanded, onToggle }: { item: AuditLogItem; expanded: 
         <tr className="border-b border-border/60 bg-muted/30">
           <td colSpan={6} className="px-4 py-3">
             <pre className="text-xs whitespace-pre-wrap break-all">{JSON.stringify(item.payload, null, 2)}</pre>
-            <p className="mt-2 text-[11px] font-mono text-muted-foreground break-all">
-              hash {item.currentHash} · prev {item.prevHash}
+            <p className="mt-2 text-xs font-mono text-muted-foreground break-all">
+              {t('app.audit.hashes', { hash: item.currentHash, prev: item.prevHash ?? '—' })}
             </p>
           </td>
         </tr>

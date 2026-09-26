@@ -13,13 +13,14 @@ import {
   beginTwoFactorSetup,
   disableTwoFactor,
   enableTwoFactor,
-  errorMessage,
   fetchTwoFactorStatus,
   regenerateRecoveryCodes,
   storeSession,
   type TwoFactorSetup,
 } from '@/lib/account-api';
 import { Notice, Pending, SectionSkeleton, SettingsSection, buttonClass } from './ui';
+import { useErrorText, useFmt, useRichT, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 
 const FACTOR_RE = /^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/;
 
@@ -35,8 +36,8 @@ export function groupSecret(secret: string): string {
 }
 
 const passwordCodeSchema = z.object({
-  password: z.string().min(1, 'Enter your password'),
-  code: z.string().trim().regex(FACTOR_RE, 'Enter a 6-digit code or a recovery code'),
+  password: z.string().min(1, vmsg('app.validation.passwordRequired')),
+  code: z.string().trim().regex(FACTOR_RE, vmsg('app.validation.totpOrRecovery')),
 });
 
 /** Password + second-factor confirmation form used for sensitive 2FA operations. */
@@ -53,6 +54,7 @@ function PasswordAndCodeForm({
   tone: 'primary' | 'danger';
   onSubmit: (values: z.infer<typeof passwordCodeSchema>) => Promise<unknown>;
 }) {
+  const t = useT();
   const form = useForm({
     defaultValues: { password: '', code: '' },
     validators: { onSubmit: passwordCodeSchema },
@@ -76,7 +78,7 @@ function PasswordAndCodeForm({
       <form.Field
         name="password"
         children={(f) => (
-          <FormField id={`${idPrefix}-password`} name={f.name} label="Password" required error={f.state.meta.errors as any}>
+          <FormField id={`${idPrefix}-password`} name={f.name} label={t('app.security.twoFactor.password')} required error={f.state.meta.errors as any}>
             <FormInput type="password" autoComplete="current-password" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} leftIcon={<Lock className="size-4" />} />
           </FormField>
         )}
@@ -84,7 +86,7 @@ function PasswordAndCodeForm({
       <form.Field
         name="code"
         children={(f) => (
-          <FormField id={`${idPrefix}-code`} name={f.name} label="Authenticator or recovery code" required error={f.state.meta.errors as any}>
+          <FormField id={`${idPrefix}-code`} name={f.name} label={t('app.security.twoFactor.code')} required error={f.state.meta.errors as any}>
             <FormInput autoComplete="one-time-code" placeholder="123456" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} leftIcon={<KeyRound className="size-4" />} />
           </FormField>
         )}
@@ -97,10 +99,11 @@ function PasswordAndCodeForm({
 }
 
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  const t = useT();
   const [copied, setCopied] = React.useState(false);
   const text = codes.join('\n');
   const download = () => {
-    const url = URL.createObjectURL(new Blob([`ERP Preflight recovery codes\n\n${text}\n`], { type: 'text/plain' }));
+    const url = URL.createObjectURL(new Blob([`${t('app.security.twoFactor.fileHeader')}\n\n${text}\n`], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = 'erppreflight-recovery-codes.txt';
@@ -111,10 +114,10 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
   };
   return (
     <div className="space-y-3">
-      <Notice tone="warning" title="Save your recovery codes now">
-        Each code signs you in once if you lose your authenticator. They will not be shown again.
+      <Notice tone="warning" title={t('app.security.twoFactor.saveCodesTitle')}>
+        {t('app.security.twoFactor.saveCodesBody')}
       </Notice>
-      <ul aria-label="Recovery codes" className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono text-xs">
+      <ul aria-label={t('app.security.twoFactor.codesLabel')} className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono text-xs">
         {codes.map((c) => (
           <li key={c} className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-center select-all">
             {c}
@@ -127,13 +130,13 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
           className={buttonClass.secondary}
           onClick={() => navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => setCopied(false))}
         >
-          <Copy className="size-3.5" aria-hidden="true" /> {copied ? 'Copied' : 'Copy'}
+          <Copy className="size-3.5" aria-hidden="true" /> {copied ? t('app.security.twoFactor.copied') : t('app.security.twoFactor.copy')}
         </button>
         <button type="button" className={buttonClass.secondary} onClick={download}>
-          <Download className="size-3.5" aria-hidden="true" /> Download .txt
+          <Download className="size-3.5" aria-hidden="true" /> {t('app.security.twoFactor.download')}
         </button>
         <button type="button" className={buttonClass.primary} onClick={onDone}>
-          I have stored my codes
+          {t('app.security.twoFactor.stored')}
         </button>
       </div>
     </div>
@@ -141,6 +144,10 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
 }
 
 export function TwoFactorPanel() {
+  const t = useT();
+  const rt = useRichT();
+  const fmt = useFmt();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
   const status = useQuery({ queryKey: accountKeys.twoFactor, queryFn: fetchTwoFactorStatus, retry: 1 });
   const [setup, setSetup] = React.useState<TwoFactorSetup | null>(null);
@@ -169,7 +176,7 @@ export function TwoFactorPanel() {
     mutationFn: (v: { password: string; code: string }) => disableTwoFactor(v.password, toFactor(v.code)),
     onSuccess: (session) => {
       storeSession(session);
-      setMessage('Two-factor authentication was disabled. Other sessions were signed out.');
+      setMessage(t('app.security.twoFactor.disabledMessage'));
       refresh();
     },
   });
@@ -183,14 +190,14 @@ export function TwoFactorPanel() {
 
   const passwordForm = useForm({
     defaultValues: { password: '' },
-    validators: { onSubmit: z.object({ password: z.string().min(1, 'Enter your password') }) },
+    validators: { onSubmit: z.object({ password: z.string().min(1, vmsg('app.validation.passwordRequired')) }) },
     onSubmit: async ({ value }) => {
       await setupMutation.mutateAsync(value.password).catch(() => undefined);
     },
   });
   const codeForm = useForm({
     defaultValues: { code: '' },
-    validators: { onSubmit: z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') }) },
+    validators: { onSubmit: z.object({ code: z.string().trim().regex(/^\d{6}$/, vmsg('app.validation.totpCode')) }) },
     onSubmit: async ({ value }) => {
       await enableMutation.mutateAsync(value.code.trim()).catch(() => undefined);
     },
@@ -198,12 +205,12 @@ export function TwoFactorPanel() {
 
   let body: React.ReactNode;
   if (status.isPending) {
-    body = <SectionSkeleton rows={2} label="Loading two-factor status" />;
+    body = <SectionSkeleton rows={2} label={t('app.security.twoFactor.loading')} />;
   } else if (status.isError) {
     body = (
       <div className="space-y-3">
-        <Notice tone="error" title="Could not load two-factor status">{errorMessage(status.error)}</Notice>
-        <button type="button" className={buttonClass.secondary} onClick={() => status.refetch()}>Retry</button>
+        <Notice tone="error" title={t('app.security.twoFactor.loadFailed')}>{errText(status.error)}</Notice>
+        <button type="button" className={buttonClass.secondary} onClick={() => status.refetch()}>{t('app.ui.retry')}</button>
       </div>
     );
   } else if (recoveryCodes) {
@@ -211,52 +218,55 @@ export function TwoFactorPanel() {
   } else if (status.data.enabled) {
     body = (
       <div className="space-y-5">
-        <Notice tone="success" title="Two-factor authentication is on">
-          Enabled {status.data.enabledAt ? new Date(status.data.enabledAt).toLocaleString() : ''} ·{' '}
-          {status.data.recoveryCodesRemaining} unused recovery code{status.data.recoveryCodesRemaining === 1 ? '' : 's'}
+        <Notice tone="success" title={t('app.security.twoFactor.onTitle')}>
+          {t('app.security.twoFactor.onBody', {
+            date: status.data.enabledAt ? fmt.dateTime(status.data.enabledAt) : '—',
+            count: status.data.recoveryCodesRemaining,
+          })}
         </Notice>
         {status.data.recoveryCodesRemaining <= 3 && (
-          <Notice tone="warning" title="Few recovery codes left">Generate a new set below.</Notice>
+          <Notice tone="warning" title={t('app.security.twoFactor.fewCodesTitle')}>{t('app.security.twoFactor.fewCodesBody')}</Notice>
         )}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold">Generate new recovery codes</h3>
-          {regenerateMutation.isError && <Notice tone="error">{errorMessage(regenerateMutation.error)}</Notice>}
-          <PasswordAndCodeForm idPrefix="regen" submitLabel="Generate codes" busyLabel="Generating..." tone="primary" onSubmit={(v) => regenerateMutation.mutateAsync(v)} />
+          <h3 className="text-sm font-semibold">{t('app.security.twoFactor.regenerateTitle')}</h3>
+          {regenerateMutation.isError && <Notice tone="error">{errText(regenerateMutation.error)}</Notice>}
+          <PasswordAndCodeForm idPrefix="regen" submitLabel={t('app.security.twoFactor.regenerate')} busyLabel={t('app.security.twoFactor.regenerating')} tone="primary" onSubmit={(v) => regenerateMutation.mutateAsync(v)} />
         </div>
         <div className="space-y-2 pt-4 border-t border-border">
-          <h3 className="text-xs font-semibold flex items-center gap-1.5">
-            <ShieldOff className="size-3.5" aria-hidden="true" /> Disable two-factor authentication
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <ShieldOff className="size-3.5" aria-hidden="true" /> {t('app.security.twoFactor.disableTitle')}
           </h3>
-          {disableMutation.isError && <Notice tone="error">{errorMessage(disableMutation.error)}</Notice>}
-          <PasswordAndCodeForm idPrefix="disable" submitLabel="Disable 2FA" busyLabel="Disabling..." tone="danger" onSubmit={(v) => disableMutation.mutateAsync(v)} />
+          {disableMutation.isError && <Notice tone="error">{errText(disableMutation.error)}</Notice>}
+          <PasswordAndCodeForm idPrefix="disable" submitLabel={t('app.security.twoFactor.disable')} busyLabel={t('app.security.twoFactor.disabling')} tone="danger" onSubmit={(v) => disableMutation.mutateAsync(v)} />
         </div>
       </div>
     );
   } else if (setup) {
     body = (
       <div className="space-y-4">
-        <ol className="list-decimal pl-5 space-y-2 text-xs text-muted-foreground">
+        <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground">
           <li>
-            Open your authenticator app (1Password, Google Authenticator, Authy, Microsoft Authenticator…) and add an account.
-            On a phone you can{' '}
-            <a className="text-primary font-semibold underline" href={setup.otpauthUri}>
-              open the setup link directly
-            </a>
-            .
+            {rt('app.security.twoFactor.step1Rich', {
+              link: (c) => (
+                <a className="text-primary font-semibold underline" href={setup.otpauthUri}>
+                  {c}
+                </a>
+              ),
+            })}
           </li>
           <li>
-            Or enter this key manually (time-based, SHA-1, 6 digits, 30 s):
-            <code className="mt-1 block w-full break-all rounded-md border border-border bg-muted/50 px-2 py-1.5 font-mono text-sm text-foreground select-all" aria-label="Setup key">
+            {t('app.security.twoFactor.step2')}
+            <code className="mt-1 block w-full break-all rounded-md border border-border bg-muted/50 px-2 py-1.5 font-mono text-sm text-foreground select-all" aria-label={t('app.security.twoFactor.setupKey')}>
               {groupSecret(setup.secret)}
             </code>
           </li>
-          <li>Enter the 6-digit code the app shows. The setup expires in {setup.expiresInMinutes} minutes.</li>
+          <li>{t('app.security.twoFactor.step3', { minutes: setup.expiresInMinutes })}</li>
         </ol>
-        <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground">Show otpauth URI</summary>
-          <code className="mt-1 block break-all font-mono text-[11px]">{setup.otpauthUri}</code>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground">{t('app.security.twoFactor.showUri')}</summary>
+          <code className="mt-1 block break-all font-mono text-xs">{setup.otpauthUri}</code>
         </details>
-        {enableMutation.isError && <Notice tone="error" title="Code not accepted">{errorMessage(enableMutation.error)}</Notice>}
+        {enableMutation.isError && <Notice tone="error" title={t('app.security.twoFactor.codeRejected')}>{errText(enableMutation.error)}</Notice>}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -269,16 +279,16 @@ export function TwoFactorPanel() {
           <codeForm.Field
             name="code"
             children={(f) => (
-              <FormField id="enable-code" name={f.name} label="Authentication code" required error={f.state.meta.errors as any} className="flex-1">
+              <FormField id="enable-code" name={f.name} label={t('app.security.twoFactor.authCode')} required error={f.state.meta.errors as any} className="flex-1">
                 <FormInput inputMode="numeric" autoComplete="one-time-code" placeholder="123456" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} leftIcon={<Smartphone className="size-4" />} />
               </FormField>
             )}
           />
           <button type="submit" disabled={enableMutation.isPending} className={buttonClass.primary}>
-            <Pending busy={enableMutation.isPending} busyLabel="Verifying..." idle="Enable 2FA" />
+            <Pending busy={enableMutation.isPending} busyLabel={t('app.security.twoFactor.verifying')} idle={t('app.security.twoFactor.enable')} />
           </button>
           <button type="button" className={buttonClass.secondary} onClick={() => { setSetup(null); setShowSetup(false); }}>
-            Cancel
+            {t('app.ui.cancel')}
           </button>
         </form>
       </div>
@@ -286,7 +296,7 @@ export function TwoFactorPanel() {
   } else if (showSetup) {
     body = (
       <div className="space-y-3">
-        {setupMutation.isError && <Notice tone="error">{errorMessage(setupMutation.error)}</Notice>}
+        {setupMutation.isError && <Notice tone="error">{errText(setupMutation.error)}</Notice>}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -299,16 +309,16 @@ export function TwoFactorPanel() {
           <passwordForm.Field
             name="password"
             children={(f) => (
-              <FormField id="setup-password" name={f.name} label="Confirm your password" required error={f.state.meta.errors as any} className="flex-1">
+              <FormField id="setup-password" name={f.name} label={t('app.security.twoFactor.confirmPassword')} required error={f.state.meta.errors as any} className="flex-1">
                 <FormInput type="password" autoComplete="current-password" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} leftIcon={<Lock className="size-4" />} />
               </FormField>
             )}
           />
           <button type="submit" disabled={setupMutation.isPending} className={buttonClass.primary}>
-            <Pending busy={setupMutation.isPending} busyLabel="Preparing..." idle="Continue" />
+            <Pending busy={setupMutation.isPending} busyLabel={t('app.security.twoFactor.preparing')} idle={t('app.security.twoFactor.continue')} />
           </button>
           <button type="button" className={buttonClass.secondary} onClick={() => setShowSetup(false)}>
-            Cancel
+            {t('app.ui.cancel')}
           </button>
         </form>
       </div>
@@ -316,11 +326,11 @@ export function TwoFactorPanel() {
   } else {
     body = (
       <div className="space-y-3">
-        <Notice tone="warning" title="Two-factor authentication is off">
-          Protect your account with a time-based one-time code from an authenticator app.
+        <Notice tone="warning" title={t('app.security.twoFactor.offTitle')}>
+          {t('app.security.twoFactor.offBody')}
         </Notice>
         <button type="button" className={buttonClass.primary} onClick={() => setShowSetup(true)}>
-          <Smartphone className="size-3.5" aria-hidden="true" /> Set up two-factor authentication
+          <Smartphone className="size-3.5" aria-hidden="true" /> {t('app.security.twoFactor.setUp')}
         </button>
       </div>
     );
@@ -329,9 +339,9 @@ export function TwoFactorPanel() {
   return (
     <SettingsSection
       id="two-factor"
-      title="Two-factor authentication (TOTP)"
+      title={t('app.security.twoFactor.title')}
       icon={ShieldCheck}
-      description="Changing 2FA settings signs out every other session."
+      description={t('app.security.twoFactor.hint')}
     >
       {message && <Notice tone="success">{message}</Notice>}
       {body}

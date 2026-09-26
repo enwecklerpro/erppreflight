@@ -9,24 +9,28 @@ import { PASSWORD_MIN_LENGTH, PasswordSchema } from '@erppreflight/schemas';
 import { FormField } from '@/components/form/form-field';
 import { FormInput } from '@/components/form/form-inputs';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
-import { accountKeys, changePassword, errorMessage, storeSession } from '@/lib/account-api';
+import { accountKeys, changePassword, storeSession } from '@/lib/account-api';
+import { useErrorText, useT } from '@/i18n/client';
+import { vmsg } from '@/i18n/validation';
 import { Notice, Pending, SettingsSection, buttonClass } from './ui';
 
 const schema = z
   .object({
-    currentPassword: z.string().min(1, 'Enter your current password'),
+    currentPassword: z.string().min(1, vmsg('app.validation.currentPasswordRequired')),
     newPassword: PasswordSchema,
-    confirm: z.string().min(1, 'Please confirm the new password'),
+    confirm: z.string().min(1, vmsg('app.validation.confirmPasswordRequired')),
   })
-  .refine((v) => v.newPassword === v.confirm, { message: 'Passwords do not match', path: ['confirm'] })
+  .refine((v) => v.newPassword === v.confirm, { message: vmsg('app.validation.passwordsMismatch'), path: ['confirm'] })
   .refine((v) => v.newPassword !== v.currentPassword, {
-    message: 'The new password must differ from the current password',
+    message: vmsg('app.apiErrors.newPasswordSame'),
     path: ['newPassword'],
   });
 
 type FieldName = 'currentPassword' | 'newPassword' | 'confirm';
 
 export function ChangePasswordForm() {
+  const t = useT();
+  const errText = useErrorText();
   const queryClient = useQueryClient();
   const [saved, setSaved] = React.useState(false);
   const mutation = useMutation({
@@ -83,12 +87,12 @@ export function ChangePasswordForm() {
   return (
     <SettingsSection
       id="password"
-      title="Password"
+      title={t('app.security.password.title')}
       icon={KeyRound}
-      description="Changing your password signs out every other session."
+      description={t('app.security.password.hint')}
     >
-      {saved && <Notice tone="success" title="Password changed">Other sessions were signed out.</Notice>}
-      {mutation.isError && <Notice tone="error" title="Password not changed">{errorMessage(mutation.error)}</Notice>}
+      {saved && <Notice tone="success" title={t('app.security.password.savedTitle')}>{t('app.security.password.savedBody')}</Notice>}
+      {mutation.isError && <Notice tone="error" title={t('app.security.password.failed')}>{errText(mutation.error)}</Notice>}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -98,15 +102,15 @@ export function ChangePasswordForm() {
         noValidate
         className="grid gap-4 sm:grid-cols-3"
       >
-        {field('currentPassword', 'Current password', 'current-password')}
-        {field('newPassword', 'New password', 'new-password', `Min. ${PASSWORD_MIN_LENGTH} characters, 3 character types`)}
-        {field('confirm', 'Confirm new password', 'new-password')}
+        {field('currentPassword', t('app.security.password.current'), 'current-password')}
+        {field('newPassword', t('app.security.password.new'), 'new-password', t('app.security.password.newHint', { min: PASSWORD_MIN_LENGTH }))}
+        {field('confirm', t('app.security.password.confirm'), 'new-password')}
         <div className="sm:col-span-3 flex justify-end">
           <form.Subscribe
             selector={(s) => [s.isSubmitting, s.isDirty] as const}
             children={([isSubmitting, dirty]) => (
               <button type="submit" disabled={!dirty || isSubmitting || mutation.isPending} className={buttonClass.primary}>
-                <Pending busy={isSubmitting || mutation.isPending} busyLabel="Saving..." idle="Change password" />
+                <Pending busy={isSubmitting || mutation.isPending} busyLabel={t('app.security.password.saving')} idle={t('app.security.password.submit')} />
               </button>
             )}
           />

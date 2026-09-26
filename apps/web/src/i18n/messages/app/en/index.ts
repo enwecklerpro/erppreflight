@@ -13,6 +13,13 @@ import { dashboard } from './dashboard';
 import { engineMatrix } from './engineMatrix';
 import { projects } from './projects';
 import { settings } from './settings';
+import { members } from './members';
+import { security } from './security';
+import { account } from './account';
+import { commercial, billing } from './billing';
+import { audit } from './audit';
+import { retention } from './retention';
+import { support } from './support';
 
 export const appEn = {
   ui,
@@ -26,6 +33,14 @@ export const appEn = {
   engineMatrix,
   projects,
   settings,
+  members,
+  security,
+  account,
+  commercial,
+  billing,
+  audit,
+  retention,
+  support,
 };
 
 export type AppMessages = typeof appEn;
