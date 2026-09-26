@@ -77,7 +77,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 }
 
-const STRUCTURED_ERROR_KEYS = ['code', 'limitKey', 'used', 'limit', 'planTier'] as const;
+const STRUCTURED_ERROR_KEYS = ['code', 'limitKey', 'used', 'limit', 'planTier', 'loginUrl'] as const;
 
 function pickStructuredErrorFields(exceptionResponse: unknown): Record<string, unknown> {
   if (typeof exceptionResponse !== 'object' || exceptionResponse === null) return {};

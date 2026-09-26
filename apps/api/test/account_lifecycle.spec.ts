@@ -206,13 +206,14 @@ describe('Spec §51 — password security migration', () => {
     expect(passwordHashNeedsRehash(weak)).toBe(true);
     db.query
       .mockResolvedValueOnce({ rows: [{ id: USER, password_hash: weak, status: 'ACTIVE', token_version: 0 }] })
+      .mockResolvedValueOnce({ rows: [] }) // SSO enforcement lookup: none
       .mockResolvedValueOnce({ rows: [] }) // UPDATE password_hash
       .mockResolvedValueOnce({
         rows: [{ id: USER, email: 'u@example.com', status: 'ACTIVE', system_role: 'USER', organization_id: ORG, role: 'VIEWER' }],
       });
     const result: any = await service.login({ email: 'u@example.com', password: 'Correct-Horse-42' });
     expect(result.accessToken).toBeTruthy();
-    const update = db.query.mock.calls[1];
+    const update = db.query.mock.calls[2];
     expect(update[0]).toMatch(/UPDATE users SET password_hash/);
     expect(passwordHashNeedsRehash(update[1][0])).toBe(false);
   });

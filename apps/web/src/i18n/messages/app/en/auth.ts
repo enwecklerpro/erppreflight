@@ -32,6 +32,8 @@ export const auth = {
     useApp: 'Use authenticator app code',
     useRecovery: 'Use a recovery code instead',
     invalidCredentials: 'Invalid email or password.',
+    ssoRequired: 'Your organization requires single sign-on. Password sign-in is disabled for your account.',
+    continueWithSso: 'Continue with single sign-on',
     invalidCode: 'Invalid authentication code.',
   },
   signup: {

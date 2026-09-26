@@ -33,6 +33,8 @@ export const auth: typeof En = {
     useApp: 'Code aus der Authenticator-App verwenden',
     useRecovery: 'Stattdessen einen Wiederherstellungscode verwenden',
     invalidCredentials: 'E-Mail-Adresse oder Passwort ist falsch.',
+    ssoRequired: 'Ihre Organisation verlangt Single Sign-on. Die Anmeldung per Passwort ist für Ihr Konto deaktiviert.',
+    continueWithSso: 'Mit Single Sign-on fortfahren',
     invalidCode: 'Ungültiger Authentifizierungscode.',
   },
   signup: {

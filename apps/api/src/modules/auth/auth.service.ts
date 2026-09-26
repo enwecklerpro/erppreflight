@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   Logger,
   OnApplicationBootstrap,
 } from '@nestjs/common';
@@ -325,6 +326,8 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Account is not active');
     }
 
+    await this.assertPasswordLoginAllowed(row.id, dto.email);
+
     if (passwordHashNeedsRehash(row.password_hash)) {
       // Parameters changed since the hash was created: upgrade transparently.
       const upgraded = await this.hashPassword(dto.password);
@@ -342,6 +345,36 @@ export class AuthService implements OnApplicationBootstrap {
     }
 
     return this.createSession(row.id, { meta, authMethod: 'PASSWORD' });
+  }
+
+  /**
+   * Organizations that enforce SSO (ACTIVE IdP with enforce_sso on a VERIFIED e-mail
+   * domain) must not be reachable through password login for their members. Platform
+   * SUPER_ADMINs stay exempt as the documented break-glass path.
+   */
+  private async assertPasswordLoginAllowed(userId: string, email: string): Promise<void> {
+    const domain = String(email || '').trim().toLowerCase().split('@')[1];
+    if (!domain) return;
+    const res = await this.db.query(
+      `SELECT o.name
+         FROM sso_domains d
+         JOIN sso_identity_providers p
+           ON p.organization_id = d.organization_id AND p.status = 'ACTIVE' AND p.enforce_sso = TRUE
+         JOIN organizations o ON o.id = d.organization_id AND o.status = 'ACTIVE'
+         JOIN organization_members m ON m.organization_id = d.organization_id AND m.user_id = $2
+         JOIN users u ON u.id = $2
+        WHERE d.domain = $1 AND d.status = 'VERIFIED' AND COALESCE(u.system_role, '') <> 'SUPER_ADMIN'
+        LIMIT 1`,
+      [domain, userId],
+      { bypassRls: true }
+    );
+    if (res.rows.length > 0) {
+      throw new ForbiddenException({
+        message: `${res.rows[0].name} requires single sign-on. Continue with your identity provider.`,
+        code: 'SSO_REQUIRED',
+        loginUrl: `/api/v1/sso/login?email=${encodeURIComponent(email.trim().toLowerCase())}`,
+      });
+    }
   }
 
   /**

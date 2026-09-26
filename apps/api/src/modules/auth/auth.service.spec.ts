@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthService } from './auth.service';
 import { DatabaseService } from '../database/database.service';
 import { JwtService } from '@nestjs/jwt';
-import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { EmailVerificationService } from './email-verification.service';
 import { SessionService } from './session.service';
 
@@ -74,9 +74,12 @@ describe('AuthService', () => {
 
   it('should return a 2FA challenge instead of a session when TOTP is enabled', async () => {
     const passwordHash = await (service as any).hashPassword('password123');
-    mockDb.query = vi.fn().mockResolvedValueOnce({
-      rows: [{ id: 'user-1', password_hash: passwordHash, status: 'ACTIVE', token_version: 3, totp_enabled_at: new Date() }],
-    });
+    mockDb.query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{ id: 'user-1', password_hash: passwordHash, status: 'ACTIVE', token_version: 3, totp_enabled_at: new Date() }],
+      })
+      .mockResolvedValueOnce({ rows: [] }); // SSO enforcement lookup: none
     const result: any = await service.login({ email: 'test@example.com', password: 'password123' });
     expect(result.mfaRequired).toBe(true);
     expect(result.challengeToken).toBe('mock-jwt-token');
@@ -84,7 +87,28 @@ describe('AuthService', () => {
     const [payload, options] = (mockJwt.sign as any).mock.calls[0];
     expect(payload).toMatchObject({ sub: 'user-1', typ: 'mfa_challenge', tv: 3 });
     expect(options).toEqual({ expiresIn: 300 });
-    expect(mockDb.query).toHaveBeenCalledTimes(1);
+    expect(mockDb.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('should refuse password login for members of an organization that enforces SSO', async () => {
+    const passwordHash = await (service as any).hashPassword('password123');
+    mockDb.query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1', password_hash: passwordHash, status: 'ACTIVE', token_version: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ name: 'Acme Corp' }] });
+    const err: any = await service
+      .login({ email: 'Jane@Acme.example', password: 'password123' })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse()).toMatchObject({
+      code: 'SSO_REQUIRED',
+      loginUrl: '/api/v1/sso/login?email=jane%40acme.example',
+    });
+    const [sql, params] = (mockDb.query as any).mock.calls[1];
+    expect(sql).toMatch(/enforce_sso = TRUE/);
+    expect(sql).toMatch(/SUPER_ADMIN/);
+    expect(params).toEqual(['acme.example', 'user-1']);
+    expect(mockJwt.sign).not.toHaveBeenCalled();
   });
 
   it('should throw ConflictException if user email already exists', async () => {
@@ -103,22 +127,21 @@ describe('AuthService', () => {
 
   it('should login an existing user with valid password', async () => {
     const passwordHash = await (service as any).hashPassword('password123');
-    // 1st query: credentials lookup, 2nd query: session (membership) lookup
-    mockDb.query = vi.fn().mockResolvedValue({
-      rows: [
-        {
-          id: 'user-1',
-          email: 'test@example.com',
-          password_hash: passwordHash,
-          full_name: 'Test User',
-          system_role: 'USER',
-          status: 'ACTIVE',
-          token_version: 0,
-          organization_id: 'org-1',
-          role: 'LEAD_ARCHITECT',
-        },
-      ],
-    });
+    // Queries: credentials lookup, SSO enforcement lookup (none), then session (membership) lookups
+    const userRow = {
+      id: 'user-1',
+      email: 'test@example.com',
+      password_hash: passwordHash,
+      full_name: 'Test User',
+      system_role: 'USER',
+      status: 'ACTIVE',
+      token_version: 0,
+      organization_id: 'org-1',
+      role: 'LEAD_ARCHITECT',
+    };
+    mockDb.query = vi.fn((sql: string) =>
+      Promise.resolve({ rows: /sso_domains/.test(sql) ? [] : [userRow] })
+    ) as any;
 
     const result: any = await service.login({
       email: 'test@example.com',

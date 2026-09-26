@@ -18,6 +18,7 @@ import {
   type SessionResponse,
 } from '@/lib/account-api';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
+import { ApiError, resolveApiUrl } from '@/lib/api/custom-instance';
 import { Lock, Mail, ArrowRight, KeyRound, Smartphone } from 'lucide-react';
 import { useErrorText, useT } from '@/i18n/client';
 import { vmsg } from '@/i18n/validation';
@@ -43,6 +44,7 @@ function LoginForm() {
   const errText = useErrorText();
   const next = safeNextPath(searchParams.get('next'));
   const [serverError, setServerError] = React.useState<string | null>(null);
+  const [ssoEmail, setSsoEmail] = React.useState<string | null>(null);
   const [challenge, setChallenge] = React.useState<MfaChallenge | null>(null);
   const [useRecovery, setUseRecovery] = React.useState(false);
 
@@ -62,7 +64,16 @@ function LoginForm() {
       }
       await finish(res);
     },
-    onError: (err) => setServerError(errText(err, t('app.auth.login.invalidCredentials'))),
+    onError: (err, value) => {
+      // Organizations that enforce SSO reject password login; offer the IdP route instead.
+      if (err instanceof ApiError && err.code === 'SSO_REQUIRED') {
+        setSsoEmail(value.email.trim());
+        setServerError(t('app.auth.login.ssoRequired'));
+        return;
+      }
+      setSsoEmail(null);
+      setServerError(errText(err, t('app.auth.login.invalidCredentials')));
+    },
   });
 
   const secondFactorMutation = useMutation({
@@ -168,7 +179,20 @@ function LoginForm() {
 
   return (
     <AuthCard title={t('app.auth.login.title')} subtitle={t('app.auth.login.subtitle')}>
-      {serverError && <Notice tone="error" title={t('app.auth.login.errorTitle')} className="mb-6">{serverError}</Notice>}
+      {serverError && (
+        <Notice tone="error" title={t('app.auth.login.errorTitle')} className="mb-6">
+          {serverError}
+          {ssoEmail && (
+            <a
+              href={resolveApiUrl(`/sso/login?email=${encodeURIComponent(ssoEmail)}`)}
+              className={`${buttonClass.primary} mt-3 w-full`}
+              data-testid="login-sso-required"
+            >
+              {t('app.auth.login.continueWithSso')}
+            </a>
+          )}
+        </Notice>
+      )}
 
       <form
         onSubmit={(e) => {
