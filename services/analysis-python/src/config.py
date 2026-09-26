@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # temp dir). The body is spooled to disk, never held in memory.
     MAX_STREAM_SIZE_MB: int = 20480
     STREAM_SPOOL_DIR: str = ""
+    # Disk / concurrency guards of the streaming transport: at most MAX_CONCURRENT_STREAMS bodies are spooled
+    # at once (further requests wait up to STREAM_QUEUE_TIMEOUT_SECONDS, then 503), and spooling stops with 507
+    # before the spool volume's free space drops below STREAM_MIN_FREE_DISK_MB.
+    MAX_CONCURRENT_STREAMS: int = 2
+    STREAM_QUEUE_TIMEOUT_SECONDS: int = 600
+    STREAM_MIN_FREE_DISK_MB: int = 1024
 
     DEFAULT_TIMEOUT_SECONDS: int = 120
     MAX_FINDINGS_PER_ANALYSIS: int = 1000

@@ -174,6 +174,9 @@ services:
       # Streaming transport for multi-GB delimited logs (spooled to disk, bounded memory)
       MAX_STREAM_SIZE_MB: ${MAX_STREAM_SIZE_MB:-20480}
       STREAM_SPOOL_DIR: ${STREAM_SPOOL_DIR:-}
+      # Disk-exhaustion guards: concurrent spools, free-space reserve of the spool volume
+      MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-2}
+      STREAM_MIN_FREE_DISK_MB: ${STREAM_MIN_FREE_DISK_MB:-1024}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 10s

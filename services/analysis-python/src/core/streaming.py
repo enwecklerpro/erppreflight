@@ -19,6 +19,7 @@ from __future__ import annotations
 import codecs
 import hashlib
 import os
+import shutil
 import tempfile
 from typing import AsyncIterator, Iterator, Optional, Tuple
 
@@ -47,6 +48,22 @@ class StreamTooLargeError(ValueError):
     def __init__(self, limit_bytes: int):
         super().__init__(f"Streamed artifact exceeds the {limit_bytes} byte limit.")
         self.limit_bytes = limit_bytes
+
+
+class SpoolDiskFullError(OSError):
+    """Spooling stopped because the spool volume would drop below its free-space reserve (disk exhaustion guard)."""
+
+    def __init__(self, reserve_bytes: int):
+        super().__init__(f"Spool volume free space would drop below the {reserve_bytes} byte reserve.")
+        self.reserve_bytes = reserve_bytes
+
+
+# Free space of the spool volume is re-checked after every this many spooled bytes.
+DISK_CHECK_INTERVAL_BYTES = 64 * 1024 * 1024
+
+
+def _free_bytes(directory: str) -> int:
+    return int(shutil.disk_usage(directory).free)
 
 
 class LineSource:
@@ -181,11 +198,14 @@ async def read_framed_stream(
     chunks: AsyncIterator[bytes],
     max_artifact_bytes: int,
     spool_dir: Optional[str] = None,
+    min_free_bytes: int = 0,
 ) -> Tuple[bytes, SpooledArtifact]:
     """Splits a framed body into (metadata JSON bytes, spooled artifact).
 
-    Raises :class:`StreamFramingError` when no metadata line arrives within ``MAX_METADATA_BYTES`` and
-    :class:`StreamTooLargeError` once the artifact part exceeds ``max_artifact_bytes`` (reading stops there)."""
+    Raises :class:`StreamFramingError` when no metadata line arrives within ``MAX_METADATA_BYTES``,
+    :class:`StreamTooLargeError` once the artifact part exceeds ``max_artifact_bytes`` and
+    :class:`SpoolDiskFullError` when the spool volume's free space would fall below ``min_free_bytes`` (reading
+    stops there and the partial spool file is removed)."""
     header = bytearray()
     metadata: Optional[bytes] = None
     digest = hashlib.sha256()
@@ -193,6 +213,8 @@ async def read_framed_stream(
     newlines = 0
     last_byte = b""
     fd, path = tempfile.mkstemp(prefix="erpp-stream-", suffix=".log", dir=spool_dir or None)
+    spool_volume = os.path.dirname(path)
+    next_disk_check = 0
     try:
         with os.fdopen(fd, "wb") as out:
             async for chunk in chunks:
@@ -213,6 +235,11 @@ async def read_framed_stream(
                 size += len(chunk)
                 if size > max_artifact_bytes:
                     raise StreamTooLargeError(max_artifact_bytes)
+                if min_free_bytes > 0 and size >= next_disk_check:
+                    # Headroom for the next interval must remain above the reserve (other spools share the volume).
+                    if _free_bytes(spool_volume) - DISK_CHECK_INTERVAL_BYTES < min_free_bytes:
+                        raise SpoolDiskFullError(min_free_bytes)
+                    next_disk_check = size + DISK_CHECK_INTERVAL_BYTES
                 digest.update(chunk)
                 newlines += chunk.count(b"\n")
                 last_byte = chunk[-1:]
@@ -238,6 +265,7 @@ __all__ = [
     "SpooledArtifact",
     "StreamFramingError",
     "StreamTooLargeError",
+    "SpoolDiskFullError",
     "read_framed_stream",
     "HEAD_SAMPLE_BYTES",
 ]

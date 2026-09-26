@@ -78,6 +78,13 @@ export class SecretRedactorService {
     'Namespace', 'Alias', 'Partner', 'Target', 'Term', 'Path', 'Property', 'EntitySet', 'Action', 'Function',
     'ReturnType', 'Multiplicity', 'PropertyPath', 'NavigationPropertyPath', 'Qualifier', 'ContainsTarget',
   ]);
+  /**
+   * The structural-attribute exemption applies to OData service metadata documents ONLY (EDMX envelope or a
+   * CSDL namespace). In any other XML, `Name` / `Type` / `Path` / `Target` attributes are ordinary config
+   * values that may hold credentials and stay subject to the entropy scan.
+   */
+  private static readonly ODATA_METADATA_DOCUMENT =
+    /<(?:[A-Za-z_][\w.-]*:)?Edmx[\s>]|xmlns(?::[A-Za-z_][\w.-]*)?\s*=\s*["']http:\/\/(?:docs\.oasis-open\.org\/odata\/ns\/edm|schemas\.microsoft\.com\/ado\/\d{4}\/\d{2}\/edm)["']/;
   /** A quoted identifier value: word characters, '.', '/', ':' and '-' only (no base64 padding, no spaces). */
   private static readonly QUOTED_IDENTIFIER_VALUE = /^(["'])[A-Za-z_][\w.\/:-]*\1\/?$/;
   private static readonly SAP_ARCH_PREFIX_REGEX =
@@ -250,6 +257,7 @@ export class SecretRedactorService {
     );
 
     // 2. Line by line processing
+    const isODataMetadata = SecretRedactorService.ODATA_METADATA_DOCUMENT.test(text);
     const lines = sanitized.split('\n');
     const newLines: string[] = [];
 
@@ -300,6 +308,7 @@ export class SecretRedactorService {
         const isBindingPath = /^\$[A-Za-z_]*(\.[A-Za-z_]\w*|\[\*?\d*\])+$/.test(cleanT.replace(/["'`]*\/?$/, ''));
         // Identifier-valued OData model attributes (`EntityType="NS.Type"`, `Relationship="NS.assoc_X"`).
         const isStructuralAttribute =
+          isODataMetadata &&
           previousToken === '=' &&
           SecretRedactorService.STRUCTURAL_XML_ATTRIBUTES.has(attributeName) &&
           SecretRedactorService.QUOTED_IDENTIFIER_VALUE.test(t);

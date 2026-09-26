@@ -54,6 +54,32 @@ export interface AbapGitScanResult {
   truncated: boolean;
 }
 
+/**
+ * Reads an inflating member stream up to `limit` bytes; stops (destroying the stream) as soon as more arrive.
+ */
+export async function inflateBounded(
+  stream: NodeJS.ReadableStream,
+  limit: number
+): Promise<{ content: Buffer; truncated: boolean }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk, 'utf-8') : chunk;
+      if (size + buf.length > limit) {
+        (stream as any).destroy?.();
+        return { content: Buffer.concat(chunks), truncated: true };
+      }
+      size += buf.length;
+      chunks.push(buf);
+    }
+  } catch (err) {
+    (stream as any).destroy?.();
+    throw err;
+  }
+  return { content: Buffer.concat(chunks), truncated: false };
+}
+
 /** Candidate SAP object names referenced by an abapGit ZIP (see module doc). Throws on unsafe archives. */
 export async function extractAbapGitCandidateNames(
   buffer: Buffer,
@@ -82,10 +108,18 @@ export async function extractAbapGitCandidateNames(
       truncated = true;
       continue;
     }
-    const content = await file.buffer();
+    // The declared sizes above come from the (attacker-controlled) ZIP directory: inflate with an actual byte
+    // budget so a member that lies about its size cannot expand into memory (deflate reaches ~1000:1).
+    const budget = Math.min(ABAPGIT_SCAN_LIMITS.maxMemberBytes, ABAPGIT_SCAN_LIMITS.maxTotalBytes - bytesScanned);
+    const inflated = await inflateBounded(file.stream(), budget);
     membersScanned++;
-    bytesScanned += content.length;
-    for (const n of extract(content.toString('utf-8'))) names.add(n);
+    bytesScanned += inflated.content.length;
+    if (inflated.truncated) {
+      // Content beyond the budget is not scanned (a lying or oversized member): no partial-token names.
+      truncated = true;
+      continue;
+    }
+    for (const n of extract(inflated.content.toString('utf-8'))) names.add(n);
   }
   return { names: [...names].sort(), membersScanned, bytesScanned, truncated };
 }

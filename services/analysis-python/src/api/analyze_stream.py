@@ -14,8 +14,10 @@ by line by the engine's ``analyze_stream``. The response is the same :class:`Ana
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import ValidationError
@@ -24,7 +26,13 @@ from src.config import get_settings
 from src.core.exceptions import EngineNotFoundError
 from src.core.registry import EngineRegistry
 from src.core.runner import EngineRunner
-from src.core.streaming import StreamFramingError, StreamTooLargeError, read_framed_stream
+from src.core.streaming import (
+    MAX_METADATA_BYTES,
+    SpoolDiskFullError,
+    StreamFramingError,
+    StreamTooLargeError,
+    read_framed_stream,
+)
 from src.models.request import AnalysisRequest
 from src.models.response import AnalysisResponse
 from src.observability import engine_span
@@ -58,19 +66,63 @@ def _parse_metadata(raw: bytes) -> AnalysisRequest:
         ) from None
 
 
+# Streams spooling or being analysed right now (one event loop per process: a plain counter is race-free).
+_active_streams = 0
+_SLOT_POLL_SECONDS = 0.25
+
+
+@contextlib.asynccontextmanager
+async def _stream_slot(max_streams: int, timeout_s: float):
+    """Admission control: bounds concurrent spool files (disk) and CPU-bound stream evaluations."""
+    global _active_streams
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while _active_streams >= max(1, max_streams):
+        if time.monotonic() >= deadline:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Too many streamed analyses in progress; retry later.",
+                headers={"Retry-After": "30"},
+            )
+        await asyncio.sleep(_SLOT_POLL_SECONDS)
+    _active_streams += 1
+    try:
+        yield
+    finally:
+        _active_streams -= 1
+
+
 @router.post("/analyze/stream", response_model=AnalysisResponse)
 async def analyze_stream(http_request: Request) -> AnalysisResponse:
     """Streams a large artifact through a streaming-capable engine with bounded memory."""
     settings = get_settings()
     limit = int(settings.MAX_STREAM_SIZE_MB) * 1024 * 1024
+    declared = http_request.headers.get("content-length")
+    if declared is not None:
+        try:
+            too_large = int(declared) > limit + MAX_METADATA_BYTES + 1
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Content-Length header.") from None
+        if too_large:
+            raise HTTPException(413, f"Streamed artifact exceeds the {limit} byte limit.")
+    async with _stream_slot(int(settings.MAX_CONCURRENT_STREAMS), float(settings.STREAM_QUEUE_TIMEOUT_SECONDS)):
+        return await _analyze_stream_admitted(http_request, settings, limit)
+
+
+async def _analyze_stream_admitted(http_request: Request, settings, limit: int) -> AnalysisResponse:
     try:
         metadata, artifact = await read_framed_stream(
-            http_request.stream(), max_artifact_bytes=limit, spool_dir=settings.STREAM_SPOOL_DIR or None
+            http_request.stream(),
+            max_artifact_bytes=limit,
+            spool_dir=settings.STREAM_SPOOL_DIR or None,
+            min_free_bytes=int(settings.STREAM_MIN_FREE_DISK_MB) * 1024 * 1024,
         )
     except StreamFramingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid stream framing: {exc}") from None
     except StreamTooLargeError as exc:
         raise HTTPException(413, str(exc)) from None
+    except SpoolDiskFullError:
+        logger.error("stream spool aborted: free disk space below the %d MB reserve", settings.STREAM_MIN_FREE_DISK_MB)
+        raise HTTPException(507, "Insufficient storage to spool the streamed artifact; retry later.") from None
 
     with artifact:
         request = _parse_metadata(metadata)

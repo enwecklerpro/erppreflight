@@ -39,6 +39,18 @@ describe('SecretRedactorService keeps OData $metadata intact', () => {
     expect(res.sanitizedText).not.toContain(secret);
   });
 
+  it.each([
+    '<Credential Name="svc" Target="__S__"/>',
+    '<cfg Path="__S__"/>',
+    '<Property Name="__S__" />',
+    '<k Type="__S__"/>',
+  ])('outside OData metadata, identifier-like secrets in structural attribute names stay masked: %s', (tpl) => {
+    const secret = 'Zq8vR2xLp9TfW3yKmB7nCd4HsJ6gAe1U';
+    const res = redactor.redact(tpl.replace('__S__', secret), ORG);
+    expect(res.sanitizedText).not.toContain(secret);
+    expect(res.redactedCategories).toContain('HIGH_ENTROPY_TOKEN');
+  });
+
   it('keeps masking password attributes', () => {
     const res = redactor.redact('<Conn password="S3cr3t-Value-For-Test!" />', ORG);
     expect(res.sanitizedText).not.toContain('S3cr3t-Value-For-Test!');

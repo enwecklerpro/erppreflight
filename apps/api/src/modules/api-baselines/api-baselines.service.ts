@@ -237,18 +237,29 @@ export class ApiBaselinesService {
   /** Makes a baseline the project's active one (at most one active baseline per project). */
   async activate(tenantId: string, projectId: string, id: string): Promise<ApiBaseline> {
     await this.getRecord(tenantId, projectId, id);
-    await this.db.withTenantTransaction(tenantId, async (client) => {
-      await client.query(
-        `UPDATE api_baselines SET is_active = FALSE
-          WHERE organization_id = $1 AND project_id = $2 AND is_active AND id <> $3`,
-        [tenantId, projectId, id]
-      );
-      await client.query(
-        `UPDATE api_baselines SET is_active = TRUE, activated_at = NOW()
-          WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND NOT is_active`,
-        [id, tenantId, projectId]
-      );
-    });
+    try {
+      await this.db.withTenantTransaction(tenantId, async (client) => {
+        await client.query(
+          `UPDATE api_baselines SET is_active = FALSE
+            WHERE organization_id = $1 AND project_id = $2 AND is_active AND id <> $3`,
+          [tenantId, projectId, id]
+        );
+        await client.query(
+          `UPDATE api_baselines SET is_active = TRUE, activated_at = NOW()
+            WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND NOT is_active`,
+          [id, tenantId, projectId]
+        );
+      });
+    } catch (err: any) {
+      // A concurrent activation won the single-active unique index (uq_api_baselines_active).
+      if (err?.code === '23505') {
+        throw new ConflictException({
+          code: 'API_BASELINE_ACTIVATION_CONFLICT',
+          message: 'Another baseline of this project was activated at the same time; reload and retry.',
+        });
+      }
+      throw err;
+    }
     return this.get(tenantId, projectId, id);
   }
 
