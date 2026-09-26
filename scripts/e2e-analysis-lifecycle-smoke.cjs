@@ -243,6 +243,16 @@ function assert(cond, msg) {
     assert(busy.status === 409 && busy.body.code === 'ANALYSIS_STILL_ACTIVE', 'rerun of an active run ' + busy.status);
     await api('POST', `/analyses/${active.body.analysisId}/cancel`, A, {});
     await waitStatus(A, active.body.analysisId, (s) => TERMINAL.has(s), 60000);
+    // Double rerun (double click / concurrent requests): exactly one rerun is queued.
+    const pair = await Promise.all([
+      api('POST', `/analyses/${completedRun}/rerun`, A, {}),
+      api('POST', `/analyses/${completedRun}/rerun`, A, {}),
+    ]);
+    const accepted = pair.filter((x) => x.status === 202);
+    const refused = pair.filter((x) => x.status === 409 && x.body.code === 'ANALYSIS_RERUN_IN_PROGRESS');
+    assert(accepted.length === 1 && refused.length === 1, 'double rerun ' + pair.map((x) => `${x.status}:${x.body.code || ''}`).join(','));
+    await api('POST', `/analyses/${accepted[0].body.analysisId}/cancel`, A, {});
+    await waitStatus(A, accepted[0].body.analysisId, (s) => TERMINAL.has(s), 60000);
     const usage = await api('GET', '/billing/entitlements', A);
     if (usage.status === 200) assert(Number(usage.body.analysesThisMonthCount) >= 6, 'reruns are metered as analysis runs');
   });

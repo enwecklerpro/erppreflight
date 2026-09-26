@@ -230,28 +230,43 @@ export class AnalysisLifecycleService {
         message: `The analysis is still ${decision.status}. Wait for it to finish or cancel it before re-running.`,
       });
     }
+    // One active rerun per source run (double click / concurrent requests). The unique partial
+    // index uq_analyses_active_rerun (migration 020) enforces it atomically; this read only
+    // produces the friendly answer naming the rerun already in progress.
+    const active = await this.db.query(
+      `SELECT id FROM analyses WHERE organization_id = $1 AND rerun_of_analysis_id = $2 AND status IN ('QUEUED', 'RUNNING')
+        ORDER BY created_at DESC LIMIT 1`,
+      [tenantId, row.id],
+      { tenantId }
+    );
+    if (active.rows?.[0]) throw this.rerunInProgress(active.rows[0].id);
     const kind = String(row.kind ?? 'STANDARD');
     const inputs = this.parseInputs(row);
     let created: { analysisId: string; status: string; engineTypes: string[]; targetRelease: string | null; knowledgeSnapshotId?: string | null };
 
-    if (kind === 'LAB_REGRESSION') {
-      if (!this.regressionLab) throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The Test Lab is not available.' });
-      created = await this.regressionLab.rerunLabAnalysis(tenantId, caller, {
-        id: row.id,
-        projectId: row.project_id,
-        testCaseIds: inputs?.testCaseIds ?? [],
-        trigger: inputs?.trigger ?? null,
-      });
-    } else if (kind === 'LAB_SCENARIO') {
-      if (!this.scenarioLab) throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The Test Lab is not available.' });
-      created = await this.scenarioLab.rerunScenarioAnalysis(tenantId, caller.id, {
-        id: row.id,
-        projectId: row.project_id,
-        scenarioId: inputs?.scenarioId ?? null,
-        targetRelease: row.target_release ?? null,
-      });
-    } else {
-      created = await this.jobs.rerunAnalysis(tenantId, caller.id, this.rerunSource(row, inputs));
+    try {
+      if (kind === 'LAB_REGRESSION') {
+        if (!this.regressionLab) throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The Test Lab is not available.' });
+        created = await this.regressionLab.rerunLabAnalysis(tenantId, caller, {
+          id: row.id,
+          projectId: row.project_id,
+          testCaseIds: inputs?.testCaseIds ?? [],
+          trigger: inputs?.trigger ?? null,
+        });
+      } else if (kind === 'LAB_SCENARIO') {
+        if (!this.scenarioLab) throw new ConflictException({ code: 'RERUN_INPUTS_UNAVAILABLE', message: 'The Test Lab is not available.' });
+        created = await this.scenarioLab.rerunScenarioAnalysis(tenantId, caller.id, {
+          id: row.id,
+          projectId: row.project_id,
+          scenarioId: inputs?.scenarioId ?? null,
+          targetRelease: row.target_release ?? null,
+        });
+      } else {
+        created = await this.jobs.rerunAnalysis(tenantId, caller.id, this.rerunSource(row, inputs));
+      }
+    } catch (err: any) {
+      if (err?.code === '23505' && err?.constraint === 'uq_analyses_active_rerun') throw this.rerunInProgress(null);
+      throw err;
     }
 
     const snap = await this.db.query(`SELECT knowledge_snapshot_id FROM analyses WHERE id = $1 AND organization_id = $2`, [created.analysisId, tenantId], {
@@ -267,6 +282,13 @@ export class AnalysisLifecycleService {
       knowledgeSnapshotId: snap.rows?.[0]?.knowledge_snapshot_id ?? created.knowledgeSnapshotId ?? null,
       previousKnowledgeSnapshotId: row.knowledge_snapshot_id ?? null,
     };
+  }
+
+  private rerunInProgress(activeRerunId: string | null) {
+    return new ConflictException({
+      code: 'ANALYSIS_RERUN_IN_PROGRESS',
+      message: `A rerun of this analysis is already queued or running${activeRerunId ? ` (${activeRerunId})` : ''}. Wait for it to finish.`,
+    });
   }
 
   private parseInputs(row: any): AnalysisInputs | null {

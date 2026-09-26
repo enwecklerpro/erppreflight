@@ -144,6 +144,9 @@ function makeDb(rows: Row[]) {
       r.cancelled_at = NOW;
       return { rows: [{ project_id: r.project_id, engine_types: r.engine_types, triggered_by: r.triggered_by }] };
     }
+    if (text.includes('rerun_of_analysis_id = $2 AND status IN')) {
+      return { rows: rows.filter((r) => r.organization_id === params[0] && r.rerun_of_analysis_id === params[1] && ['QUEUED', 'RUNNING'].includes(r.status)) };
+    }
     if (text.includes('SELECT progress FROM analyses')) return { rows: [{ progress: {} }] };
     if (text.includes('SELECT knowledge_snapshot_id FROM analyses')) return { rows: [{ knowledge_snapshot_id: 'e1111111-1111-4111-8111-111111111111' }] };
     return { rows: [] };
@@ -313,6 +316,22 @@ describe('AnalysisLifecycleService.rerun', () => {
     expect(regressionLab.rerunLabAnalysis).toHaveBeenCalledWith(ORG, OWNER, { id: A1, projectId: PROJ, testCaseIds: [tc], trigger: 'BATCH' });
     expect(jobs.rerunAnalysis).not.toHaveBeenCalled();
     expect(res.kind).toBe('LAB_REGRESSION');
+  });
+
+  it('double rerun: refuses while a rerun of the same run is queued/running (409), also when the unique index races', async () => {
+    const child = 'a4444444-4444-4444-8444-444444444444';
+    const busy = makeService([analysisRow({ status: 'COMPLETED' }), analysisRow({ id: child, status: 'QUEUED', rerun_of_analysis_id: A1 })]);
+    await expect(busy.service.rerun(ORG, OWNER, A1)).rejects.toMatchObject({ response: { code: 'ANALYSIS_RERUN_IN_PROGRESS' } });
+    expect(busy.jobs.rerunAnalysis).not.toHaveBeenCalled();
+
+    // A finished rerun does not block the next one.
+    const done = makeService([analysisRow({ status: 'COMPLETED' }), analysisRow({ id: child, status: 'COMPLETED', rerun_of_analysis_id: A1 })]);
+    await expect(done.service.rerun(ORG, OWNER, A1)).resolves.toMatchObject({ rerunOfAnalysisId: A1 });
+
+    // Two concurrent requests both pass the read: the database unique index rejects the second insert.
+    const raced = makeService([analysisRow({ status: 'COMPLETED' })]);
+    raced.jobs.rerunAnalysis.mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'uq_analyses_active_rerun' }));
+    await expect(raced.service.rerun(ORG, OWNER, A1)).rejects.toMatchObject({ response: { code: 'ANALYSIS_RERUN_IN_PROGRESS' } });
   });
 
   it('is tenant-scoped (404 for another organisation)', async () => {

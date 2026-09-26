@@ -36,6 +36,10 @@ ALTER TABLE analyses ADD COLUMN IF NOT EXISTS error_message TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_analyses_rerun_of ON analyses(rerun_of_analysis_id)
     WHERE rerun_of_analysis_id IS NOT NULL;
+-- At most one ACTIVE rerun per source run: a double-click / concurrent POST /rerun cannot
+-- queue the same rerun twice (and cannot consume the plan quota twice for it).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_analyses_active_rerun ON analyses(rerun_of_analysis_id)
+    WHERE rerun_of_analysis_id IS NOT NULL AND status IN ('QUEUED', 'RUNNING');
 CREATE INDEX IF NOT EXISTS idx_analyses_org_status ON analyses(organization_id, status);
 
 -- 2. Status / kind domain -----------------------------------------------------------
