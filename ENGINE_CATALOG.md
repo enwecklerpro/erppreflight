@@ -98,8 +98,8 @@ Token-based ABAP Cloud / Clean Core static analysis and released-object classifi
 - **Implementation:** `services/analysis-python/src/engines/clean_core.py` (`CleanCoreEngine`)
 - **Artifact types:** ABAP, ZIP, TXT, JSON (binary payloads accepted as base64)
 - **Finding codes in the engine module (8):** `CLEAN_CORE_DIRECT_DB_ACCESS`, `CLEAN_CORE_DIRECT_DB_MUTATION`, `CLEAN_CORE_DYNAMIC_CALL_UNVERIFIABLE`, `CLEAN_CORE_OBJECT_RELEASED`, `CLEAN_CORE_OBSOLETE_SYNTAX`, `CLEAN_CORE_UNRELEASED_API`, `CLEAN_CORE_UNRELEASED_CLASS`, `CLEAN_CORE_UNRELEASED_OBJECT`
-- **Tests referencing the engine (7):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_clean_core_tokenizer.py`, `tests/unit/test_domain2_engines.py`, `tests/unit/test_knowledge_client.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
-- **Fixture files named in those test files (19):** `clean_core_compliant.abap`, `clean_core_dynamic.abap`, `clean_core_legacy.abap`, `clean_core_tricky_negative.abap`, `clean_core_tricky_positive.abap`, `cp_missing_field.json`, `decom_clean_user.json`, `ecc_interface_inventory.json`, `ecc_obsolete_blockers.csv`, `ecc_st03n_clean.csv`, `gap_radar_direct_db_write.json`, `gap_radar_event_mesh.json`, `gap_radar_known_gap.json`, `opd_decision_table.csv`, `refresh_clean_isolated.json`, `sc_circular.json`, `spro_custom_z_activity.json`, `spro_negative_unsupported.csv`, `spro_standard_valid.csv`
+- **Tests referencing the engine (8):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_clean_core_tokenizer.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain2_engines.py`, `tests/unit/test_knowledge_client.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
+- **Fixture files named in those test files (20):** `clean_core_compliant.abap`, `clean_core_dynamic.abap`, `clean_core_legacy.abap`, `clean_core_tricky_negative.abap`, `clean_core_tricky_positive.abap`, `cp_missing_field.json`, `decom_clean_user.json`, `ecc_interface_inventory.json`, `ecc_obsolete_blockers.csv`, `ecc_st03n_clean.csv`, `gap_radar_direct_db_write.json`, `gap_radar_event_mesh.json`, `gap_radar_known_gap.json`, `opd_decision_table.csv`, `refresh_clean_isolated.json`, `sc_circular.json`, `spro_custom_z_activity.json`, `spro_negative_unsupported.csv`, `spro_standard_valid.csv`, `tr_collision.json`
 
 ### Custom Field Flow Doctor — `CUSTOM_FIELD_FLOW_DOCTOR`
 
@@ -168,8 +168,8 @@ Material Flow System / EWM telegram sequence and telegram buffer auditor
 - **Implementation:** `services/analysis-python/src/engines/mfs_blackbox.py` (`MFSBlackBoxEngine`)
 - **Artifact types:** CSV, TXT, JSON
 - **Finding codes in the engine module (8):** `MFS_CORRUPTED_TELEGRAM`, `MFS_DUPLICATE_TELEGRAM_SEND`, `MFS_FIRST_CAUSAL_DIVERGENCE`, `MFS_IMPOSSIBLE_TOPOLOGY_JUMP`, `MFS_INSUFFICIENT_INPUT`, `MFS_INVALID_INPUT`, `MFS_MISSING_ACK_TIMEOUT`, `MFS_OUT_OF_ORDER_SEQUENCE`
-- **Tests referencing the engine (6):** `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_domain6_engines.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
-- **Fixture files named in those test files (9):** `cp_missing_field.json`, `decom_clean_user.json`, `mfs_ack_retry_storm.json`, `mfs_jump_stream.json`, `mfs_normal_flow.json`, `mfs_telegram_log.csv`, `opd_decision_table.csv`, `refresh_clean_isolated.json`, `sc_circular.json`
+- **Tests referencing the engine (7):** `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain6_engines.py`, `tests/unit/test_property_parsers.py`, `tests/unit/test_rule_catalog.py`
+- **Fixture files named in those test files (11):** `clean_core_legacy.abap`, `cp_missing_field.json`, `decom_clean_user.json`, `mfs_ack_retry_storm.json`, `mfs_jump_stream.json`, `mfs_normal_flow.json`, `mfs_telegram_log.csv`, `opd_decision_table.csv`, `refresh_clean_isolated.json`, `sc_circular.json`, `tr_collision.json`
 
 ### OPD Guard — `OPD_GUARD`
 
@@ -178,8 +178,8 @@ S/4HANA Output Parameter Determination & BRFplus decision table evaluation
 - **Implementation:** `services/analysis-python/src/engines/opd_guard.py` (`OPDGuardEngine`)
 - **Artifact types:** CSV, XLSX, JSON, XML (binary payloads accepted as base64)
 - **Finding codes in the engine module (10):** `OPD_ARCHIVE_REJECTED`, `OPD_CHANNEL_INACTIVE`, `OPD_DETERMINATION_STEP_MISSING`, `OPD_INSUFFICIENT_INPUT`, `OPD_INVALID_INPUT`, `OPD_PARSE_ERROR`, `OPD_PRINTER_QUEUE_NOT_FOUND`, `OPD_RELEVANCE_SUPPRESSED`, `OPD_STEP_FAILED`, `OPD_UNREACHABLE_RULE`
-- **Tests referencing the engine (12):** `tests/adversarial/test_empirical_r7_opd_stress.py`, `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_rule_catalog.py`, `tests/unit/test_rule_versions.py`, `tests/unit/test_runner.py`, `tests/unit/test_schemas.py`
-- **Fixture files named in those test files (16):** `cp_missing_field.json`, `custom_field_registry.json`, `custom_field_type_mismatch.json`, `decom_clean_user.json`, `extension_cycle.json`, `extension_manifest.json`, `form_data_missing_field.xml`, `form_data_valid.xml`, `form_legacy_smartform.xml`, `form_template_xdp.xml`, `opd_decision_table.csv`, `opd_scenario_missing_channel.json`, `opd_scenario_shadowed.json`, `opd_scenario_valid.json`, `refresh_clean_isolated.json`, `sc_circular.json`
+- **Tests referencing the engine (13):** `tests/adversarial/test_empirical_r7_opd_stress.py`, `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_audit_fixes.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_rule_catalog.py`, `tests/unit/test_rule_versions.py`, `tests/unit/test_runner.py`, `tests/unit/test_schemas.py`
+- **Fixture files named in those test files (18):** `clean_core_legacy.abap`, `cp_missing_field.json`, `custom_field_registry.json`, `custom_field_type_mismatch.json`, `decom_clean_user.json`, `extension_cycle.json`, `extension_manifest.json`, `form_data_missing_field.xml`, `form_data_valid.xml`, `form_legacy_smartform.xml`, `form_template_xdp.xml`, `opd_decision_table.csv`, `opd_scenario_missing_channel.json`, `opd_scenario_shadowed.json`, `opd_scenario_valid.json`, `refresh_clean_isolated.json`, `sc_circular.json`, `tr_collision.json`
 
 ### Safe Decommission Preflight — `SAFE_DECOMMISSION_PREFLIGHT`
 
@@ -238,8 +238,8 @@ CTS transport sequence, cross-transport dictionary dependency validator
 - **Implementation:** `services/analysis-python/src/engines/transport_dependency.py` (`TransportDependencyEngine`)
 - **Artifact types:** JSON, CSV, XML, TXT
 - **Finding codes in the engine module (8):** `TR_CALL_DEPENDENCY_SEQUENCE_RISK`, `TR_CIRCULAR_DEPENDENCY_DETECTED`, `TR_CUSTOMIZING_AHEAD_OF_STRUCTURE`, `TR_INSUFFICIENT_INPUT`, `TR_INVALID_INPUT`, `TR_OBJECT_COLLISION`, `TR_OVERTAKER_DOWNGRADE_RISK`, `TR_PARSE_ERROR`
-- **Tests referencing the engine (3):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_domain4_engines.py`, `tests/unit/test_property_parsers.py`
-- **Fixture files named in those test files (14):** `sc_circular.json`, `sc_dangling_field.json`, `sc_draft_item.json`, `sc_linear_manifest.xml`, `sc_missing_prereq.json`, `sc_valid_sequence.json`, `tr_circular_transports.json`, `tr_collision.csv`, `tr_collision.json`, `tr_customizing_ahead_of_structure.json`, `tr_e070_e071_complete.csv`, `tr_overtaker_downgrade.json`, `tr_valid_e070_e071.csv`, `tr_valid_sequence.json`
+- **Tests referencing the engine (4):** `tests/adversarial/test_m2_challenges.py`, `tests/unit/test_contract_match.py`, `tests/unit/test_domain4_engines.py`, `tests/unit/test_property_parsers.py`
+- **Fixture files named in those test files (15):** `clean_core_legacy.abap`, `sc_circular.json`, `sc_dangling_field.json`, `sc_draft_item.json`, `sc_linear_manifest.xml`, `sc_missing_prereq.json`, `sc_valid_sequence.json`, `tr_circular_transports.json`, `tr_collision.csv`, `tr_collision.json`, `tr_customizing_ahead_of_structure.json`, `tr_e070_e071_complete.csv`, `tr_overtaker_downgrade.json`, `tr_valid_e070_e071.csv`, `tr_valid_sequence.json`
 
 ### Workflow Stuck Explainer — `WORKFLOW_STUCK_EXPLAINER`
 
