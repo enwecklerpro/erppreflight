@@ -26,9 +26,10 @@ import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from pydantic import model_validator
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.core.base_engine import BaseEngine
 from src.core.contracts import (
@@ -216,18 +217,40 @@ RULES = rule_catalog(
 )
 
 
+class AbapReference(BaseModel):
+    """One usage reference derived by an external AST (e.g. abaplint) — spec §29 hand-over format.
+
+    The in-service tokenizer derives the same reference kinds; external references are evaluated with the
+    same classification rules but capped at RULE_DERIVED (their positions were not derived by this service)."""
+    model_config = ConfigDict(extra="ignore")
+    kind: Literal["TABLE", "CDS", "FUNCTION_MODULE", "CLASS", "DYNAMIC"]
+    name: str = Field(min_length=1, max_length=120)
+    operation: Literal["READ", "WRITE", "CALL", "REFERENCE"] = "REFERENCE"
+    artifact: str = Field(default="abap_source", max_length=512)
+    line: int = Field(ge=1)
+    column: int = Field(default=1, ge=1)
+    statement: Optional[str] = Field(default=None, max_length=2000)
+    source: str = Field(default="external-ast", max_length=60)
+
+
 class CleanCoreObjectList(ContractModel):
-    """Object-list input: {'objects': [{'name': 'MARA', 'type': 'TABL'|'FUNC'|'CLAS'|'DDLS'}]}."""
+    """Object-list input: {'objects': [{'name': 'MARA', 'type': 'TABL'|'FUNC'|'CLAS'|'DDLS'}]} and/or
+    externally derived AST references {'abap_references': [AbapReference, …]}."""
     objects: Optional[List[Dict[str, Any]]] = None
     name: Optional[str] = None
     type: Optional[str] = None
+    abap_references: Optional[List[AbapReference]] = None
 
     @model_validator(mode="after")
     def _require_objects(self) -> "CleanCoreObjectList":
+        if self.abap_references:
+            return self
         rows = self.objects or ([{"name": self.name}] if self.name else [])
         if any(isinstance(r, dict) and str(r.get("name") or r.get("object_name") or "").strip() for r in rows):
             return self
-        raise insufficient("No objects supplied: provide 'objects': [{'name': …, 'type': …}] or ABAP source.")
+        raise insufficient(
+            "No objects supplied: provide ABAP source, 'objects': [{'name': …, 'type': …}] or 'abap_references'."
+        )
 
 
 def _clean_core_text_check(text: str) -> Optional[str]:
@@ -245,7 +268,12 @@ INPUT_CONTRACT = InputContract(
     json_model=CleanCoreObjectList,
     json_array_field="objects",
     text_check=_clean_core_text_check,
-    notes=("Released-object knowledge snapshot: clean-core-released-objects/2408.1",),
+    notes=(
+        "Released-object knowledge snapshot: clean-core-released-objects/2408.1",
+        "configuration.abap_references accepts AST-derived references (kind TABLE|CDS|FUNCTION_MODULE|CLASS|DYNAMIC, "
+        "name, operation READ|WRITE|CALL, artifact, line, column) from an external analyzer such as abaplint; they "
+        "are classified by the same rules, capped at RULE_DERIVED.",
+    ),
 )
 
 # ==============================================================================
@@ -671,7 +699,7 @@ class CleanCoreEngine(BaseEngine):
         knowledge = load_release_knowledge()
         prefix = self.rule_prefix
         sources, object_list = self._collect_sources(request)
-        if not sources and object_list is None:
+        if not sources and object_list is None and not (request.configuration or {}).get("abap_references"):
             raise EngineInputError(
                 f"{prefix}_INSUFFICIENT_INPUT",
                 "No ABAP source, abapGit archive (*.abap members) or object list was supplied.",
@@ -705,6 +733,12 @@ class CleanCoreEngine(BaseEngine):
             lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
             for rf in raw:
                 findings.append(self._to_finding(rf, path, artifact_sha, lines, knowledge))
+
+        ext_refs_raw = (request.configuration or {}).get("abap_references")
+        if ext_refs_raw is not None:
+            ext_findings, n_rules = self._evaluate_external_references(ext_refs_raw, sources, knowledge)
+            findings.extend(ext_findings)
+            rules_evaluated += n_rules
 
         if object_list is not None:
             obj_findings, n_rules = self._evaluate_object_list(object_list[0], object_list[1], request, knowledge)
@@ -794,6 +828,49 @@ class CleanCoreEngine(BaseEngine):
             affected_objects=rf.affected,
         )
         return ConfidenceClassifier.classify(finding)
+
+    def _evaluate_external_references(
+        self, raw: Any, sources: List[Tuple[str, str]], knowledge: ReleaseKnowledge
+    ) -> Tuple[List[Finding], int]:
+        prefix = self.rule_prefix
+        if not isinstance(raw, list):
+            raise EngineInputError(f"{prefix}_INVALID_INPUT", "configuration.abap_references must be a list.")
+        try:
+            refs = [AbapReference.model_validate(r) for r in raw]
+        except ValidationError as exc:
+            locs = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors(include_input=False)})
+            raise EngineInputError(
+                f"{prefix}_INVALID_INPUT", "abap_references entries are invalid at: " + ", ".join(locs[:5])
+            ) from None
+        texts = dict(sources)
+        analyzer = AbapCleanCoreAnalyzer(knowledge)
+        out: List[Finding] = []
+        for ref in sorted(refs, key=lambda r: (r.artifact, r.line, r.column, r.kind, r.name)):
+            tok = Token(WORD, ref.name, ref.line, ref.column)
+            stmt = Statement([tok])
+            raws: List[RawFinding] = []
+            if ref.kind == "DYNAMIC":
+                analyzer._dyn(stmt, tok, "reference reported by external AST", raws)
+            elif ref.kind in ("TABLE", "CDS"):
+                analyzer._db_target(stmt, tok, ref.operation == "WRITE", raws)
+            elif ref.kind == "FUNCTION_MODULE":
+                analyzer._fm(stmt, Token(LITERAL, f"'{ref.name}'", ref.line, ref.column), raws)
+            elif ref.kind == "CLASS":
+                analyzer._class(stmt, tok, ref.name, raws)
+            text = texts.get(ref.artifact)
+            artifact_sha = EvidenceEngine.compute_sha256(text) if text is not None else ""
+            lines = text.replace("\r\n", "\n").split("\n") if text is not None else []
+            for rf in raws:
+                if rf.confidence == ConfidenceClass.VERIFIED:
+                    rf.confidence = ConfidenceClass.RULE_DERIVED
+                rf.details["referenceSource"] = ref.source
+                f = self._to_finding(rf, ref.artifact, artifact_sha, lines, knowledge)
+                if text is None:
+                    # No source to anchor the reported position: evidence is unverifiable -> UNKNOWN.
+                    f.evidence[0].sha256 = ""
+                    f = ConfidenceClassifier.classify(f, missing_evidence=True)
+                out.append(f)
+        return out, len(refs) * 3
 
     def _evaluate_object_list(
         self, path: str, data: Any, request: AnalysisRequest, knowledge: ReleaseKnowledge

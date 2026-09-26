@@ -1,0 +1,7 @@
+# Test / development dependencies for the analysis service (CI installs this file).
+-r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=5.0.0
+# Property-based parser / tokenizer robustness tests (AGENTS.md Axiom 2 #10, spec 21.29)
+hypothesis>=6.100.0

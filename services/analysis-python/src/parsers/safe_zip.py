@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+import zlib
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -90,7 +91,7 @@ class SafeZipReader:
         try:
             self._zf = zipfile.ZipFile(io.BytesIO(bytes(data)), "r")
             infos = self._zf.infolist()
-        except (zipfile.BadZipFile, zipfile.LargeZipFile, ValueError, OSError, EOFError, RuntimeError, NotImplementedError):
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, ValueError, OSError, EOFError, RuntimeError, NotImplementedError, zlib.error):
             raise ArchiveSecurityError(f"Malformed ZIP archive{self._where()}.") from None
 
         self.budget.entries_seen += len(infos)
@@ -164,7 +165,7 @@ class SafeZipReader:
                         raise ArchiveSecurityError(f"Archive exceeds {b.max_ratio}:1 total expansion ratio.")
         except ArchiveSecurityError:
             raise
-        except (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError, EOFError, OSError, ValueError, RuntimeError):
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError, EOFError, OSError, ValueError, RuntimeError, zlib.error):
             raise ArchiveSecurityError(f"Archive member {name!r} could not be decompressed.") from None
         return bytes(out)
 
