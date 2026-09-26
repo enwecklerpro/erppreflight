@@ -247,6 +247,8 @@ services:
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      KNOWLEDGE_SYNC_CRON: ${KNOWLEDGE_SYNC_CRON:-17 3 * * 1}
+      KNOWLEDGE_CR_FILES: ${KNOWLEDGE_CR_FILES:-}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health/liveness || exit 1"]
       interval: 10s

@@ -19,6 +19,9 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
+  // Knowledge graph sync (docs/KNOWLEDGE_GRAPH.md): weekly cron in UTC or 'off'; optional repository file subset.
+  KNOWLEDGE_SYNC_CRON: z.string().optional(),
+  KNOWLEDGE_CR_FILES: z.string().optional(),
   JWT_SECRET: z.string().min(32).optional(),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),

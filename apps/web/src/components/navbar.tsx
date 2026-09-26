@@ -18,7 +18,9 @@ import {
   Server,
   Sliders,
   Bot,
+  Network,
 } from 'lucide-react';
+import { NotificationsBell } from './notifications/notifications-bell';
 import { fetchCurrentUser } from '../lib/api-client';
 import { customInstance } from '../lib/api/custom-instance';
 import { useLogout } from '../lib/query/query-provider';
@@ -44,6 +46,7 @@ export function Navbar() {
     { label: 'Templates', href: '/templates', icon: Layers },
     { label: 'Artifacts', href: '/artifacts', icon: SearchCode },
     { label: 'Release Matrix', href: '/matrix', icon: ShieldCheck },
+    { label: 'Knowledge Graph', href: '/knowledge-graph', icon: Network },
     { label: 'Landscapes', href: '/landscapes', icon: Server },
     { label: 'Agent Gate', href: '/agent-gate', icon: Bot },
     { label: 'Settings', href: '/settings', icon: Sliders },
@@ -141,6 +144,7 @@ export function Navbar() {
 
           {currentUser ? (
             <div className="flex items-center gap-3">
+              <NotificationsBell />
               <div className="hidden xl:flex flex-col items-end">
                 <span className="font-semibold text-foreground">{currentUser.email}</span>
                 <span
