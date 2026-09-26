@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
+import { UsageService } from '../usage/usage.service';
 import {
   AiProviderType,
   AiRequestOptions,
@@ -22,7 +23,8 @@ export class AiGatewayService {
 
   constructor(
     @Optional() private readonly db?: DatabaseService,
-    @Optional() private readonly config?: ConfigService
+    @Optional() private readonly config?: ConfigService,
+    @Optional() private readonly usage?: UsageService
   ) {
     this.initCircuitBreaker('ANTHROPIC');
     this.initCircuitBreaker('OPENAI');
@@ -94,6 +96,8 @@ export class AiGatewayService {
     }
     usage.count += tokens;
     this.tenantTokenUsage.set(tenantId, usage);
+    // Persistent per-tenant metering (spec 10.5); best-effort, never blocks the response.
+    void this.usage?.recordSafe(tenantId, 'AI_TOKENS', tokens, { resourceType: 'AI_REQUEST' });
   }
 
   private scrubPii(text: string): string {

@@ -37,9 +37,6 @@ export class ExportService {
     if (!parsed.success) {
       throw new BadRequestException(`Invalid export request: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
     }
-    if (parsed.data.format === 'ZIP_ALL') {
-      throw new BadRequestException('Export format ZIP_ALL is not supported yet.');
-    }
     dto = { ...dto, ...parsed.data };
 
     // 1. Fetch Analysis Run and Project Metadata
@@ -70,49 +67,10 @@ export class ExportService {
     }
 
     const reportId = uuidv4();
-    let fileBuffer: Buffer;
-    let fileName: string;
-    let mimeType: string;
-
-    switch (dto.format) {
-      case 'PDF':
-        fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.pdf`;
-        mimeType = 'application/pdf';
-        fileBuffer = await this.generatePdfReport(analysis, findings, evidenceList, dto);
-        break;
-
-      case 'JSON_BUNDLE':
-        fileName = `Reproducibility_Bundle_${analysisId.slice(0, 8)}.json`;
-        mimeType = 'application/json';
-        fileBuffer = Buffer.from(
-          JSON.stringify(
-            this.generateJsonBundle(analysis, findings, evidenceList),
-            null,
-            2
-          ),
-          'utf-8'
-        );
-        break;
-
-      case 'XLSX':
-        fileName = `Migration_Traceability_Matrix_${analysisId.slice(0, 8)}.xlsx`;
-        mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-        fileBuffer = await this.generateXlsxWorkbook(analysis, findings, evidenceList);
-        break;
-
-      case 'HTML_OFFLINE':
-        fileName = `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`;
-        mimeType = 'text/html;charset=utf-8';
-        fileBuffer = Buffer.from(this.generateOfflineHtmlReport(analysis, findings, evidenceList, dto), 'utf-8');
-        break;
-
-      case 'CSV':
-      default:
-        fileName = `Traceability_Matrix_${analysisId.slice(0, 8)}.csv`;
-        mimeType = 'text/csv';
-        fileBuffer = Buffer.from(this.generateCsvReport(findings), 'utf-8');
-        break;
-    }
+    const { buffer: fileBuffer, fileName, mimeType } =
+      dto.format === 'ZIP_ALL'
+        ? await this.renderZipAll(analysis, findings, evidenceList, dto, analysisId)
+        : await this.renderFormat(dto.format, analysis, findings, evidenceList, dto, analysisId);
 
     const checksumSha256 = crypto
       .createHash('sha256')
@@ -159,6 +117,112 @@ export class ExportService {
       downloadUrl: presigned.downloadUrl,
       expiresAt,
       checksumSha256,
+    };
+  }
+
+  /** Formats bundled by ZIP_ALL (every single-file export format). */
+  public static readonly ZIP_ALL_FORMATS: ReadonlyArray<Exclude<ExportFormat, 'ZIP_ALL'>> = [
+    'PDF',
+    'XLSX',
+    'CSV',
+    'JSON_BUNDLE',
+    'HTML_OFFLINE',
+  ];
+
+  /** Renders one single-file export format. */
+  private async renderFormat(
+    format: ExportFormat,
+    analysis: any,
+    findings: any[],
+    evidenceList: any[],
+    dto: TriggerExportDto,
+    analysisId: string
+  ): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    switch (format) {
+      case 'PDF':
+        return {
+          fileName: `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.pdf`,
+          mimeType: 'application/pdf',
+          buffer: await this.generatePdfReport(analysis, findings, evidenceList, dto),
+        };
+      case 'JSON_BUNDLE':
+        return {
+          fileName: `Reproducibility_Bundle_${analysisId.slice(0, 8)}.json`,
+          mimeType: 'application/json',
+          buffer: Buffer.from(JSON.stringify(this.generateJsonBundle(analysis, findings, evidenceList), null, 2), 'utf-8'),
+        };
+      case 'XLSX':
+        return {
+          fileName: `Migration_Traceability_Matrix_${analysisId.slice(0, 8)}.xlsx`,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buffer: await this.generateXlsxWorkbook(analysis, findings, evidenceList),
+        };
+      case 'HTML_OFFLINE':
+        return {
+          fileName: `Preflight_Assessment_${analysis.project_name || 'Report'}_${analysisId.slice(0, 8)}.html`,
+          mimeType: 'text/html;charset=utf-8',
+          buffer: Buffer.from(this.generateOfflineHtmlReport(analysis, findings, evidenceList, dto), 'utf-8'),
+        };
+      case 'CSV':
+        return {
+          fileName: `Traceability_Matrix_${analysisId.slice(0, 8)}.csv`,
+          mimeType: 'text/csv',
+          buffer: Buffer.from(this.generateCsvReport(findings), 'utf-8'),
+        };
+      default:
+        throw new BadRequestException(`Unsupported export format '${format}'`);
+    }
+  }
+
+  /**
+   * ZIP_ALL: every single-file format for one analysis in one archive, plus a
+   * manifest listing each member's SHA-256 so the bundle is self-verifying.
+   */
+  private async renderZipAll(
+    analysis: any,
+    findings: any[],
+    evidenceList: any[],
+    dto: TriggerExportDto,
+    analysisId: string
+  ): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const members: Array<{ format: string; fileName: string; buffer: Buffer }> = [];
+    for (const format of ExportService.ZIP_ALL_FORMATS) {
+      const rendered = await this.renderFormat(format, analysis, findings, evidenceList, dto, analysisId);
+      members.push({ format, fileName: rendered.fileName, buffer: rendered.buffer });
+    }
+    const manifest = {
+      bundle: 'ERP_PREFLIGHT_ZIP_ALL',
+      version: '1.0.0',
+      analysisId,
+      projectId: analysis.project_id,
+      projectName: analysis.project_name ?? null,
+      analysisStatus: analysis.status,
+      findingsCount: findings.length,
+      files: members.map((m) => ({
+        format: m.format,
+        fileName: m.fileName,
+        sizeBytes: m.buffer.length,
+        sha256: crypto.createHash('sha256').update(m.buffer).digest('hex'),
+      })),
+    };
+
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+    archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+    await new Promise<void>((resolve, reject) => {
+      archive.on('end', () => resolve());
+      archive.on('error', (err: Error) => reject(err));
+      archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+      for (const m of members) {
+        archive.append(m.buffer, { name: m.fileName });
+      }
+      archive.finalize();
+    });
+
+    return {
+      buffer: Buffer.concat(chunks),
+      fileName: `Preflight_Export_All_Formats_${analysisId.slice(0, 8)}.zip`,
+      mimeType: 'application/zip',
     };
   }
 
@@ -573,6 +637,7 @@ export class ExportService {
       XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       CSV: 'text/csv; charset=utf-8',
       HTML_OFFLINE: 'text/html; charset=utf-8',
+      ZIP_ALL: 'application/zip',
     };
     const stream = await this.storage.getReportStream(report.s3_key);
     return {

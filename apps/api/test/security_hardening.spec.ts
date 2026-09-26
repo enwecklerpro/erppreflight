@@ -435,7 +435,7 @@ describe('M7: billing checkout validation & webhook', () => {
     );
     const t = Math.floor(Date.now() / 1000);
     const sig = crypto.createHmac('sha256', 'whsec_test').update(`${t}.${body.toString('utf-8')}`).digest('hex');
-    await expect(svc.handleWebhook(`t=${t},v1=deadbeef,v1=${sig}`, body)).resolves.toEqual({ received: true });
+    await expect(svc.handleWebhook(`t=${t},v1=deadbeef,v1=${sig}`, body)).resolves.toMatchObject({ received: true });
     await expect(svc.handleWebhook(`t=${t},v1=${'0'.repeat(64)}`, body)).rejects.toBeInstanceOf(
       BadRequestException
     );

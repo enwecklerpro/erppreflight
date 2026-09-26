@@ -1,6 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EngineType, TargetRelease, ArtifactType } from '@erppreflight/schemas';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,7 +11,11 @@ import {
   AnalysisJobFile,
   applyDataPolicy,
   resolveArtifactType,
+  AnalysisRunResult,
 } from './analysis-executor';
+import { AuditService } from '../audit/audit.service';
+import { UsageService } from '../usage/usage.service';
+import { RetentionService } from '../retention/retention.service';
 
 export interface AnalysisJobData {
   analysisId: string;
@@ -50,7 +54,10 @@ export class AnalysisProcessor extends WorkerHost {
   constructor(
     private readonly db: DatabaseService,
     private readonly storageService: S3StorageService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly usage?: UsageService,
+    @Optional() private readonly retention?: RetentionService
   ) {
     super();
     this.analysisUrl =
@@ -79,8 +86,9 @@ export class AnalysisProcessor extends WorkerHost {
       `Processing analysis job ${analysisId} for organization ${organizationId}: ${engineTypes.length} engines x ${data.files?.length ?? 0} artifacts`
     );
 
+    let result: AnalysisRunResult;
     try {
-      await this.executor.run({
+      result = await this.executor.run({
         analysisId,
         organizationId,
         projectId,
@@ -101,8 +109,68 @@ export class AnalysisProcessor extends WorkerHost {
           { tenantId: organizationId }
         )
         .catch(() => {});
+      await this.audit?.recordSafe({
+        organizationId,
+        action: 'analysis.failed',
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        payload: {
+          projectId,
+          engineTypes,
+          error: String(err?.message ?? err).slice(0, 300),
+        },
+      });
       // Rethrow so BullMQ records the failure and applies its retry policy.
       throw err;
+    }
+    await this.recordRunOutcome(data, result);
+  }
+
+  /**
+   * Audit + usage hooks (spec 10.5, 10.15, 13.10 #14): one audit event and one
+   * ENGINE_EXECUTION usage row per engine, then the run outcome. Best-effort in
+   * the worker: bookkeeping failures are logged and never fail a finished run.
+   */
+  private async recordRunOutcome(data: AnalysisJobData, result: AnalysisRunResult): Promise<void> {
+    const { analysisId, organizationId, projectId } = data;
+    const artifactCount = data.files?.length ?? 0;
+    for (const [engine, outcome] of Object.entries(result.engineOutcomes)) {
+      await this.audit?.recordSafe({
+        organizationId,
+        action: `analysis.engine.${outcome.toLowerCase()}`,
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        payload: { engine, outcome, projectId, artifacts: artifactCount },
+      });
+      await this.usage?.recordSafe(organizationId, 'ENGINE_EXECUTION', Math.max(1, artifactCount), {
+        resourceType: 'ANALYSIS',
+        resourceId: analysisId,
+        actorId: data.userId,
+        metadata: { engine, outcome },
+      });
+    }
+    await this.audit?.recordSafe({
+      organizationId,
+      action: `analysis.${result.finalStatus === 'COMPLETED' ? 'completed' : result.finalStatus === 'PARTIAL' ? 'partial' : 'failed'}`,
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: {
+        projectId,
+        finalStatus: result.finalStatus,
+        totalFindings: result.totalFindings,
+        engineOutcomes: result.engineOutcomes,
+      },
+    });
+    if (this.retention && data.files?.length) {
+      try {
+        await this.retention.purgeAfterAnalysis(
+          organizationId,
+          data.files.map((f) => f.fileId),
+          analysisId
+        );
+      } catch (err: any) {
+        this.logger.error(`Post-analysis retention purge failed for ${analysisId}: ${err?.message ?? err}`);
+      }
     }
   }
 
@@ -148,6 +216,19 @@ export class AnalysisProcessor extends WorkerHost {
       [analysisId, organizationId, projectId, JSON.stringify(engineTypes), targetRelease, userId],
       { tenantId: organizationId }
     );
+    await this.usage?.recordSafe(organizationId, 'ANALYSIS_RUN', 1, {
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      actorId: userId,
+      metadata: { source: 'scheduled', scheduleId: job.data.scheduleId },
+    });
+    await this.audit?.recordSafe({
+      organizationId,
+      action: 'analysis.queued',
+      resourceType: 'ANALYSIS',
+      resourceId: analysisId,
+      payload: { projectId, engineTypes, source: 'scheduled', scheduleId: job.data.scheduleId },
+    });
 
     await this.processAnalysis({
       analysisId,
