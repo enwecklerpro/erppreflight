@@ -17,7 +17,7 @@ import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useT } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/translate';
 import { updateProjectContext } from '@/lib/api/analysis-orchestration';
-import { errorMessage } from '@/components/commercial/states';
+import { useCommercialErrorText } from '@/components/commercial/states';
 import type { ProjectRecord } from '@/lib/api-client';
 
 type ContextValues = {
@@ -58,6 +58,8 @@ function DirtyGuard({ isDirty, isSubmitting, message, children }: { isDirty: boo
 
 /** Project mode context (Part 01 §1.5) — TanStack Form + Zod, dirty tracking, server errors. */
 export function ProjectContextForm({ project }: { project: ProjectRecord }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const [saved, setSaved] = React.useState(false);

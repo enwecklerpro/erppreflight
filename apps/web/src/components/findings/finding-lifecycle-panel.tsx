@@ -32,7 +32,7 @@ import {
 import { useFormatter, useT } from '@/i18n/client';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect, FormTextarea } from '@/components/form/form-inputs';
-import { ErrorState, SkeletonBlock, errorMessage } from '@/components/commercial/states';
+import { ErrorState, SkeletonBlock, useCommercialErrorText } from '@/components/commercial/states';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { ApiError } from '@/lib/api/custom-instance';
 import { queryKeys } from '@/lib/query/query-keys';
@@ -248,6 +248,8 @@ function StatusSection({
   onApplied: (v: LifecycleView) => void;
   onConflict: () => void;
 }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const fmt = useFormatDate();
   const lc = view.lifecycle;
@@ -486,6 +488,8 @@ function AssignmentSection({
   canWrite: boolean;
   onApplied: (v: LifecycleView) => void;
 }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const fmt = useFormatDate();
   const members = useQuery({ queryKey: findingLifecycleKeys.members, queryFn: fetchOrganizationMembers, staleTime: 60_000, retry: 1 });
@@ -607,6 +611,8 @@ function CommentsSection({
   currentUserId: string | null;
   onApplied: (v: LifecycleView) => void;
 }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const fmt = useFormatDate();
   const [editing, setEditing] = React.useState<{ id: string; body: string } | null>(null);
@@ -777,6 +783,8 @@ function AttachmentsSection({
   canWrite: boolean;
   onApplied: (v: LifecycleView) => void;
 }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const projectId = finding.projectId ?? view.lifecycle.projectId;
   const [fileId, setFileId] = React.useState('');
@@ -881,6 +889,8 @@ function RegressionTestSection({
   canWrite: boolean;
   onCreated: () => void;
 }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const projectId = finding.projectId ?? view.lifecycle.projectId;

@@ -20,7 +20,7 @@ import {
   type ReportFormat,
   type ReportTypeId,
 } from '@/lib/api/commercial';
-import { ErrorState, errorMessage } from '@/components/commercial/states';
+import { ErrorState, useCommercialErrorText } from '@/components/commercial/states';
 
 const FILTER_KEYS = ['projectId', 'reportType', 'format', 'from', 'to', 'page'] as const;
 const FINISHED = new Set(['COMPLETED', 'PARTIAL']);
@@ -34,6 +34,8 @@ export default function ReportsRoute() {
 }
 
 function ReportsHubPage() {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const label = useLabel();
   const router = useRouter();
@@ -235,6 +237,8 @@ function DirtyGuard({ isDirty, isSubmitting, children }: { isDirty: boolean; isS
 
 /** Generates a report from a finished analysis (reuses the export service). TanStack Form + Zod. */
 function GenerateReportForm({ projects, defaultProjectId }: { projects: Array<{ id: string; name: string }>; defaultProjectId?: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const label = useLabel();
   const queryClient = useQueryClient();

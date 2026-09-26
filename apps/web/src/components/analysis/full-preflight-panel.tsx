@@ -15,7 +15,7 @@ import {
   type OrchestrationView,
 } from '@/lib/api/analysis-orchestration';
 import { ApiError } from '@/lib/api/custom-instance';
-import { ErrorState, errorMessage } from '@/components/commercial/states';
+import { ErrorState, useCommercialErrorText } from '@/components/commercial/states';
 import { SeverityBadge } from '@/components/findings/severity-badge';
 import { AnalysisProgressStepper } from './analysis-progress-stepper';
 
@@ -37,6 +37,8 @@ const SEVERITY_ORDER: Severity[] = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MEDIUM', 'M
  * workspace), correlated root-cause groups and the executed plan.
  */
 export function FullPreflightPanel({ projectId }: { projectId: string }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const [runningId, setRunningId] = React.useState<string | null>(null);

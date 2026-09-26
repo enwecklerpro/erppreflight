@@ -34,6 +34,7 @@ import { changesets } from './changesets';
 import { traceability } from './traceability';
 import { integrations } from './integrations';
 import { findings } from './findings';
+import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
 
@@ -81,4 +82,5 @@ export const appDe: AppMessages = {
   findings,
   workspace,
   lab,
+  apiErrorCodes,
 };

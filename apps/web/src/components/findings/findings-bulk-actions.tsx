@@ -8,7 +8,7 @@ import type { Finding } from '@erppreflight/schemas';
 import { useT } from '@/i18n/client';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSelect } from '@/components/form/form-inputs';
-import { errorMessage } from '@/components/commercial/states';
+import { useCommercialErrorText } from '@/components/commercial/states';
 import { queryKeys } from '@/lib/query/query-keys';
 import {
   bulkFindingAction,
@@ -25,6 +25,8 @@ type Pending = 'ACKNOWLEDGE' | 'ASSIGN' | null;
  * invalid transition) are reported, never silently dropped.
  */
 export function FindingsBulkActions({ table }: { table: Table<Finding> }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const queryClient = useQueryClient();
   const selected = table.getFilteredSelectedRowModel().rows.map((r) => r.original);

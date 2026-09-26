@@ -20,7 +20,7 @@ import {
   routeProblem,
   uploadProjectFile,
 } from '@/lib/api/analysis-orchestration';
-import { ErrorState, errorMessage } from '@/components/commercial/states';
+import { ErrorState, useCommercialErrorText } from '@/components/commercial/states';
 import { RouterSuggestions } from '@/components/analysis/router-suggestions';
 import { AnalysisProgressStepper } from '@/components/analysis/analysis-progress-stepper';
 import { SeverityBadge } from '@/components/findings/severity-badge';
@@ -64,6 +64,8 @@ export default function AnalyzeRoute() {
 }
 
 function AnalyzePage() {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const domainLabel = useLabel();
   const queryClient = useQueryClient();
@@ -528,6 +530,8 @@ function AnalyzePage() {
 
 /** Inline project creation (TanStack Form + Zod). */
 function NewProjectForm({ onCreated }: { onCreated: (p: ProjectRecord) => void }) {
+  // Localized API error text (codes → EN/DE dictionary).
+  const errorMessage = useCommercialErrorText();
   const t = useT();
   const [serverError, setServerError] = React.useState<string | null>(null);
   const schema = React.useMemo(

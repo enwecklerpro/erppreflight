@@ -35,6 +35,7 @@ import { changesets } from './changesets';
 import { traceability } from './traceability';
 import { integrations } from './integrations';
 import { findings } from './findings';
+import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
 
@@ -82,6 +83,7 @@ export const appEn = {
   findings,
   workspace,
   lab,
+  apiErrorCodes,
 };
 
 export type AppMessages = typeof appEn;
