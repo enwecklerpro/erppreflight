@@ -1,0 +1,23 @@
+# ==============================================================================
+# ERP Preflight — one-shot pre-migration backup image (compose service `db-backup`)
+#
+# Built FROM the same digest-pinned pgvector image as the `postgres` service, so pg_dump /
+# pg_restore always match the server major version. Only COPY instructions are added (no
+# package installs): the release's migration files (to detect pending migrations) and
+# infra/docker/premigration-backup.sh. Runs as the unprivileged `postgres` user (uid 999).
+# ==============================================================================
+FROM pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+
+COPY packages/database/migrations/ /opt/erppreflight/migrations/
+COPY infra/docker/premigration-backup.sh /usr/local/bin/premigration-backup.sh
+
+# A named volume mounted at /backups inherits this ownership on first use.
+# gosu (a Go binary used only by the server entrypoint to drop privileges) is not needed by
+# this job, which starts as `postgres`; removing it drops its Go stdlib CVEs from the image scan.
+RUN chmod 0755 /usr/local/bin/premigration-backup.sh && \
+    rm -f /usr/local/bin/gosu && \
+    mkdir -p /backups && chown postgres:postgres /backups && chmod 0700 /backups
+
+USER postgres
+VOLUME ["/backups"]
+ENTRYPOINT ["/usr/local/bin/premigration-backup.sh"]

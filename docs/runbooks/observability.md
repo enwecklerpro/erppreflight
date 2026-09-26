@@ -64,7 +64,7 @@ curl -s -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 | `erppreflight_outbox_queue_lag` | Unpublished outbox events (notifications, webhooks) |
 | `erppreflight_connector_calls_total`, `erppreflight_connector_call_duration_seconds` | Outbound connector calls by type/outcome |
 | `erppreflight_connectors_by_health` | Connectors UNKNOWN/HEALTHY/DEGRADED/UNHEALTHY |
-| `erppreflight_webhook_deliveries_by_status` | DELIVERED / RETRYING / FAILED. Alert: FAILED increases |
+| `erppreflight_webhook_deliveries_by_status` | PENDING / SUCCEEDED / FAILED (retrying) / DEAD (retries exhausted). Alert: DEAD increases |
 | `erppreflight_uploads_by_status`, `erppreflight_upload_rejections` | Ingestion health, quarantine rate |
 | `erppreflight_db_pool_connections` | pg pool total/idle/waiting. Alert: waiting > 0 for 5 min |
 
@@ -106,3 +106,104 @@ curl -s -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
    - then look at the trace of the last job.
 4. Integration failures: check connector health, sync log (`/integrations` → connector → Sync log) and breaker state.
 5. After mitigation: confirm the metrics recover and note the incident in the audit log / status page.
+
+## 7. Alert rules, dashboard and the `observability` profile
+
+Shipped in `infra/observability/`:
+
+| File | Content |
+|---|---|
+| `prometheus/alerts.yml` | 14 alert rules on the series above (+ Prometheus `up`), each with `severity`, `service` and a `runbook_url` pointing at the sections below |
+| `prometheus/alerts.test.yml` | `promtool` unit tests: every rule fires on a synthetic incident, the volume/ratio guards keep it quiet otherwise |
+| `prometheus/prometheus.yml` | scrape job `erppreflight-api` (`/api/v1/metrics`, bearer token from a file) |
+| `grafana/dashboards/erppreflight-api.json` | dashboard "ERP Preflight — API, analyses and integrations" (availability, queue/engines, platform/integrations, firing alerts) |
+| `grafana/provisioning/` | Prometheus datasource + dashboard provider |
+| `docker-compose.observability.yml` | Prometheus v3.15.0 + Grafana 12.4.11 (digest-pinned), every service in profile `observability` |
+
+The profile is **not** part of the Coolify deployment and starts nothing by default. On the VPS:
+
+```bash
+cd /opt/erppreflight
+export METRICS_TOKEN=<value of the api service>  GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
+docker compose -f infra/observability/docker-compose.observability.yml --profile observability up -d
+ssh -L 3300:127.0.0.1:3300 -L 9090:127.0.0.1:9090 root@<vps>     # from your workstation
+```
+
+Grafana refuses to start without `GRAFANA_ADMIN_PASSWORD`; both UIs listen on 127.0.0.1 only.
+Alert *routing* (e-mail, Slack, PagerDuty) is deployment-specific: add an Alertmanager
+(`alerting:` block in `prometheus.yml`) or use Grafana alerting on the same expressions.
+
+Validate after editing a rule:
+
+```bash
+docker run --rm -v "$PWD/infra/observability/prometheus:/r:ro" --entrypoint promtool \
+  prom/prometheus:v3.15.0 check rules /r/alerts.yml
+docker run --rm -v "$PWD/infra/observability/prometheus:/r:ro" --entrypoint promtool \
+  prom/prometheus:v3.15.0 test rules /r/alerts.test.yml
+```
+
+CI runs both in the `validate` job.
+
+### ErpPreflightApiDown
+
+Scrape of `/api/v1/metrics` failed for 2 min. `docker ps` / Coolify: is `erppreflight-api` running
+and healthy? `curl -s localhost:3001/health/readiness` inside the network. A 404 with the API up
+means `METRICS_TOKEN` differs between the API and Prometheus. After a deploy, check
+`docker logs erppreflight-migrate` (the API starts only after the migration job succeeded,
+`DEPLOYMENT_GUIDE.md` §6a).
+
+### ErpPreflightApiRestarting
+
+Three or more process restarts in 30 min. `docker inspect erppreflight-api` (State.OOMKilled,
+RestartCount), `docker logs --since 30m erppreflight-api | grep -i -E "error|fatal"`. OOM: see
+ErpPreflightProcessMemoryHigh. Boot failure: readiness dependencies (Postgres, Redis, MinIO).
+
+### ErpPreflightHigh5xxRate
+
+More than 2 % 5xx for 10 min (with at least 3 requests/min). Sentry (same release) and logs
+filtered by `statusCode >= 500`; pivot on `requestId` → `traceId`. 503 bursts usually come from a
+dependency (analysis service, ClamAV fail-closed, connector remote) — check `/health/readiness`.
+
+### ErpPreflightHighLatencyP95
+
+p95 above 2.5 s for 15 min. Check `erppreflight_db_pool_connections{state="waiting"}`, long
+queries (`SELECT pid, now()-query_start, left(query,120) FROM pg_stat_activity WHERE state <> 'idle' ORDER BY 2 DESC`),
+host CPU/memory (`docker stats`), and slow spans in the tracing backend.
+
+### ErpPreflightEngineFailureRatio
+
+More than 25 % of at least 10 engine runs FAILED in 30 min. Use the dashboard panel "Engine runs /
+min by engine and outcome": one engine → rule/parsing problem or bad customer input (FAILED also
+covers `*_INSUFFICIENT_INPUT` / `*_PARSE_ERROR`); all engines → analysis service (`/health`,
+`docker logs erppreflight-analysis`). Queue alerts: `QUEUE_BACKLOG.md`.
+
+### ErpPreflightDbPoolSaturated
+
+Clients waited for a pool connection for 5 min. Look for blocking locks
+(`SELECT * FROM pg_locks WHERE NOT granted`) and long transactions; restart of the API frees a
+leaked pool only as a last resort.
+
+### ErpPreflightOutboxLag
+
+More than 100 domain events PENDING for 15 min: notifications and webhooks stall. Check the API
+log for `outbox` errors and the Redis/DB health; events are dispatched again automatically once the
+cause is fixed.
+
+### ErpPreflightProcessMemoryHigh
+
+API RSS above 1.7 GB (limit 2 GB) for 15 min. Correlate with large uploads/exports and analysis
+concurrency; if it keeps growing across hours, capture a heap snapshot on a staging copy.
+
+### ErpPreflightWebhookDeliveriesDead
+
+Deliveries exhausted all retries. The receiver is down or rejecting signatures. Tenants see the
+per-attempt log in `/integrations?tab=webhooks` and can **Replay** after the fix (§5).
+
+### ErpPreflightConnectorsUnhealthy
+
+Informational: at least one connector UNHEALTHY for 30 min (circuit breaker open or bad
+credentials). Usually tenant-side; escalate if many connectors of the same type fail together
+(remote outage or outbound network/SSRF policy change). See §5.
+
+Other alerts link straight to `QUEUE_BACKLOG.md` (queue backlog, failed jobs, Redis metrics
+missing) and `CLAMAV_DOWN.md` (upload rejection spike).

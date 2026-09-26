@@ -11,7 +11,7 @@ const interpreter = candidates.find(
 if (!interpreter) {
   console.error(
     '[test:python] No Python interpreter with pytest found. Tried: ' + candidates.join(', ') +
-      '\nInstall: pip install -r services/analysis-python/requirements.txt pytest pytest-asyncio hypothesis',
+      '\nInstall: pip install -r services/analysis-python/requirements-dev.txt',
   );
   process.exit(1);
 }

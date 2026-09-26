@@ -22,9 +22,9 @@ permissions:
   contents: read
 
 env:
-  # Must match the runtime of infra/docker/Dockerfile.api / Dockerfile.web (node:22-alpine).
+  # Must match the runtime of infra/docker/Dockerfile.api / Dockerfile.web (node:22.23.3-alpine3.24).
   NODE_VERSION: '22'
-  # Must match infra/docker/Dockerfile.analysis (python:3.13-slim).
+  # Must match infra/docker/Dockerfile.analysis (python:3.13.15-slim-trixie).
   PYTHON_VERSION: '3.13'
   TURBO_TELEMETRY_DISABLED: '1'
   NEXT_TELEMETRY_DISABLED: '1'
@@ -51,12 +51,21 @@ jobs:
         run: pnpm run check:production-truth
       - name: Strict typecheck
         run: pnpm run typecheck
+      - name: Typecheck Playwright suites (tests/e2e)
+        run: pnpm run typecheck:e2e
       - name: Lint
         run: pnpm run lint
       - name: Build
         run: pnpm run build
       - name: API boot smoke test (AppModule DI graph from dist/)
         run: pnpm --filter @erppreflight/api run test:boot
+      - name: Prometheus alert rules (promtool check + unit tests) and Grafana dashboard JSON
+        run: |
+          docker run --rm -v "$PWD/infra/observability/prometheus:/r:ro" --entrypoint promtool \
+            prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e check rules /r/alerts.yml
+          docker run --rm -v "$PWD/infra/observability/prometheus:/r:ro" --entrypoint promtool \
+            prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e test rules /r/alerts.test.yml
+          python3 -c "import json,sys; d=json.load(open('infra/observability/grafana/dashboards/erppreflight-api.json')); sys.exit(0 if d.get('uid') and d.get('panels') else 1)"
 
   test-node:
     name: TypeScript unit & integration tests
@@ -84,14 +93,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: services/analysis-python/requirements*.txt
-      - name: Install Python dependencies
+      - name: Install Python dependencies (runtime + test tooling from requirements-dev.txt)
         run: |
           python -m pip install --upgrade pip
-          pip install -r services/analysis-python/requirements.txt
-          if [ -f services/analysis-python/requirements-dev.txt ]; then
-            pip install -r services/analysis-python/requirements-dev.txt
-          fi
-          pip install pytest pytest-asyncio hypothesis
+          pip install -r services/analysis-python/requirements-dev.txt
       - name: Analysis service test suite (services/analysis-python/tests)
         run: python -m pytest services/analysis-python/tests -q --durations=10
       - name: Opaque-box E2E contract suite + redaction stress (tests/e2e)
@@ -107,7 +112,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
         env:
           POSTGRES_USER: erppreflight
           POSTGRES_PASSWORD: ci-migration-check-only
@@ -165,6 +170,8 @@ jobs:
       E2E_PY_PORT: '8000'
       E2E_ARTIFACTS: ${{ github.workspace }}/e2e-artifacts
       PYTHON: python
+      # Playwright live suite (playwright.live.config.ts): all three engines installed below.
+      PW_BROWSERS: chromium,firefox,webkit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -198,7 +205,7 @@ jobs:
           docker compose -f docker-compose.coolify.yml -f tests/ci/compose.ci.yml up -d postgres redis minio clamav
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Python dependencies
+      - name: Install Python dependencies (runtime only, like the analysis image)
         run: |
           python -m pip install --upgrade pip
           pip install -r services/analysis-python/requirements.txt

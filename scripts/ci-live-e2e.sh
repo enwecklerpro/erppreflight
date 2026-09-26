@@ -43,6 +43,8 @@
 #   E2E_CLAMAV_TIMEOUT seconds to wait for clamd PONG when starting infra [900]
 #   E2E_BACKUP_DRILL  1 = run the backup/restore drill after the smoke tests [1]
 #   E2E_PG_CONTAINER [erppreflight-postgres]  E2E_PG_USER [erppreflight]   (drill: pg_dump runs in it)
+#   E2E_PLAYWRIGHT_CONFIG [playwright.live.config.ts]  PW_BROWSERS [chromium] (CI: chromium,firefox,webkit)
+#   MAIL_DEV_OUTBOX_TOKEN dev-mailbox token for the API (MAIL_TRANSPORT=dev) and the suites [random]
 #   E2E_MC_NETWORK [erppreflight-network]  E2E_MC_ENDPOINT [http://erppreflight-minio:9000]
 #                     docker network + MinIO URL for the `mc` container (local: host / http://localhost:9000)
 # ==============================================================================
@@ -74,10 +76,10 @@ mkdir -p "$ART/screenshots"
 # Test-only secrets: random per run unless the workflow provides them. Never production values.
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
-# Dev mail transport (production-mode API requires MAIL_TRANSPORT); suites read links from the
-# token-protected dev mailbox (verification, invitations, magic-link sign-in).
-MAIL_DEV_OUTBOX_TOKEN="${MAIL_DEV_OUTBOX_TOKEN:-$(openssl rand -hex 24)}"
-export MAIL_DEV_OUTBOX_TOKEN
+# E-mail: dev transport with a random outbox token. The smoke suites and the Playwright live suite
+# read verification / reset links from GET /api/v1/dev/mail/messages (X-Dev-Mailbox-Token).
+# NODE_ENV=production refuses to start without MAIL_TRANSPORT / MAIL_FROM.
+export MAIL_DEV_OUTBOX_TOKEN="${MAIL_DEV_OUTBOX_TOKEN:-$(openssl rand -hex 24)}"
 
 PIDS=()
 log() { echo "[live-e2e] $(date -u +%H:%M:%S) $*"; }
@@ -204,6 +206,17 @@ echo "$READY" | grep -q '"status":"unhealthy"' && { log "API readiness is unheal
 MIG=$(psql "$PG_ADMIN_URL/$DB_NAME" -qAt -c "SELECT count(*) FROM _migrations")
 log "migrations applied by API bootstrap: $MIG"
 
+# Knowledge snapshot for the tools / SEO smoke. Synced BEFORE any suite runs: the public-tools
+# API caches snapshot metadata for 60 s, so a sync between suites could be masked by an earlier
+# "no snapshot yet" answer (seen when the i18n smoke visited /tools right before the sync).
+if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
+  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
+  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
+    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
+    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1 \
+    || { log "knowledge sync failed (see $ART/knowledge-sync.log)"; exit 1; }
+fi
+
 # ---------------------------------------------------------------- web (standalone)
 log "starting web on :$WEB_PORT (standalone server)"
 (cd "$WEB_APP_DIR" && NODE_ENV=production PORT="$WEB_PORT" HOSTNAME=127.0.0.1 NEXT_TELEMETRY_DISABLED=1 \
@@ -239,14 +252,10 @@ log "running analysis lifecycle smoke (scripts/e2e-analysis-lifecycle-smoke.cjs)
 WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
   node scripts/e2e-analysis-lifecycle-smoke.cjs "$ART/screenshots-lifecycle" 2>&1 | tee "$ART/smoke-lifecycle.log"
 LIFECYCLE=${PIPESTATUS[0]}
-# Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
+# Free tools / programmatic SEO / docs smoke (uses the knowledge snapshot synced above: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
 if [ "${E2E_TOOLS_SMOKE:-1}" = "1" ]; then
-  log "syncing the knowledge graph for the tools smoke (knowledge-sync CLI)"
-  (cd apps/api && NODE_ENV=production DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" REDIS_URL="$REDIS_URL_E2E" \
-    JWT_SECRET="$JWT_SECRET" MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
-    node dist/src/modules/knowledge-graph/cli/knowledge-sync.cli.js) > "$ART/knowledge-sync.log" 2>&1
   log "running tools smoke (scripts/e2e-tools-smoke.cjs)"
   WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
     node scripts/e2e-tools-smoke.cjs "$ART/screenshots-tools" 2>&1 | tee "$ART/smoke-tools.log"
@@ -319,7 +328,7 @@ e, a, s = sys.argv[1:4]; scheme, rest = e.split("://", 1)
 print(f"{scheme}://{u.quote(a, safe=str())}:{u.quote(s, safe=str())}@{rest}")' "$MC_EP" "$S3_ACCESS_KEY" "$S3_SECRET_KEY")
   for b in $BUCKETS; do
     docker run --rm --network "$MC_NET" -e HOME=/tmp -e "MC_HOST_x=$MC_URL" --entrypoint mc \
-      "${MC_IMAGE:-elestio/minio:latest}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
+      "${MC_IMAGE:-elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd}" --quiet rm --recursive --force "x/$b" >/dev/null 2>&1 || true
   done
 
   set +e

@@ -89,7 +89,8 @@ in spam.
 |---|---|---|
 | `DB_RUNTIME_ROLE` | `erppreflight_app` | Tenant transactions `SET LOCAL ROLE` to this NOBYPASSRLS role (created by 010). Keep it. |
 | `APP_DATABASE_URL` | *(empty)* | Optional dedicated runtime login. Empty = reuse `DATABASE_URL`. |
-| `AUTO_MIGRATE` | `true` | Now overridable. It must stay `true` for this upgrade. |
+| `AUTO_MIGRATE` | *(unset → `false`)* | Migrations run in the one-shot `migrate` job before the API starts (`DEPLOYMENT_GUIDE.md` §6a). Setting `true` is harmless (the API finds nothing pending). |
+| `PREMIGRATION_BACKUP` | `auto` | The `db-backup` job dumps the database before the upgrade migrations run. It does not replace the manual backup in section 2 (MinIO objects). |
 | `STRICT_MIGRATIONS` | `true` | With `true`, a failed migration stops the container instead of running on a half-migrated schema. |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | leave empty | **Semantics changed.** v0 reset five hard-coded accounts to `ADMIN_BOOTSTRAP_PASSWORD` on every start. The new code only *creates* one SUPER_ADMIN if the address does not exist and never touches existing accounts. The rehearsal confirmed this: a different bootstrap password was rejected for the existing `contact@erppreflight.com`. |
 | `API_PUBLIC_URL` | `https://api.erppreflight.com` | OIDC redirect, CLI/agent instructions. |
@@ -150,8 +151,10 @@ on top of this is recommended.
 2. Point the resource at the new commit or branch and click **Deploy**. Images are rebuilt
    (api, web with the new build arguments, analysis-python). ClamAV gets a new volume,
    `erppreflight_clamav_db`.
-3. Watch the API log:
+3. Watch the deployment jobs, then the API log:
    ```bash
+   docker logs erppreflight-db-backup      # "11 pending migration(s): 010_… 026_…" then "backup OK: /backups/<stamp>"
+   docker logs erppreflight-migrate        # "Migrations complete: applied=11, skipped=9", "Migration job finished successfully."
    docker logs -f erppreflight-api 2>&1 | grep -E "Migration|migrat|Legacy finding|listening|ERROR"
    ```
 
@@ -161,8 +164,10 @@ The rehearsal was run with production settings (`NODE_ENV=production`,
 `STRICT_MIGRATIONS=true`, `DB_RUNTIME_ROLE=erppreflight_app`, superuser owner login as on
 Coolify). The first start does the following:
 
-1. `infra/docker/api-entrypoint.sh` runs the migration runner as the schema owner
-   (`DATABASE_URL`). Each file runs in its own transaction. Expected log:
+1. The `db-backup` job dumps the v0 database (9 applied, 11 pending migrations) to the volume
+   `erppreflight_premigration_backups`. Then the `migrate` job (`infra/docker/api-entrypoint.sh migrate`)
+   runs the migration runner as the schema owner (`DATABASE_URL`). The rehearsal below ran the same
+   runner inside the API container; the job uses the identical code path. Each file runs in its own transaction. Expected log:
    `Migrations complete: applied=11, skipped=9` followed by
    `Newly applied migrations: 010_app_runtime_role.sql, … 019_knowledge_content_workflow.sql, 026_legacy_finding_source_backfill.sql`.
    - 010 creates the NOLOGIN, NOSUPERUSER, NOBYPASSRLS role `erppreflight_app` and grants it to the owner.
@@ -170,7 +175,7 @@ Coolify). The first start does the following:
    - 012 adds plan and usage columns and backfills the per-tenant audit `chain_seq` for every existing audit event (this fixes v0's false `GAP_DETECTED` verification).
    - 017 adds finding lifecycle tables. 026 backfills `source_file_id`/`source_file_name` of pre-017 findings from their evidence, so decisions carry over into later analyses.
    - All other changes are additive (new tables with RLS, new nullable or defaulted columns).
-2. `main.js` runs the runner again and logs `applied=0, skipped=20`.
+2. The API starts only after `migrate` exited 0. With `AUTO_MIGRATE=true` (optional fallback) `main.js` runs the runner again and logs `applied=0, skipped=20`.
 3. Bootstrap hooks run:
    - A one-time import of **v0 finding reviews** (`technical_details.review`: accepted risk, false positive, verified) into the lifecycle. Log line: `Legacy finding reviews: N imported into lifecycles`. It is idempotent and does not run again on later starts.
    - Knowledge articles are seeded (14).

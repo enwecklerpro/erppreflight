@@ -73,6 +73,25 @@ curl -s https://api.erppreflight.com/health/readiness            # all dependenc
 API_BASE_URL=https://api.erppreflight.com bash scripts/e2e-live-smoke.sh   # creates 2 throwaway tenants
 ```
 
+## 3a. Roll back a failed or unwanted migration (pre-migration backup)
+
+Every deployment that applies migrations first writes a verified dump to the volume
+`erppreflight_premigration_backups` (compose job `db-backup`, `DEPLOYMENT_GUIDE.md` §6a). The format
+is compatible with `scripts/restore.sh` (database part).
+
+```bash
+cd /opt/erppreflight
+docker compose -f docker-compose.coolify.yml stop api web        # stop writers (or in Coolify)
+mkdir -p /var/backups/erppreflight/premigration
+docker run --rm -v erppreflight_premigration_backups:/b -v /var/backups/erppreflight/premigration:/out alpine cp -r /b/. /out/
+BK=$(ls -1d /var/backups/erppreflight/premigration/20*Z | tail -1); cat "$BK/manifest.json" "$BK/pending.txt"
+CONFIRM_RESTORE=yes RESTORE_SKIP_S3=1 RESTORE_DB=erppreflight scripts/restore.sh "$BK"
+```
+
+Then redeploy the **previous** release (its migration set matches the restored schema); deploying
+the same release again would re-apply the migrations. Objects uploaded after the backup stay in MinIO
+but their database rows are gone — list them with `scripts/backup.sh`'s `minio_counts.tsv` if needed.
+
 ## 4. Restore on a new host
 
 1. Provision the VPS, install Docker + Coolify, restore DNS (DEPLOYMENT_GUIDE.md §2).
@@ -97,7 +116,7 @@ docker exec erppreflight-postgres psql -U erppreflight -d postgres -c 'CREATE DA
 docker exec -i erppreflight-postgres pg_restore -U erppreflight -d erppreflight --exit-on-error < erppreflight.dump
 # MinIO (mc ships in the MinIO image used by the stack)
 docker run --rm --network erppreflight-network -e MC_HOST_s=http://<AK>:<SK>@erppreflight-minio:9000 \
-  -v "$PWD/minio:/backup" --entrypoint mc elestio/minio:latest mirror --overwrite s/erppreflight-clean /backup/erppreflight-clean
+  -v "$PWD/minio:/backup" --entrypoint mc elestio/minio:latest@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd mirror --overwrite s/erppreflight-clean /backup/erppreflight-clean
 ```
 
 ## 6. Drill record

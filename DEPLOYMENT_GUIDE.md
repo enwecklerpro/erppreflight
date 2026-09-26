@@ -10,12 +10,14 @@
 | Service | Image / build | Exposure |
 |---|---|---|
 | `web` | `infra/docker/Dockerfile.web` (Next.js standalone, non-root) | Traefik: `erppreflight.com`, `www.` |
-| `api` | `infra/docker/Dockerfile.api` (NestJS, runs migrations on start, non-root) | Traefik: `api.erppreflight.com` |
+| `db-backup` | `infra/docker/Dockerfile.db-backup` (one-shot: pre-migration `pg_dump`, then exits) | internal only |
+| `migrate` | `infra/docker/Dockerfile.api`, command `migrate` (one-shot: applies pending migrations, then exits) | internal only |
+| `api` | `infra/docker/Dockerfile.api` (NestJS, non-root; starts only after `migrate` exited 0) | Traefik: `api.erppreflight.com` |
 | `analysis-python` | `infra/docker/Dockerfile.analysis` (FastAPI, non-root) | internal only |
-| `postgres` | `pgvector/pgvector:pg16` | internal only |
-| `redis` | `redis:7.2-alpine` (AOF on) | internal only |
-| `minio` | `elestio/minio:latest` | internal only |
-| `clamav` | `clamav/clamav:latest` (3 GB limit) | internal only |
+| `postgres` | `pgvector/pgvector:0.8.6-pg16-bookworm` (digest-pinned) | internal only |
+| `redis` | `redis:7.2.16-alpine3.21` (digest-pinned, AOF on) | internal only |
+| `minio` | `elestio/minio` RELEASE.2025-09-07T16-13-09Z (pinned by digest; the vendor publishes only `latest`) | internal only |
+| `clamav` | `clamav/clamav:1.5.4` (digest-pinned, 3 GB limit) | internal only |
 
 Sizing: summed memory limits ≈ 13 GB; use a plan with **≥ 16 GB RAM** (8 GB plans risk OOM-kills of
 ClamAV). Disk: DB + objects + ≥ 2 × that for local backups.
@@ -40,9 +42,10 @@ ClamAV). Disk: DB + objects + ≥ 2 × that for local backups.
    `CORS_ORIGIN=https://erppreflight.com,https://www.erppreflight.com`,
    `ADMIN_BOOTSTRAP_EMAIL`/`ADMIN_BOOTSTRAP_PASSWORD` (first deploy only), keep `CLAMAV_MOCK_MODE=false`,
    `STRICT_MIGRATIONS=true`, `DB_RUNTIME_ROLE=erppreflight_app`.
-5. **Deploy**. The API container runs all pending migrations before it starts
-   (`infra/docker/api-entrypoint.sh`); with `STRICT_MIGRATIONS=true` a failing migration stops the
-   container and the deployment shows unhealthy instead of serving a half-migrated schema.
+5. **Deploy**. Compose runs the one-shot jobs in order (§6a): `db-backup` dumps the database when
+   the release ships pending migrations, `migrate` applies them strictly, and only then does the API
+   start (`depends_on: service_completed_successfully`). A failed backup or migration stops the chain:
+   the new API container is not started instead of serving a half-migrated schema.
 6. **Verify** (§5), then remove `ADMIN_BOOTSTRAP_PASSWORD` from the environment.
 
 Without Coolify: `docker network create coolify; docker compose -f docker-compose.coolify.yml up -d --build`
@@ -61,13 +64,23 @@ behind your own reverse proxy (the file joins the external `coolify` network).
      --certificate-identity-regexp 'https://github.com/enwecklerpro/erppreflight/.github/workflows/release.yml@refs/tags/v.*' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
    ```
-4. **Back up first** when the release contains new files in `packages/database/migrations`
-   (the release notes say so): run `scripts/backup.sh` on the VPS (§6).
+4. **Backups**: the `db-backup` job dumps the database automatically before pending migrations are
+   applied (§6a). It does not copy MinIO objects, so for releases with migrations also run
+   `scripts/backup.sh` on the VPS (§6) or take a Hostinger VPS snapshot.
 5. Deploy: today Coolify builds from the tagged commit (set the resource's branch/commit to the tag).
+   **Production does not auto-deploy on push** (owner decision, verified 2026-09-26): after a merge to
+   `main` someone has to press *Deploy* in Coolify (or call the Coolify deploy webhook). Turning on
+   Coolify's *Automatic deployment* / GitHub webhook is an owner item (`ROADMAP_AFTER_V1.md`).
    Deploying the signed GHCR digests instead requires replacing `build:` with `image: …@sha256:` in a
    Coolify-specific compose override — recommended next step (KNOWN_LIMITATIONS O3/O9).
 6. Verify (§5). **Rollback:** redeploy the previous tag. Migrations are forward-only; if a migration
-   must be undone, restore the pre-deploy backup (`docs/runbooks/DISASTER_RECOVERY.md`).
+   must be undone, restore the pre-migration backup (§6a, `docs/runbooks/DISASTER_RECOVERY.md` §3a).
+
+> **GitHub Actions status (owner item).** On 2026-09-26 every workflow run in this repository failed
+> within about 3 s without any job log — the pattern of an account-level block (billing / spending
+> limit or Actions disabled for the account), not of a workflow error. Until the owner fixes this
+> under GitHub → Settings → Billing and plans / Actions, the gates in step 1 cannot run on GitHub;
+> run them locally (`AGENTS.md` §5.1, `scripts/ci-live-e2e.sh`) before merging.
 
 ## 4. Configuration reference
 
@@ -141,14 +154,49 @@ Postgres 16/pgvector + MinIO containers, database `erppreflight_ws_e`, buckets `
 
 The CI `live-e2e` job repeats this drill on every run.
 
+## 6a. Migration job with automatic pre-migration backup
+
+Every deployment runs two one-shot containers before the API:
+
+```
+postgres (healthy) -> db-backup (exit 0) -> migrate (exit 0) -> api
+```
+
+| Job | What it does | Fails when |
+|---|---|---|
+| `db-backup` (`infra/docker/premigration-backup.sh` in an image built FROM the pinned postgres image, so `pg_dump` matches the server) | Compares the release's migration files with `_migrations`. If migrations are pending on a non-empty database: `pg_dump -Fc` to the volume `erppreflight_premigration_backups` (`/backups/<UTC stamp>/`: `postgres.dump`, `.sha256`, `table_counts.tsv`, `pending.txt`, `manifest.json`), verified with `pg_restore --list`; keeps the newest `PREMIGRATION_BACKUP_KEEP` (10). Fresh database or nothing pending: logs and exits 0. | database unreachable, dump empty/unreadable, volume not writable |
+| `migrate` (API image, `api-entrypoint.sh migrate`) | Applies pending migrations strictly (each file in its own transaction) and exits. | any migration error |
+| `api` | Starts with `AUTO_MIGRATE=false`. | — |
+
+Settings: `PREMIGRATION_BACKUP=auto|always|off` (default `auto`), `PREMIGRATION_BACKUP_KEEP`.
+`AUTO_MIGRATE=true` on the API is the **fallback** for runtimes without compose `depends_on`
+conditions (the API then migrates at start, idempotently, without the automatic backup).
+
+Logs: `docker logs erppreflight-db-backup`, `docker logs erppreflight-migrate`. In Coolify both
+containers show as *Exited (0)* after a successful deployment — that is their normal final state
+(optionally exclude them from Coolify's health status). If the new API does not start after a
+deploy, read these two logs first.
+
+List / copy / restore a pre-migration backup (restore procedure: `docs/runbooks/DISASTER_RECOVERY.md` §3a):
+
+```bash
+docker run --rm -v erppreflight_premigration_backups:/b alpine ls -l /b
+docker run --rm -v erppreflight_premigration_backups:/b -v /var/backups/erppreflight/premigration:/out alpine cp -r /b/. /out/
+```
+
+The pre-migration dump covers PostgreSQL only; `scripts/backup.sh` (§6) remains the full daily
+backup including MinIO objects and the off-site copy.
+
 ## 7. Monitoring
 
 - Health: `/health/liveness`, `/health/readiness` (use readiness for uptime monitoring).
 - Metrics: `GET /api/v1/metrics` with `Authorization: Bearer $METRICS_TOKEN` (Prometheus format).
+- Alerts + dashboard: `infra/observability/` ships Prometheus alert rules (validated with
+  `promtool`), a Grafana dashboard and an opt-in compose profile `observability`
+  (`docs/runbooks/observability.md` §7). Also keep an external uptime check on `/health/readiness`
+  and on certificate expiry (`docs/runbooks/CERTIFICATE_RENEWAL.md`).
+- Tracing / error reporting: `OTEL_EXPORTER_OTLP_ENDPOINT`, `SENTRY_DSN` (`docs/runbooks/observability.md`).
 - Logs: `docker logs erppreflight-<service>` / Coolify log view; the API logs JSON with `X-Request-ID`.
-- Not yet available: tracing, error tracking, dashboards, alerting (KNOWN_LIMITATIONS O4). Minimum
-  until then: an external uptime check on `/health/readiness` and on certificate expiry
-  (`docs/runbooks/CERTIFICATE_RENEWAL.md`).
 
 ## 8. Runbooks
 

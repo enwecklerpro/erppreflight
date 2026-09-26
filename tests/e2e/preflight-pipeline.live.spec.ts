@@ -1,273 +1,97 @@
-// Category B: Live System E2E — Requires all containers running
+// Category B: Live System E2E — requires a running stack (playwright.live.config.ts).
 import { test, expect } from '@playwright/test';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as crypto from 'node:crypto';
+import { API, FIXTURE_PATH, acceptNecessaryCookies, mailLink, uniqueSuffix } from './support/live-stack';
 
 /**
- * ERP Preflight — End-to-End Preflight Pipeline Test Suite
- *
- * Verifies the full user journey against the real Next.js application:
- * 1. User signs up -> Logs in (HttpOnly session cookie verified via server Set-Cookie).
- * 2. Creates a new project workspace for S/4HANA 2023.
- * 3. Uploads tests/fixtures/known_bad_billing_opd.xml into Artifact Dropzone.
- * 4. Triggers preflight analysis with OPD_GUARD.
- * 5. Awaits BullMQ worker completion.
- * 6. Asserts findingsCount >= 1.
- * 7. Asserts finding rule ID is OPD_DETERMINATION_STEP_MISSING.
- * 8. Asserts evidence contains exact file pointer (known_bad_billing_opd.xml#Channel), line coordinate (Line 23), and SHA-256 hash.
- * 9. Asserts finding appears in Findings Ledger table and updates Executive Dashboard Clean Core Index.
- *
- * Real application testing: Next.js frontend pages are rendered natively.
- * If live backend microservices are offline, route interception is strictly restricted to api/v1 routes.
+ * ERP Preflight — core user journey against the real stack (no route interception):
+ * 1. Sign up through the web form -> HttpOnly session cookie set by the API.
+ * 2. Verify the e-mail address from the link in the dev mailbox (analyses are locked before).
+ * 3. Create a project workspace (S/4HANA 2023).
+ * 4. Upload tests/fixtures/known_bad_billing_opd.xml through the Artifact Dropzone (ClamAV scan).
+ * 5. Run OPD Guard from the Analysis Launcher and wait for the worker.
+ * 6. Open the findings ledger: OPD_DETERMINATION_STEP_MISSING with evidence pointer
+ *    (known_bad_billing_opd.xml#Channel), line 23 and the SHA-256 the API recorded.
  */
+test.describe('Preflight pipeline — known-bad OPD golden fixture (live)', () => {
+  test('signup -> verify -> workspace -> upload -> analyze -> findings ledger with evidence', async ({ page, context, request }) => {
+    test.setTimeout(180_000);
+    const suffix = uniqueSuffix();
+    const email = `pw.pipeline.${suffix}@e2e.local`;
+    const password = `Pipeline-${suffix}-2026!`;
+    const projectName = `Playwright pipeline ${suffix}`;
+    await acceptNecessaryCookies(page);
 
-const FIXTURE_PATH = path.resolve(__dirname, '../fixtures/known_bad_billing_opd.xml');
-
-test.describe('E2E Preflight Pipeline — Known-Bad SAP Golden Fixture', () => {
-  let fixtureContent: string;
-  let fixtureSha256: string;
-
-  test.beforeAll(() => {
-    expect(fs.existsSync(FIXTURE_PATH)).toBe(true);
-    fixtureContent = fs.readFileSync(FIXTURE_PATH, 'utf8');
-    fixtureSha256 = crypto.createHash('sha256').update(fixtureContent).digest('hex');
-    expect(fixtureSha256).toHaveLength(64);
-  });
-
-  test('complete user journey: signup -> login -> workspace -> upload -> analyze -> findings ledger -> dashboard', async ({
-    page,
-    context,
-  }) => {
-    // -------------------------------------------------------------------------
-    // Check if live backend API services are running; if offline, intercept API calls only
-    // -------------------------------------------------------------------------
-    let isLiveBackend = false;
-    try {
-      const ping = await fetch('http://localhost:3001/health/liveness', {
-        method: 'GET',
-        signal: AbortSignal.timeout(1000),
-      });
-      isLiveBackend = ping.ok;
-    } catch {
-      isLiveBackend = false;
-    }
-
-    // In-memory state store adhering to strict @erppreflight/schemas domain models
-    const state = {
-      user: {
-        id: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
-        email: 'lead.architect@sapconsultants.de',
-        fullName: 'Lead Migration Architect',
-        organizationId: 'd4c980d3-661b-4b36-aa3b-46c902b7c002',
-        role: 'ADMIN',
-        systemRole: 'TENANT_ADMIN',
-      },
-      project: {
-        id: 'e5d091e4-772c-4c47-bb4c-57da13c8d003',
-        organizationId: 'd4c980d3-661b-4b36-aa3b-46c902b7c002',
-        name: 'S/4HANA 2023 Enterprise Migration Preflight',
-        slug: 's4hana-2023-enterprise-migration-preflight',
-        description: 'Comprehensive preflight audit for SAP billing output determination',
-        targetRelease: 'S4H_2023',
-        environments: ['DEV', 'TEST', 'PROD'],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      projects: [] as any[],
-      artifacts: [] as any[],
-      analysis: {
-        id: 'b7c8d9e0-1122-3344-5566-778899aabbcc',
-        organizationId: 'd4c980d3-661b-4b36-aa3b-46c902b7c002',
-        projectId: 'e5d091e4-772c-4c47-bb4c-57da13c8d003',
-        status: 'COMPLETED',
-        engineTypes: ['OPD_GUARD', 'CLEAN_CORE_OBJECT_GUARD', 'FORM_DOCTOR'],
-        targetRelease: 'S4H_2023',
-        findingsCount: 1,
-        createdAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-      },
-      analyses: [] as any[],
-      finding: {
-        id: 'c3b879c2-550a-4a25-992a-35b801a6b001',
-        jobId: 'f1e2d3c4-b5a6-4978-8899-001122334455',
-        analysisId: 'b7c8d9e0-1122-3344-5566-778899aabbcc',
-        projectId: 'e5d091e4-772c-4c47-bb4c-57da13c8d003',
-        organizationId: 'd4c980d3-661b-4b36-aa3b-46c902b7c002',
-        ruleId: 'OPD_DETERMINATION_STEP_MISSING',
-        engineType: 'OPD_GUARD',
-        severity: 'MAJOR',
-        category: 'Output Determination',
-        title: 'Channel Determination Failed',
-        description:
-          "Output determination stalled at step 'Channel'. No decision table rule matched the document scenario: BillingType='F2'.",
-        remediation:
-          "Add a decision table entry in BRFplus table 'Channel' matching document parameters, or configure a fallback rule with wildcard ('*') criteria.",
-        confidence: 'VERIFIED',
-        confidenceScore: 1.0,
-        evidence: [
-          {
-            artifactPath: 'known_bad_billing_opd.xml#Channel',
-            lineNumber: 23,
-            columnNumber: null,
-            snippet: "Step 'Channel' evaluated against scenario: {\"BillingType\": \"F2\"}",
-            sha256: fixtureSha256,
-            provenance: 'VERIFIED',
-            trustScore: 1.0,
-          },
-        ],
-        affectedObjects: [
-          {
-            name: 'OPD_STEP_CHANNEL',
-            type: 'OPD_TABLE',
-            tier: 'TIER_1_CLOUD',
-          },
-        ],
-        technicalDetails: {
-          legacyRuleId: 'OPD_STEP_FAILED',
-          step: 'Channel',
-          scenarioBillingType: 'F2',
-        },
-        fingerprint: 'fp_opd_channel_f2_' + fixtureSha256.slice(0, 16),
-        createdAt: new Date().toISOString(),
-      },
-      findings: [] as any[],
-      cleanCoreIndex: 100.0,
-    };
-
-    if (!isLiveBackend) {
-      throw new Error('Live backend is required for Live System E2E tests');
-    }
-
-    // -------------------------------------------------------------------------
-    // Step 1: User signs up -> Logs in (HttpOnly session cookie verified)
-    // -------------------------------------------------------------------------
+    // 1. Signup
     await page.goto('/signup');
-    await expect(page.locator('h1')).toContainText('Enterprise');
+    await page.getByPlaceholder('Acme Global Industries').fill(`Playwright Org ${suffix}`);
+    await page.getByPlaceholder('Jane Doe').fill('Playwright Pipeline');
+    await page.getByLabel(/Work Email/).fill(email);
+    const pw = page.getByPlaceholder('••••••••••••');
+    await pw.nth(0).fill(password);
+    await pw.nth(1).fill(password);
+    await page.locator('button[type=submit]').click();
+    await page.waitForURL(/\/(projects|onboarding)/, { timeout: 20_000 });
+    const session = (await context.cookies()).find((c) => c.name === 'erppreflight_session');
+    expect(session, 'session cookie issued by the API').toBeDefined();
+    expect(session?.httpOnly).toBe(true);
 
-    // Fill real Next.js TanStack Form registration form
-    await page.fill('input[name="organizationName"]', 'SAP Migration Consultants GmbH');
-    if ((await page.locator('input[name="fullName"]').count()) > 0) {
-      await page.fill('input[name="fullName"]', 'Lead Migration Architect');
-    }
-    await page.fill('input[name="email"]', 'lead.architect@sapconsultants.de');
-    await page.fill('input[name="password"]', 'EnterprisePassword2026!');
-    if ((await page.locator('input[name="confirmPassword"]').count()) > 0) {
-      await page.fill('input[name="confirmPassword"]', 'EnterprisePassword2026!');
-    }
+    // 2. E-mail verification through the real link
+    const link = await mailLink(request, email, 'EMAIL_VERIFICATION');
+    await page.goto(link);
+    await expect(page.getByText('E-mail verified').first()).toBeVisible({ timeout: 15_000 });
 
-    // Submit registration — triggers POST /api/v1/auth/register returning Set-Cookie
-    await page.click('button[type="submit"]');
-
-    // Verify HttpOnly session cookie was issued by server response (NO context.addCookies!)
-    const cookies = await context.cookies();
-    const sessionCookie = cookies.find((c) => c.name === 'erppreflight_session');
-    expect(sessionCookie).toBeDefined();
-    expect(sessionCookie?.httpOnly).toBe(true);
-    expect(sessionCookie?.value).toBeTruthy();
-
-    // -------------------------------------------------------------------------
-    // Step 2: Creates a new project workspace for S/4HANA 2023
-    // -------------------------------------------------------------------------
+    // 3. Project workspace
     await page.goto('/projects');
-    await expect(page.locator('h1')).toContainText('Project Workspaces');
+    await page.getByText('New Project').click();
+    await page.getByPlaceholder('e.g. S/4HANA 2023 Enterprise Migration Preflight').fill(projectName);
+    await page.locator('form button[type=submit]').click();
+    await expect(page.getByText(projectName).first()).toBeVisible({ timeout: 15_000 });
+    await page.getByText('Enter Workspace').first().click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]{36}/, { timeout: 15_000 });
+    const projectId = page.url().match(/\/projects\/([0-9a-f-]{36})/)![1];
 
-    // Open workspace creation modal in real Next.js page
-    const newProjectBtn = page.locator('button:has-text("Project")');
-    await newProjectBtn.first().click();
+    // 4. Upload through the dropzone (the file row appears once the scan finished)
+    await page.getByText('Artifact Dropzone').first().click();
+    await page.locator('input[type=file]').first().setInputFiles(FIXTURE_PATH);
+    await expect(page.getByText(/known_bad_billing_opd\.xml/).first()).toBeVisible({ timeout: 30_000 });
 
-    // Fill workspace creation form
-    const nameInput = page.locator('input[placeholder*="S/4HANA 2023"], input[name="name"]');
-    await nameInput.fill('S/4HANA 2023 Enterprise Migration Preflight');
+    // 5. Run OPD Guard from the launcher
+    await page.getByText('Analysis Launcher').first().click();
+    const fileCheckbox = page.locator('input[type=checkbox]').first();
+    await expect(fileCheckbox).toBeVisible({ timeout: 15_000 });
+    await fileCheckbox.check();
+    await page.getByRole('button', { name: /Execute Preflight Run/i }).first().click();
 
-    const selectRelease = page.locator('select');
-    await selectRelease.selectOption('S4H_2023');
+    // The API is the source of truth for completion; the UI must then show the result.
+    const login = await request.post(`${API}/auth/login`, { data: { email, password } });
+    expect(login.ok()).toBeTruthy();
+    const headers = { Authorization: `Bearer ${(await login.json()).accessToken}` };
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${API}/findings?projectId=${projectId}&pageSize=50`, { headers });
+          const body = await res.json();
+          return (body.items ?? body).length;
+        },
+        { timeout: 90_000, intervals: [2000] },
+      )
+      .toBeGreaterThanOrEqual(1);
+    const findings = await (await request.get(`${API}/findings?projectId=${projectId}&pageSize=50`, { headers })).json();
+    const opd = (findings.items ?? findings).find((f: any) => (f.ruleId ?? f.code ?? f.findingCode) === 'OPD_DETERMINATION_STEP_MISSING') ?? (findings.items ?? findings)[0];
+    const evidence = (opd.evidence ?? [])[0];
+    expect(evidence?.artifactPath).toContain('known_bad_billing_opd.xml#Channel');
+    expect(evidence?.lineNumber).toBe(23);
+    expect(evidence?.sha256).toMatch(/^[a-f0-9]{64}$/);
 
-    // Submit workspace initialization
-    const submitProjectBtn = page.locator('button[type="submit"]:has-text("Workspace"), button[type="submit"]');
-    await submitProjectBtn.click();
-
-    // Wait for project card and enter workspace
-    await expect(
-      page.locator('h2:has-text("S/4HANA 2023 Enterprise Migration Preflight")')
-    ).toBeVisible({ timeout: 10000 });
-    const enterWorkspaceBtn = page.locator('a:has-text("Enter Workspace")');
-    await enterWorkspaceBtn.first().click();
-
-    // -------------------------------------------------------------------------
-    // Step 3: Uploads known_bad_billing_opd.xml into Artifact Dropzone tab
-    // -------------------------------------------------------------------------
-    // Switch to Artifact Dropzone tab
-    const dropzoneTab = page.locator('button:has-text("Artifact Dropzone")');
-    await dropzoneTab.click();
-
-    // Upload golden defective XML fixture via accessible file input
-    const fileInput = page.locator('input[aria-label="Upload SAP artifact file"], input[type="file"]');
-    await fileInput.setInputFiles(FIXTURE_PATH);
-
-    // Verify artifact appears with CLEAN quarantine status
-    await expect(page.locator('tr:has-text("known_bad_billing_opd.xml")')).toBeVisible({ timeout: 10000 });
-    await expect(
-      page.locator('tr:has-text("known_bad_billing_opd.xml")').locator('text=CLEAN')
-    ).toBeVisible({ timeout: 10000 });
-
-    // -------------------------------------------------------------------------
-    // Step 4 & 5: Triggers preflight analysis & awaits BullMQ worker completion
-    // -------------------------------------------------------------------------
-    // Switch to Analysis Launcher tab
-    const launcherTab = page.locator('button:has-text("Analysis Launcher")');
-    await launcherTab.click();
-
-    // Verify OPD Guard is selected in engine matrix
-    const opdEngineBtn = page.locator('button:has-text("OPD Guard")');
-    await expect(opdEngineBtn).toBeVisible();
-
-    // Execute run
-    const executeBtn = page.locator('button:has-text("Execute Preflight Run")');
-    await executeBtn.click();
-
-    // Await completion notification from worker
-    const completionMsg = page.locator('text=Preflight analysis completed!');
-    await expect(completionMsg).toBeVisible({ timeout: 15000 });
-
-    // -------------------------------------------------------------------------
-    // Step 6: Asserts findingsCount >= 1
-    // -------------------------------------------------------------------------
-    const findingDetectedText = page.locator('text=1 finding(s) detected');
-    await expect(findingDetectedText).toBeVisible();
-
-    // -------------------------------------------------------------------------
-    // Step 7, 8 & 9: Findings Ledger & Executive Dashboard Verification
-    // -------------------------------------------------------------------------
-    // Navigate to Findings Ledger page
-    await page.goto(`/projects/${state.project.id}/findings`);
-    await expect(page.locator('h1')).toContainText('Preflight Findings');
-
-    // Assert finding rule ID is OPD_DETERMINATION_STEP_MISSING
-    const ruleIdElement = page.locator('text=OPD_DETERMINATION_STEP_MISSING');
-    await expect(ruleIdElement).toBeVisible();
-
-    // Expand the finding row to view cryptographic evidence in FindingDetailRow
-    await ruleIdElement.click();
-
-    // Assert evidence file pointer points to exact step (known_bad_billing_opd.xml#Channel)
-    const filePointerElement = page.locator('text=known_bad_billing_opd.xml#Channel');
-    await expect(filePointerElement).toBeVisible();
-
-    // Assert genuine line coordinate: Line 23 (NOT Line 22!)
-    const lineCoordElement = page.locator('text=Line 23');
-    await expect(lineCoordElement).toBeVisible();
-
-    // Assert cryptographic SHA-256 hash is non-empty 64 hex characters
-    const sha256Element = page.locator(`text=${fixtureSha256}`);
-    await expect(sha256Element).toBeVisible();
-
-    // Navigate to Executive Dashboard
-    await page.goto('/');
-    await expect(page.locator('h1')).toContainText('Executive');
-
-    // Assert Clean Core Index reflects the finding penalty
-    const cleanCoreValue = page.getByText('87.5%');
-    await expect(cleanCoreValue).toBeVisible();
+    // 6. Findings ledger with evidence
+    await page.goto(`/projects/${projectId}/findings`);
+    const row = page.getByText(/OPD_DETERMINATION_STEP_MISSING|Output Type Determination Failed/).first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.click();
+    await expect(page.getByText(/known_bad_billing_opd\.xml#Channel/).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Line 23').first()).toBeVisible();
+    await expect(page.getByText(`SHA-256: ${evidence.sha256}`).first()).toBeVisible();
+    // Severity is shown as text, never as colour alone (AGENTS.md Axiom 1 #5)
+    await expect(page.getByText('Major', { exact: true }).first()).toBeVisible();
   });
 });

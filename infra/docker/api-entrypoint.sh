@@ -5,12 +5,15 @@ echo "==========================================================================
 echo " [ERP Preflight API] Initializing Production Container"
 echo "=============================================================================="
 
-# Determine whether to run migrations (default to true in production)
-RUN_MIGRATIONS="${AUTO_MIGRATE:-true}"
+# Modes:
+#   (no argument)  start the API; migrations run first when AUTO_MIGRATE=true (image default).
+#   migrate        one-shot migration job (compose service `migrate`): apply pending migrations
+#                  strictly and exit 0/1 without starting the server. docker-compose.coolify.yml
+#                  runs it after the `db-backup` pre-migration backup and starts the API only when
+#                  it exited 0; the API then runs with AUTO_MIGRATE=false (set true as a fallback).
+MODE="${1:-serve}"
 
-if [ "$RUN_MIGRATIONS" = "true" ]; then
-  echo "[ERP Preflight API] AUTO_MIGRATE is active. Executing schema migrations..."
-
+run_migrations() {
   node -e "
     const path = require('path');
     const fs = require('fs');
@@ -28,6 +31,10 @@ if [ "$RUN_MIGRATIONS" = "true" ]; then
     }
 
     if (!runMigrations) {
+      if (process.env.STRICT_MIGRATIONS === 'true') {
+        console.error('[ERP Preflight API] Could not load @erppreflight/database; strict migration run cannot continue.');
+        process.exit(1);
+      }
       console.warn('[ERP Preflight API] Could not load @erppreflight/database in pre-entrypoint. Migrations will run during NestJS bootstrap.');
       process.exit(0);
     }
@@ -76,6 +83,26 @@ if [ "$RUN_MIGRATIONS" = "true" ]; then
         process.exit(process.env.STRICT_MIGRATIONS === 'true' ? 1 : 0);
       });
   "
+}
+
+if [ "$MODE" = "migrate" ]; then
+  echo "[ERP Preflight API] One-shot migration job (strict): applying pending migrations, then exiting."
+  # The job must fail (and keep the API from starting) when the schema could not be migrated.
+  export STRICT_MIGRATIONS=true
+  run_migrations
+  echo "[ERP Preflight API] Migration job finished successfully."
+  exit 0
+elif [ "$MODE" != "serve" ]; then
+  echo "[ERP Preflight API] Unknown mode '$MODE' (expected no argument or 'migrate')." >&2
+  exit 2
+fi
+
+# Determine whether to run migrations (default to true in production)
+RUN_MIGRATIONS="${AUTO_MIGRATE:-true}"
+
+if [ "$RUN_MIGRATIONS" = "true" ]; then
+  echo "[ERP Preflight API] AUTO_MIGRATE is active. Executing schema migrations..."
+  run_migrations
 else
   echo "[ERP Preflight API] AUTO_MIGRATE is disabled. Skipping database migrations."
 fi
