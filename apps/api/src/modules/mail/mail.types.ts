@@ -22,7 +22,10 @@ export type MailTemplateId =
   | 'SUPPORT_TICKET_REPLY'
   | 'SUPPORT_TICKET_STATUS_CHANGED'
   // Platform governance (source sync admin)
-  | 'KNOWLEDGE_SOURCE_STALE';
+  | 'KNOWLEDGE_SOURCE_STALE'
+  // Platform hardening (finding assignment, notification e-mails)
+  | 'FINDING_ASSIGNED'
+  | 'NOTIFICATION';
 
 export interface MailMessage {
   to: string;

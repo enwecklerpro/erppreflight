@@ -175,5 +175,7 @@ export const apiErrorCodes = {
     INVALID_API_BASELINE_REQUEST: 'The API baseline request is invalid.',
     API_BASELINE_REQUIRES_API_CHANGE_GUARD: 'A stored API baseline can only be selected together with the API Change Guard engine.',
     API_BASELINES_UNAVAILABLE: 'API baselines are not available right now. Please try again later.',
+    // Ingestion (exactly-once metering)
+    ARTIFACT_SCAN_IN_PROGRESS: 'The artifact is still being scanned. Please try again in a moment.',
   },
 };

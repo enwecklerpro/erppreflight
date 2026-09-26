@@ -148,7 +148,7 @@ SAPscript, Smart Forms to Adobe Forms (XDP) migration & syntax validator
 - **Implementation:** `services/analysis-python/src/engines/form_doctor.py` (`FormDoctorEngine`)
 - **Artifact types:** XML, XDP, TXT
 - **Finding codes in the engine module (5):** `FORM_BINDING_PATH_MISMATCH`, `FORM_FIELD_HIDDEN_IN_LAYOUT`, `FORM_FIELD_MISSING_IN_XML`, `FORM_LEGACY_SAPSCRIPT_DETECTED`, `FORM_LEGACY_SMARTFORM_DETECTED`
-- **Tests referencing the engine (7):** `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_property_parsers.py`
+- **Tests referencing the engine (8):** `tests/adversarial/test_m1_challenges.py`, `tests/adversarial/test_m2_challenges.py`, `tests/integration/test_api.py`, `tests/unit/test_domain1_engines.py`, `tests/unit/test_domain1_rechallenge.py`, `tests/unit/test_form_doctor_file_names.py`, `tests/unit/test_platform_services.py`, `tests/unit/test_property_parsers.py`
 - **Fixture files named in those test files (12):** `custom_field_registry.json`, `custom_field_type_mismatch.json`, `extension_cycle.json`, `extension_manifest.json`, `form_data_missing_field.xml`, `form_data_valid.xml`, `form_legacy_smartform.xml`, `form_template_xdp.xml`, `opd_decision_table.csv`, `opd_scenario_missing_channel.json`, `opd_scenario_shadowed.json`, `opd_scenario_valid.json`
 
 ### IAM Cost Optimizer — `IAM_COST_OPTIMIZER`

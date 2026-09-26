@@ -168,5 +168,7 @@ export const apiErrorCodes: typeof En = {
     INVALID_API_BASELINE_REQUEST: 'Die Anfrage zur API-Baseline ist ungültig.',
     API_BASELINE_REQUIRES_API_CHANGE_GUARD: 'Eine gespeicherte API-Baseline kann nur zusammen mit der Engine API Change Guard ausgewählt werden.',
     API_BASELINES_UNAVAILABLE: 'API-Baselines sind derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.',
+    // Ingestion (exactly-once metering)
+    ARTIFACT_SCAN_IN_PROGRESS: 'Das Artefakt wird noch geprüft. Bitte versuchen Sie es gleich noch einmal.',
   },
 };

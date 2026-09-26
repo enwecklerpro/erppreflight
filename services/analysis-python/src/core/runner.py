@@ -33,6 +33,7 @@ OPTION_CONFIG_KEYS = frozenset({
     "targetRelease", "target_release",
     "artifact_path", "file_name",
     "sourceFileId", "sourceFileName", "source_file_id", "source_file_name",
+    "xdp_file_name", "xml_file_name",
     "evaluation_date", "snapshot_date",
 })
 

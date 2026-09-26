@@ -44,6 +44,7 @@ import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
 import { apiBaselines } from './apiBaselines';
+import { platformHardening } from './platformHardening';
 
 export const appEn = {
   ui,
@@ -96,6 +97,7 @@ export const appEn = {
   apiErrorCodes,
   notificationText,
   apiBaselines,
+  platformHardening,
 };
 
 export type AppMessages = typeof appEn;

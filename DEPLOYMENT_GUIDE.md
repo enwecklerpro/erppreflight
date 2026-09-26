@@ -100,7 +100,13 @@ is sent with the web app's credentialed `fetch` calls without further configurat
   `APP_PUBLIC_URL`) and only with a valid `X-CSRF-Token` (signed double-submit token bound to the
   session; the web app reads it from the `erp_csrf` cookie, the login response or `GET /api/v1/auth/csrf`).
   Violations return 403 `CSRF_REJECTED`.
-- `TRUST_PROXY` stays at its production default so `Secure` cookies and client IPs work behind Traefik.
+- `TRUST_PROXY` must equal the real number of reverse-proxy hops in front of the API (production
+  default `1` = Traefik only; `2` with an additional CDN / load balancer), never higher. It is the one
+  setting that decides the client address for `Secure` cookies, the Redis-backed auth rate limits,
+  organization IP allowlists and audit IPs. **The API port must only be reachable through Traefik**
+  (the compose file only `expose`s 3001; never publish it with `ports:` or route around the proxy):
+  otherwise, or with a hop count set too high, a forged `X-Forwarded-For` header chooses the client
+  address and bypasses rate limits and IP allowlists.
 - Optional `SESSION_COOKIE_DOMAIN=erppreflight.com` scopes both cookies to the parent domain (the web
   server then sees the real session cookie; script can read `erp_csrf` directly). Leave it empty unless
   needed. A web app on a *different* site (e.g. an `sslip.io` test host) would need

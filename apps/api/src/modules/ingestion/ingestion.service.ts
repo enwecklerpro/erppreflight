@@ -4,8 +4,11 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { UsageService } from '../usage/usage.service';
 import { DatabaseService } from '../database/database.service';
 import {
   S3StorageService,
@@ -82,6 +85,30 @@ export function toFileListItem(row: any) {
   };
 }
 
+/** A SCANNING claim older than this is considered abandoned (crashed process) and may be re-claimed. */
+export const SCAN_STALE_AFTER_SECONDS = 10 * 60;
+
+/** Stored outcome of an already processed upload (idempotent confirm). */
+export function processedOutcome(row: any) {
+  const metadata = parseMetadata(row.metadata);
+  const base = {
+    fileId: row.id,
+    status: row.quarantine_status as string,
+    alreadyProcessed: true,
+    sizeBytes: row.file_size === null || row.file_size === undefined ? null : Number(row.file_size),
+  };
+  if (row.quarantine_status === 'QUARANTINED') {
+    return { ...base, virusName: metadata.virusName ?? null };
+  }
+  return {
+    ...base,
+    detectedFormat: metadata.detectedFormat ?? null,
+    checksumSha256: row.checksum_sha256,
+    redactionsCount: Number(metadata.redactionsCount ?? 0),
+    cleanStoragePath: row.storage_path,
+  };
+}
+
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
@@ -92,7 +119,8 @@ export class IngestionService {
     private readonly mimeValidator: MimeMagicValidator,
     private readonly archiveGuard: ArchiveSafetyGuard,
     private readonly clamAv: ClamAvScanner,
-    private readonly redactor: SecretRedactorService
+    private readonly redactor: SecretRedactorService,
+    @Optional() private readonly usage?: UsageService
   ) {}
 
   /**
@@ -159,31 +187,79 @@ export class IngestionService {
 
   /**
    * Confirms upload completion and triggers the verification & redaction pipeline.
+   *
+   * Exactly-once: the file is claimed with an atomic status transition
+   * (PENDING_SCAN / REJECTED / stale SCANNING -> SCANNING). A second confirm of a
+   * processed file returns the stored outcome (`alreadyProcessed: true`) without
+   * re-scanning or re-metering; a confirm while a scan is running answers 409.
+   * Usage (ARTIFACT_UPLOAD + ARTIFACT_BYTES) is recorded here once per processed
+   * file for EVERY upload path (multipart, inline JSON, presigned PUT + confirm,
+   * connector imports, local agent uploads).
    */
   public async confirmUpload(
     tenantId: string,
     projectId: string,
     fileId: string,
-    testBuffer?: Buffer
+    testBuffer?: Buffer,
+    options: { actorId?: string | null; source?: string } = {}
   ) {
-    const fileRes = await this.db.query(
-      'SELECT * FROM uploaded_files WHERE id = $1 AND organization_id = $2 AND project_id = $3',
-      [fileId, tenantId, projectId]
+    const claim = await this.db.query(
+      `UPDATE uploaded_files
+          SET quarantine_status = 'SCANNING',
+              metadata = metadata || jsonb_build_object('scanStartedAt', NOW())
+        WHERE id = $1 AND organization_id = $2 AND project_id = $3
+          AND (quarantine_status IN ('PENDING_SCAN', 'REJECTED')
+               OR (quarantine_status = 'SCANNING'
+                   AND COALESCE((metadata->>'scanStartedAt')::timestamptz, 'epoch'::timestamptz)
+                       < NOW() - ($4::int * INTERVAL '1 second')))
+        RETURNING *`,
+      [fileId, tenantId, projectId, SCAN_STALE_AFTER_SECONDS]
     );
-    if (!fileRes.rows?.length) {
-      throw new NotFoundException(`File ${fileId} not found in project ${projectId}.`);
+    if (!claim.rows?.length) {
+      const fileRes = await this.db.query(
+        'SELECT * FROM uploaded_files WHERE id = $1 AND organization_id = $2 AND project_id = $3',
+        [fileId, tenantId, projectId]
+      );
+      const existing = fileRes.rows?.[0];
+      if (!existing) {
+        throw new NotFoundException(`File ${fileId} not found in project ${projectId}.`);
+      }
+      if (existing.quarantine_status === 'SCANNING') {
+        throw new ConflictException({
+          code: 'ARTIFACT_SCAN_IN_PROGRESS',
+          message: `Artifact '${existing.file_name}' is being scanned; retry in a moment.`,
+        });
+      }
+      return processedOutcome(existing);
     }
 
-    const file = fileRes.rows[0];
+    const result: any = await this.processFile(claim.rows[0], testBuffer);
+    await this.meterProcessedUpload(tenantId, fileId, result, options);
+    return result;
+  }
 
-    // Transition status to SCANNING
-    await this.db.query(
-      "UPDATE uploaded_files SET quarantine_status = 'SCANNING' WHERE id = $1 AND organization_id = $2 AND project_id = $3",
-      [fileId, tenantId, projectId]
+  private async meterProcessedUpload(
+    tenantId: string,
+    fileId: string,
+    result: { status?: string; sizeBytes?: number },
+    options: { actorId?: string | null; source?: string }
+  ): Promise<void> {
+    if (!this.usage || (result?.status !== 'CLEAN' && result?.status !== 'QUARANTINED')) return;
+    // Exactly-once guard independent of the scan claim: a stale SCANNING claim can be re-taken while the
+    // original (slow, not crashed) scan still finishes, so both would reach this point. Only the caller
+    // that flips the per-file `usageMetered` marker records usage.
+    const marker = await this.db.query(
+      `UPDATE uploaded_files
+          SET metadata = metadata || jsonb_build_object('usageMetered', true)
+        WHERE id = $1 AND organization_id = $2 AND NOT (metadata ? 'usageMetered')
+        RETURNING id`,
+      [fileId, tenantId]
     );
-
-    // Run processing
-    return await this.processFile(file, testBuffer);
+    if (!marker.rows?.length) return;
+    const meta = { status: result.status, source: options.source ?? 'upload' };
+    const common = { resourceType: 'ARTIFACT', resourceId: fileId, actorId: options.actorId ?? null, metadata: meta };
+    await this.usage.recordSafe(tenantId, 'ARTIFACT_UPLOAD', 1, common);
+    await this.usage.recordSafe(tenantId, 'ARTIFACT_BYTES', Number(result.sizeBytes) || 0, common);
   }
 
   /**
@@ -240,6 +316,7 @@ export class IngestionService {
         await this.db.query(
           `UPDATE uploaded_files
            SET quarantine_status = 'QUARANTINED',
+               file_size = $3,
                metadata = metadata || $1
            WHERE id = $2`,
           [
@@ -248,6 +325,7 @@ export class IngestionService {
               quarantinedAt: new Date().toISOString(),
             }),
             fileId,
+            buffer.length,
           ],
           { bypassRls: true }
         );
@@ -255,6 +333,7 @@ export class IngestionService {
           fileId,
           status: 'QUARANTINED',
           virusName: scanResult.virusName,
+          sizeBytes: buffer.length,
         };
       }
 
@@ -290,6 +369,7 @@ export class IngestionService {
              redaction_status = $1,
              storage_path = $2,
              checksum_sha256 = $3,
+             file_size = $6,
              metadata = metadata || $5::jsonb
          WHERE id = $4`,
         [
@@ -302,6 +382,7 @@ export class IngestionService {
             detectedMime: mimeResult.detectedMime,
             redactionsCount: redactionCount,
           }),
+          buffer.length,
         ],
         { bypassRls: true }
       );
@@ -313,6 +394,7 @@ export class IngestionService {
         checksumSha256: mimeResult.sha256,
         redactionsCount: redactionCount,
         cleanStoragePath: cleanKey,
+        sizeBytes: buffer.length,
       };
     } catch (err: any) {
       this.logger.error(`File processing failed for ${fileId}: ${err.message}`);

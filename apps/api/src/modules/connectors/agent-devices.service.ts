@@ -552,7 +552,7 @@ export class AgentDevicesService {
             fileSize: buf.length,
             mimeType: 'application/octet-stream',
           } as any);
-          const conf: any = await this.ingestion.confirmUpload(org, projectId, pre.fileId, buf);
+          const conf: any = await this.ingestion.confirmUpload(org, projectId, pre.fileId, buf, { source: 'local-agent' });
           ingested.push({ relativePath: a.relativePath, fileId: pre.fileId, status: conf?.status || conf?.quarantineStatus || 'PROCESSED' });
         } catch (err: any) {
           ingested.push({ relativePath: a.relativePath, status: 'REJECTED', error: String(err?.response?.message || err?.message).slice(0, 200) });

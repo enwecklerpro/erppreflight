@@ -43,6 +43,7 @@ import { apiErrorCodes } from './apiErrorCodes';
 import { lab } from './lab';
 import { workspace } from './workspace';
 import { apiBaselines } from './apiBaselines';
+import { platformHardening } from './platformHardening';
 
 export const appDe: AppMessages = {
   ui,
@@ -95,4 +96,5 @@ export const appDe: AppMessages = {
   apiErrorCodes,
   notificationText,
   apiBaselines,
+  platformHardening,
 };

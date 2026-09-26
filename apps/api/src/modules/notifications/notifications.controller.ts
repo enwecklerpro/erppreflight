@@ -7,7 +7,7 @@ import { CurrentTenant } from '../../common/decorators/current-tenant.decorator'
 import { DenyApiKeyAuth } from '../api-keys/api-key-scopes';
 import { zodParse } from '../knowledge-graph/zod-parse';
 import { NotificationsService } from './notifications.service';
-import { NOTIFICATION_EVENT_TYPES } from './notification-renderer';
+import { NOTIFICATION_EVENT_TYPES, NOTIFICATION_LOCALES } from './notification-renderer';
 
 const ListQuerySchema = z.object({
   status: z.enum(['all', 'unread']).default('all'),
@@ -27,6 +27,8 @@ const PreferencesSchema = z.object({
     .min(1)
     .max(NOTIFICATION_EVENT_TYPES.length),
 });
+
+const LocaleSchema = z.object({ locale: z.enum(NOTIFICATION_LOCALES) }).strict();
 
 /** Personal notification inbox (the caller's notifications in the active organization). */
 @ApiTags('Notifications')
@@ -49,7 +51,7 @@ export class NotificationsController {
   }
 
   @Get('channels')
-  @ApiOperation({ summary: 'Which delivery channels are active (e-mail requires a MAIL_SENDER provider)' })
+  @ApiOperation({ summary: 'Which delivery channels are active (e-mail uses the platform mail transport)' })
   channels() {
     return this.notifications.channels();
   }
@@ -80,5 +82,17 @@ export class NotificationsController {
   @Put('preferences')
   updatePreferences(@CurrentTenant() orgId: string, @Req() req: any, @Body() body: unknown) {
     return this.notifications.updatePreferences(orgId, req.user.id, zodParse(PreferencesSchema, body).items);
+  }
+
+  @Get('locale')
+  @ApiOperation({ summary: 'Language of my notification texts and e-mails (en | de; English when never set)' })
+  locale(@Req() req: any) {
+    return this.notifications.emailLocale(req.user.id);
+  }
+
+  @Put('locale')
+  @ApiOperation({ summary: 'Set the language of my notification texts and e-mails' })
+  setLocale(@Req() req: any, @Body() body: unknown) {
+    return this.notifications.setEmailLocale(req.user.id, zodParse(LocaleSchema, body).locale);
   }
 }

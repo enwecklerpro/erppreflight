@@ -50,7 +50,8 @@ export function useTableUrlSync(defaultPageSize = 50) {
     const filters: Record<string, string[]> = {};
 
     searchParams.forEach((value, key) => {
-      if (!['page', 'pageSize', 'sort', 'search'].includes(key)) {
+      // `finding` / `org` are the notification deep-link target (FocusedFinding), not column filters.
+      if (!['page', 'pageSize', 'sort', 'search', 'finding', 'org'].includes(key)) {
         const parts = value.split(',').filter(Boolean);
         if (parts.length > 0) {
           filters[key] = filters[key] ? [...filters[key], ...parts] : parts;

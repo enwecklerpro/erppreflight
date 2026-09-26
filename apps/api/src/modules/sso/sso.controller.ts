@@ -35,6 +35,23 @@ import { SSO_STATE_COOKIE, SsoService } from './sso.service';
 import { ScimError, ScimService, SCIM_ERROR } from './scim.service';
 import { ZodBody } from '../../common/openapi/zod-openapi';
 import { AddDomainSchema, UpsertIdpSchema } from './sso.service';
+import { AuthRateLimit, AuthRateLimitGuard, RateLimitRule } from '../auth/guards/auth-rate-limit.guard';
+
+/** SSO discovery answers "is SSO set up for this address" — limited against domain enumeration. */
+export const SSO_DISCOVER_RATE_LIMIT: RateLimitRule = {
+  name: 'sso-discover',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 60,
+  maxPerIpAndEmail: 20,
+};
+
+/** Login start / IdP callback (each call creates PKCE state or validates an ID token). */
+export const SSO_LOGIN_RATE_LIMIT: RateLimitRule = {
+  name: 'sso-login',
+  windowMs: 15 * 60 * 1000,
+  maxPerIp: 60,
+  maxPerIpAndEmail: 0,
+};
 
 function requestOrigin(req: any): string {
   return `${req.protocol}://${req.get?.('host') ?? req.headers?.host}`;
@@ -136,12 +153,16 @@ export class SsoLoginController {
   ) {}
 
   @Get('discover')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(SSO_DISCOVER_RATE_LIMIT)
   @ApiOperation({ summary: 'Is SSO available for this e-mail address (verified domain + active IdP)?' })
   discover(@Query('email') email: string) {
     return this.sso.discoverForEmail(email);
   }
 
   @Get('login')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(SSO_LOGIN_RATE_LIMIT)
   @ApiOperation({ summary: 'Start OIDC authorization code + PKCE login (302 to the IdP)' })
   async login(
     @Req() req: any,
@@ -167,6 +188,8 @@ export class SsoLoginController {
   }
 
   @Get('callback')
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(SSO_LOGIN_RATE_LIMIT)
   @ApiOperation({ summary: 'OIDC redirect URI: validates the ID token and issues the ERP Preflight session' })
   async callback(@Req() req: any, @Res() res: Response, @Query() query: Record<string, string>) {
     try {

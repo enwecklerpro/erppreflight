@@ -58,6 +58,7 @@ import { TenantAccessModule } from './modules/tenant-access/tenant-access.module
 import { ImpersonationMiddleware } from './modules/tenant-access/impersonation.middleware';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { ApiBaselinesModule } from './modules/api-baselines/api-baselines.module';
+import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { ApiBaselinesModule } from './modules/api-baselines/api-baselines.module
       inject: [ConfigService],
     }),
     DatabaseModule,
+    RateLimitModule,
     TenancyModule,
     AuthModule,
     WorkspacesModule,

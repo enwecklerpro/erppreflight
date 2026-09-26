@@ -145,6 +145,7 @@ describe('NotificationsService delivery', () => {
       'analysis.failed',
       'finding.critical',
       'release_watch.changed',
+      'finding.assigned',
     ]);
   });
 

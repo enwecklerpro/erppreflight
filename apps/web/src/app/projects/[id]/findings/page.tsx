@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -23,11 +23,25 @@ import {
   withLifecycleColumns,
 } from '../../../../components/findings/finding-lifecycle-columns';
 import { FindingsBulkActions } from '../../../../components/findings/findings-bulk-actions';
+import { FocusedFinding } from '../../../../components/findings/focused-finding';
+import { focusedFindingId } from '../../../../lib/api/platform-hardening';
 
 function ProjectFindingsContent() {
   const params = useParams();
   const projectId = (params?.id as string) || '';
   const t = useT();
+  // Notification deep link: /projects/:id/findings?finding=:findingId
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const focusedId = focusedFindingId(searchParams.get('finding'));
+  const closeFocus = React.useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('finding');
+    next.delete('org');
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, pathname, searchParams]);
   // Finding lifecycle (Part 01 §1.7): status / owner / due columns and server-side filters.
   const columns = React.useMemo(() => withLifecycleColumns(buildFindingColumns(t), t), [t]);
   const facetedFilters = React.useMemo(
@@ -129,6 +143,15 @@ function ProjectFindingsContent() {
           </div>
         </div>
       </div>
+
+      {focusedId ? (
+        <FocusedFinding
+          projectId={projectId}
+          findingId={focusedId}
+          organizationId={focusedFindingId(searchParams.get('org'))}
+          onClose={closeFocus}
+        />
+      ) : null}
 
       {/* Main Virtualized Findings Grid */}
       <DataTable

@@ -1,8 +1,9 @@
 /**
  * Localized rendering of server-generated in-app notifications. The API stores the title/body in
- * English (apps/api/src/modules/notifications/notification-renderer.ts); the web recognizes the
- * known templates and renders them in the UI language. 'localize: no' keeps the stored English
- * text untouched in the English UI; unknown texts are always shown as stored.
+ * English (apps/api/src/modules/notifications/notification-renderer.ts) — except `finding.assigned`,
+ * which is stored in the recipient's notification language (users.preferred_locale, EN or DE); the
+ * web recognizes the known templates and renders them in the UI language. 'localize: no' keeps the
+ * stored English text untouched in the English UI; unknown texts are always shown as stored.
  */
 export const notificationText = {
   localize: 'no',
@@ -20,6 +21,23 @@ export const notificationText = {
   watchTitle: 'Release watch "{label}": {count} changes',
   watchMore: '… and {count} more',
   notListed: 'not listed',
+  assignedTitle: 'Finding assigned to you: {title}',
+  assignedBody: '{by} assigned {rule} (severity: {severity}) to you.',
+  assignedBodyProject: '{by} assigned {rule} (severity: {severity}) in project "{project}" to you.',
+  assignedDue: ' Due {date}.',
+  assignedNote: 'Note: {note}',
+  assignedDate: '{y}-{m}-{d}',
+  assignedBySomeone: 'A team member',
+  assignedFinding: 'finding',
+  severity: {
+    BLOCKER: 'Blocker',
+    CRITICAL: 'Critical',
+    MAJOR: 'Major',
+    MEDIUM: 'Medium',
+    MINOR: 'Minor',
+    LOW: 'Low',
+    INFO: 'Info',
+  },
   watchEvent: {
     GAP_CLOSED: 'Gap closed',
     GAP_OPENED: 'Gap opened',

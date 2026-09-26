@@ -199,6 +199,11 @@ function BillingPageInner() {
                     bytes: formatMeter('storageBytes', overview.data.metered.ARTIFACT_BYTES ?? 0),
                   })}
                 </p>
+                <p className="mt-1 text-xs text-muted-foreground" data-testid="usage-connector-requests">
+                  {t('app.platformHardening.usage.connectorRequests', {
+                    count: formatMeter('count', overview.data.metered.CONNECTOR_REQUEST ?? 0),
+                  })}
+                </p>
               </section>
             </>
           ) : null}

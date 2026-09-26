@@ -4,6 +4,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -18,6 +19,7 @@ import { buildOtpauthUri, generateTotpSecret, verifyTotp } from './crypto/totp';
 import { generateRecoveryCodes, hashRecoveryCode } from './crypto/opaque-token';
 import { withGlobalTransaction } from './global-transaction';
 import { SessionService } from './session.service';
+import { RateLimiterService, RateLimiterUnavailableError } from '../rate-limit/rate-limiter.service';
 
 export const TOTP_ISSUER = 'ERP Preflight';
 export const TOTP_SETUP_TTL_MINUTES = 15;
@@ -25,6 +27,7 @@ export const RECOVERY_CODE_COUNT = 10;
 /** Failed second-factor attempts per user within the window before 429. */
 export const MFA_MAX_FAILURES = 10;
 export const MFA_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+export const MFA_FAILURE_NAMESPACE = 'mfa-fail';
 
 export interface SecondFactor {
   code?: string;
@@ -43,7 +46,6 @@ function utcNow(): string {
 @Injectable()
 export class TwoFactorService {
   private readonly box: SecretBox;
-  private readonly failures = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
     private readonly db: DatabaseService,
@@ -51,7 +53,8 @@ export class TwoFactorService {
     private readonly mail: MailService,
     private readonly securityAudit: SecurityAuditService,
     private readonly sessions: SessionService,
-    config: ConfigService
+    config: ConfigService,
+    private readonly limiter: RateLimiterService
   ) {
     this.box = new SecretBox(config.getOrThrow<string>('MASTER_ENCRYPTION_KEY'), 'totp-secret/v1');
   }
@@ -75,24 +78,36 @@ export class TwoFactorService {
     }
   }
 
-  private checkFailureBudget(userId: string): void {
-    const bucket = this.failures.get(userId);
-    if (bucket && bucket.resetAt > Date.now() && bucket.count >= MFA_MAX_FAILURES) {
+  /**
+   * Failed second-factor attempts are counted per user in the shared Redis limiter
+   * (namespace 'mfa-fail'), so the budget holds across all API instances.
+   */
+  private async checkFailureBudget(userId: string): Promise<void> {
+    let state;
+    try {
+      state = await this.limiter.peek(MFA_FAILURE_NAMESPACE, 'user', userId);
+    } catch (err) {
+      if (err instanceof RateLimiterUnavailableError) {
+        throw new ServiceUnavailableException('Two-factor verification is temporarily unavailable. Please try again shortly.');
+      }
+      throw err;
+    }
+    if (state.count >= MFA_MAX_FAILURES) {
       throw new HttpException('Too many invalid codes. Please wait 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
-  private recordFailure(userId: string): void {
-    const now = Date.now();
-    const bucket = this.failures.get(userId);
-    if (!bucket || bucket.resetAt <= now) {
-      this.failures.set(userId, { count: 1, resetAt: now + MFA_FAILURE_WINDOW_MS });
-    } else {
-      bucket.count += 1;
+  private async recordFailure(userId: string): Promise<void> {
+    try {
+      await this.limiter.increment(MFA_FAILURE_NAMESPACE, 'user', userId, MFA_FAILURE_WINDOW_MS);
+    } catch (err) {
+      // Closed mode and Redis down: the next attempt is refused by checkFailureBudget anyway.
+      if (!(err instanceof RateLimiterUnavailableError)) throw err;
     }
-    if (this.failures.size > 50_000) {
-      for (const [key, value] of this.failures) if (value.resetAt <= now) this.failures.delete(key);
-    }
+  }
+
+  private async clearFailures(userId: string): Promise<void> {
+    await this.limiter.reset(MFA_FAILURE_NAMESPACE, 'user', userId);
   }
 
   async status(userId: string) {
@@ -139,7 +154,7 @@ export class TwoFactorService {
     activeOrganizationId: string | null,
     meta: RequestMeta = {}
   ): Promise<{ recoveryCodes: string[]; session: SessionResult }> {
-    this.checkFailureBudget(userId);
+    await this.checkFailureBudget(userId);
     const recoveryCodes = generateRecoveryCodes(RECOVERY_CODE_COUNT);
     const email = await withGlobalTransaction(this.db, async (client) => {
       const user = await this.loadUser(userId, client);
@@ -153,7 +168,7 @@ export class TwoFactorService {
       const secret = this.box.decrypt(user.totp_pending_secret_encrypted, userId);
       const step = verifyTotp(secret, code);
       if (step === null) {
-        this.recordFailure(userId);
+        await this.recordFailure(userId);
         throw new BadRequestException('Invalid code. Check the time on your device and try again.');
       }
       await client.query(
@@ -172,7 +187,7 @@ export class TwoFactorService {
       await this.sessions.revokeAll(userId, 'TWO_FACTOR_CHANGED', client);
       return user.email as string;
     });
-    this.failures.delete(userId);
+    await this.clearFailures(userId);
     this.mail.sendInBackground(email, renderTwoFactorChanged({ enabled: true, when: utcNow() }));
     await this.securityAudit.recordForUser(userId, 'USER_2FA_ENABLED', { sessionsRevoked: true }, meta);
     const session = await this.auth.createSession(userId, {
@@ -190,7 +205,7 @@ export class TwoFactorService {
     activeOrganizationId: string | null,
     meta: RequestMeta = {}
   ): Promise<SessionResult> {
-    this.checkFailureBudget(userId);
+    await this.checkFailureBudget(userId);
     const email = await withGlobalTransaction(this.db, async (client) => {
       const user = await this.loadUser(userId, client);
       if (!user.totp_enabled_at) {
@@ -198,7 +213,7 @@ export class TwoFactorService {
       }
       await this.requirePassword(user, password);
       if (!(await this.verifySecondFactor(client, user, factor))) {
-        this.recordFailure(userId);
+        await this.recordFailure(userId);
         throw new BadRequestException('Invalid authentication code');
       }
       await client.query(
@@ -213,7 +228,7 @@ export class TwoFactorService {
       await this.sessions.revokeAll(userId, 'TWO_FACTOR_CHANGED', client);
       return user.email as string;
     });
-    this.failures.delete(userId);
+    await this.clearFailures(userId);
     this.mail.sendInBackground(email, renderTwoFactorChanged({ enabled: false, when: utcNow() }));
     await this.securityAudit.recordForUser(userId, 'USER_2FA_DISABLED', { sessionsRevoked: true }, meta);
     return this.auth.createSession(userId, { preferredOrganizationId: activeOrganizationId, meta });
@@ -225,7 +240,7 @@ export class TwoFactorService {
     factor: SecondFactor,
     meta: RequestMeta = {}
   ): Promise<{ recoveryCodes: string[] }> {
-    this.checkFailureBudget(userId);
+    await this.checkFailureBudget(userId);
     const recoveryCodes = generateRecoveryCodes(RECOVERY_CODE_COUNT);
     await withGlobalTransaction(this.db, async (client) => {
       const user = await this.loadUser(userId, client);
@@ -234,7 +249,7 @@ export class TwoFactorService {
       }
       await this.requirePassword(user, password);
       if (!(await this.verifySecondFactor(client, user, factor))) {
-        this.recordFailure(userId);
+        await this.recordFailure(userId);
         throw new BadRequestException('Invalid authentication code');
       }
       await this.replaceRecoveryCodes(client, userId, recoveryCodes);
@@ -248,7 +263,7 @@ export class TwoFactorService {
    * the current password and, when 2FA is enabled, a TOTP or recovery code.
    */
   async confirmIdentity(userId: string, password: string, factor: SecondFactor): Promise<void> {
-    this.checkFailureBudget(userId);
+    await this.checkFailureBudget(userId);
     await withGlobalTransaction(this.db, async (client) => {
       const user = await this.loadUser(userId, client);
       await this.requirePassword(user, password);
@@ -257,7 +272,7 @@ export class TwoFactorService {
           throw new BadRequestException('Enter a code from your authenticator app or a recovery code');
         }
         if (!(await this.verifySecondFactor(client, user, factor))) {
-          this.recordFailure(userId);
+          await this.recordFailure(userId);
           throw new BadRequestException('Invalid authentication code');
         }
       }
@@ -267,7 +282,7 @@ export class TwoFactorService {
   /** Second login step: challenge token + TOTP or recovery code -> session. */
   async completeLogin(challengeToken: string, factor: SecondFactor, meta: RequestMeta = {}): Promise<SessionResult> {
     const { userId, tokenVersion, firstFactor } = this.auth.verifyMfaChallenge(challengeToken);
-    this.checkFailureBudget(userId);
+    await this.checkFailureBudget(userId);
     let usedRecoveryCode = false;
     await withGlobalTransaction(this.db, async (client) => {
       const user = await this.loadUser(userId, client);
@@ -276,11 +291,11 @@ export class TwoFactorService {
       }
       usedRecoveryCode = !factor.code && !!factor.recoveryCode;
       if (!(await this.verifySecondFactor(client, user, factor))) {
-        this.recordFailure(userId);
+        await this.recordFailure(userId);
         throw new UnauthorizedException('Invalid authentication code');
       }
     });
-    this.failures.delete(userId);
+    await this.clearFailures(userId);
     if (usedRecoveryCode) {
       await this.securityAudit.recordForUser(userId, 'USER_2FA_RECOVERY_CODE_USED', {}, meta);
     }

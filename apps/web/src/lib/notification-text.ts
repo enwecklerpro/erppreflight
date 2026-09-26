@@ -1,13 +1,15 @@
 import type { TFunction } from '@/i18n/translate';
 import { notificationText as EN } from '@/i18n/messages/app/en/notificationText';
+import { notificationText as DE } from '@/i18n/messages/app/de/notificationText';
 
 const LEGACY_ANALYSIS_FAILED_BODY = 'The analysis could not be completed. Open the project to review the run and retry.';
 
 /**
  * Renders a stored in-app notification in the UI language.
  *
- * The API renders notification title/body once, in English, when the outbox event is processed
- * (users have no persisted language preference). The known templates of
+ * The API renders notification title/body once when the outbox event is processed: in English,
+ * except `finding.assigned`, which is rendered in the recipient's notification language
+ * (users.preferred_locale, EN or DE). The known templates of
  * apps/api/src/modules/notifications/notification-renderer.ts are recognized here and rendered
  * with the German dictionary; anything unrecognized (new event types, free-text failure reasons)
  * is shown exactly as stored. Pure function, unit tested.
@@ -34,7 +36,56 @@ function watchLine(line: string, t: TFunction): string {
   return `${t(`app.notificationText.watchEvent.${label[0]}`)}${rest}`;
 }
 
+type SeverityKey = keyof typeof EN.severity;
+
+/** Structured facts of a stored `finding.assigned` text (English or German template), or null. */
+export function parseAssignment(title: string, body: string) {
+  const t = title.match(/^(?:Finding assigned to you|Befund zugewiesen): ([\s\S]*)$/);
+  const [first, ...rest] = body.split('\n');
+  const en = first.match(
+    /^(.+?) assigned (\S+) \(severity: ([^)]+)\)(?: in project "(.*)")? to you\.(?: Due (\d{4})-(\d{2})-(\d{2})\.)?$/
+  );
+  const de = en
+    ? null
+    : first.match(/^(.+?) hat Ihnen (\S+) \(Schweregrad: ([^)]+)\)(?: im Projekt „(.*)“)? zugewiesen\.(?: Fällig am (\d{2})\.(\d{2})\.(\d{4})\.)?$/);
+  const m = en ?? de;
+  if (!t || !m) return null;
+  const labels = (en ? EN : DE).severity as Record<SeverityKey, string>;
+  const severity = (Object.keys(labels) as SeverityKey[]).find((k) => labels[k] === m[3]);
+  if (!severity) return null;
+  const note = rest.join('\n').match(/^(?:Note|Notiz): ([\s\S]*)$/);
+  if (rest.length > 0 && !note) return null;
+  const date = en ? (m[5] ? { y: m[5], m: m[6], d: m[7] } : null) : m[5] ? { y: m[7], m: m[6], d: m[5] } : null;
+  const source = en ? EN : DE;
+  return {
+    title: t[1],
+    by: m[1] === source.assignedBySomeone ? null : m[1],
+    rule: m[2] === source.assignedFinding ? null : m[2],
+    severity,
+    project: m[4] ?? null,
+    date,
+    note: note ? note[1] : null,
+  };
+}
+
+function localizeAssignment(n: NotificationTextInput, t: TFunction): { title: string; body: string } | null {
+  const a = parseAssignment(n.title, n.body);
+  if (!a) return null;
+  const vars = {
+    by: a.by ?? t('app.notificationText.assignedBySomeone'),
+    rule: a.rule ?? t('app.notificationText.assignedFinding'),
+    severity: t(`app.notificationText.severity.${a.severity}`),
+    project: a.project ?? '',
+  };
+  let body = t(a.project ? 'app.notificationText.assignedBodyProject' : 'app.notificationText.assignedBody', vars);
+  if (a.date) body += t('app.notificationText.assignedDue', { date: t('app.notificationText.assignedDate', a.date) });
+  if (a.note) body += `\n${t('app.notificationText.assignedNote', { note: a.note })}`;
+  return { title: t('app.notificationText.assignedTitle', { title: a.title }), body };
+}
+
 export function localizeNotification(n: NotificationTextInput, t: TFunction): { title: string; body: string } {
+  // Stored in the recipient's notification language, which may differ from the UI language.
+  if (n.eventType === 'finding.assigned') return localizeAssignment(n, t) ?? { title: n.title, body: n.body };
   if (t('app.notificationText.localize') !== 'yes') return { title: n.title, body: n.body };
   let title = n.title;
   let body = n.body;

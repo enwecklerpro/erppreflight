@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleInit, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type { DomainEventOutbox } from '@erppreflight/schemas';
 import { DatabaseService } from '../database/database.service';
@@ -8,10 +8,22 @@ import {
   EMAIL_DEFAULT,
   NOTIFICATION_EVENT_TYPES,
   NotificationEventType,
+  NotificationLocale,
   RECIPIENT_POLICY,
   RenderedNotification,
   renderNotification,
+  severityLabel,
+  toNotificationLocale,
 } from './notification-renderer';
+import { MailService } from '../mail/mail.service';
+import { renderFindingAssignedMail, renderNotificationMail } from './notification-mail.templates';
+
+interface Recipient {
+  userId: string;
+  email: string | null;
+  name: string | null;
+  locale: NotificationLocale;
+}
 
 export interface NotificationListQuery {
   status: 'all' | 'unread';
@@ -26,7 +38,9 @@ export interface NotificationListQuery {
  *  - in-app: rows in `notifications` (tenant + user scoped, RLS), inbox API;
  *  - webhook: the existing WebhooksService already subscribes to every outbox
  *    event and delivers it HMAC-SHA256 signed — nothing is duplicated here;
- *  - e-mail: optional MailSender (token MAIL_SENDER) resolved lazily; no-op when absent.
+ *  - e-mail: the platform MailService (SMTP / HTTP provider / dev outbox) with EN/DE
+ *    templates per recipient (users.preferred_locale); a MAIL_SENDER provider, when
+ *    registered, overrides it (custom delivery, tests).
  *
  * Source of events is the transactional outbox, so a notification is created
  * iff the business transaction committed. Delivery is idempotent per
@@ -40,7 +54,8 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
   constructor(
     private readonly db: DatabaseService,
     private readonly outbox: OutboxService,
-    private readonly moduleRef: ModuleRef
+    private readonly moduleRef: ModuleRef,
+    @Optional() private readonly mail?: MailService
   ) {}
 
   onModuleInit(): void {
@@ -57,7 +72,7 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
     }
     this.logger.log(
       `Notification channels: in-app, webhook (signed, via WebhooksService), e-mail ${
-        this.mailSender ? 'enabled' : 'not configured (no MAIL_SENDER provider) — skipped'
+        this.mailSender ? 'MAIL_SENDER provider' : this.mail ? `platform mail (${this.mail.transportKind})` : 'not configured — skipped'
       }`
     );
   }
@@ -68,7 +83,7 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
   }
 
   channels() {
-    return { inApp: true, webhook: true, email: this.mailSender !== null };
+    return { inApp: true, webhook: true, email: this.mailSender !== null || !!this.mail };
   }
 
   async handleEvent(event: DomainEventOutbox): Promise<void> {
@@ -79,6 +94,14 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
 
     const recipients = await this.resolveRecipients(orgId, eventType, rendered);
     if (recipients.length === 0) return;
+    // Texts in the recipient's language (falls back to English for events without a DE text).
+    const localized = new Map<NotificationLocale, RenderedNotification>([['en', rendered]]);
+    const forLocale = (locale: NotificationLocale): RenderedNotification => {
+      if (!localized.has(locale)) {
+        localized.set(locale, renderNotification(event.eventType, event.aggregateId, event.payload ?? {}, locale) ?? rendered);
+      }
+      return localized.get(locale)!;
+    };
 
     const prefs = await this.db.query(
       `SELECT user_id, channel, enabled FROM notification_preferences
@@ -100,6 +123,7 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
     if (inApp.length > 0) {
       await this.db.withTenantTransaction(orgId, async (client) => {
         for (const r of inApp) {
+          const n = forLocale(r.locale);
           const res = await client.query(
             `INSERT INTO notifications (organization_id, user_id, event_type, severity, title, body, link, project_id,
                                         engine, resource_type, resource_id, group_key, dedupe_key, payload)
@@ -110,15 +134,15 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
               orgId,
               r.userId,
               eventType,
-              rendered.severity,
-              rendered.title,
-              rendered.body,
-              rendered.link,
-              rendered.projectId,
-              rendered.engine,
-              rendered.resourceType,
-              rendered.resourceId,
-              rendered.groupKey,
+              n.severity,
+              n.title,
+              n.body,
+              n.link,
+              n.projectId,
+              n.engine,
+              n.resourceType,
+              n.resourceId,
+              n.groupKey,
               dedupeKey,
               JSON.stringify({ outboxEventId: event.id, ...this.compactPayload(event.payload) }),
             ]
@@ -128,26 +152,38 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
       });
     }
 
-    if (this.mailSender) {
-      const emailDefault = EMAIL_DEFAULT[eventType] ?? false;
-      for (const r of recipients) {
-        // Only e-mail when this delivery is new (in-app row inserted, or in-app muted), never on retries.
-        const isNew = inserted.has(r.userId) || !pref(r.userId, 'IN_APP', true);
-        if (!isNew || !pref(r.userId, 'EMAIL', emailDefault) || !r.email) continue;
-        try {
-          await this.mailSender.send({
-            to: r.email,
-            subject: `[ERP Preflight] ${rendered.title}`,
-            text: `${rendered.title}\n\n${rendered.body}\n\nSeverity: ${rendered.severity}${
-              rendered.link ? `\nOpen: ${rendered.link}` : ''
-            }\n\nManage notification preferences in ERP Preflight → Notifications.`,
-            tags: { eventType, severity: rendered.severity },
-          });
-        } catch (err: any) {
-          this.logger.warn(`E-mail notification to user ${r.userId} failed: ${err?.message ?? err}`);
-        }
+    if (!this.mailSender && !this.mail) return;
+    const emailDefault = EMAIL_DEFAULT[eventType] ?? false;
+    for (const r of recipients) {
+      // Only e-mail when this delivery is new (in-app row inserted, or in-app muted), never on retries.
+      const isNew = inserted.has(r.userId) || !pref(r.userId, 'IN_APP', true);
+      if (!isNew || !pref(r.userId, 'EMAIL', emailDefault) || !r.email) continue;
+      try {
+        await this.sendEmail(eventType, r, forLocale(r.locale));
+      } catch (err: any) {
+        this.logger.warn(`E-mail notification to user ${r.userId} failed: ${err?.message ?? err}`);
       }
     }
+  }
+
+  private async sendEmail(eventType: NotificationEventType, r: Recipient, n: RenderedNotification): Promise<void> {
+    if (this.mailSender) {
+      await this.mailSender.send({
+        to: r.email!,
+        subject: `[ERP Preflight] ${n.title}`,
+        text: `${n.title}\n\n${n.body}\n\nSeverity: ${n.severity}${
+          n.link ? `\nOpen: ${n.link}` : ''
+        }\n\nManage notification preferences in ERP Preflight → Notifications.`,
+        tags: { eventType, severity: n.severity },
+      });
+      return;
+    }
+    const url = n.link ? this.mail!.link(n.link) : null;
+    const mail =
+      eventType === 'finding.assigned'
+        ? renderFindingAssignedMail(r.locale, n, url, r.name)
+        : renderNotificationMail(r.locale, n, severityLabel(n.severity, r.locale), url);
+    await this.mail!.send(r.email!, mail);
   }
 
   private compactPayload(payload: Record<string, any> | undefined): Record<string, unknown> {
@@ -160,18 +196,29 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
     orgId: string,
     eventType: NotificationEventType,
     rendered: RenderedNotification
-  ): Promise<Array<{ userId: string; email: string | null }>> {
+  ): Promise<Recipient[]> {
     const members = await this.db.query(
-      `SELECT m.user_id, m.role, u.email FROM organization_members m JOIN users u ON u.id = m.user_id
+      `SELECT m.user_id, m.role, u.email, u.full_name, u.preferred_locale
+         FROM organization_members m JOIN users u ON u.id = m.user_id
         WHERE m.organization_id = $1 AND u.status = 'ACTIVE'`,
       [orgId],
       { bypassRls: true }
     );
-    const all = members.rows as Array<{ user_id: string; role: string; email: string }>;
+    const all = members.rows as Array<{
+      user_id: string;
+      role: string;
+      email: string;
+      full_name: string | null;
+      preferred_locale: string | null;
+    }>;
     const policy = RECIPIENT_POLICY[eventType] ?? 'ALL_MEMBERS';
     let chosen: typeof all;
     if (policy === 'ALL_MEMBERS') {
       chosen = all;
+    } else if (policy === 'RECIPIENT_USER') {
+      // Exactly the addressed member of THIS organization; nobody for self-actions.
+      const target = rendered.recipientUserId ?? null;
+      chosen = target && target !== rendered.actorUserId ? all.filter((m) => m.user_id === target) : [];
     } else {
       const actor = rendered.actorUserId;
       chosen = all.filter(
@@ -180,7 +227,24 @@ export class NotificationsService implements OnModuleInit, OnApplicationBootstra
       // Unknown or departed actor: fall back to the organization owners, never to nobody.
       if (chosen.length === 0) chosen = all.filter((m) => m.role === 'ORGANIZATION_OWNER');
     }
-    return chosen.map((m) => ({ userId: m.user_id, email: m.email ?? null }));
+    return chosen.map((m) => ({
+      userId: m.user_id,
+      email: m.email ?? null,
+      name: m.full_name ?? null,
+      locale: toNotificationLocale(m.preferred_locale),
+    }));
+  }
+
+  /** Language of the caller's notification texts (in-app + e-mail); NULL = English. */
+  async emailLocale(userId: string): Promise<{ locale: NotificationLocale; explicit: boolean }> {
+    const res = await this.db.query(`SELECT preferred_locale FROM users WHERE id = $1`, [userId], { bypassRls: true });
+    const raw = res.rows[0]?.preferred_locale ?? null;
+    return { locale: toNotificationLocale(raw), explicit: raw !== null };
+  }
+
+  async setEmailLocale(userId: string, locale: NotificationLocale): Promise<{ locale: NotificationLocale; explicit: boolean }> {
+    await this.db.query(`UPDATE users SET preferred_locale = $2 WHERE id = $1`, [userId, locale], { bypassRls: true });
+    return { locale, explicit: true };
   }
 
   // ---------------------------------------------------------------------------

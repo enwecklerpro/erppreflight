@@ -19,6 +19,8 @@ ssh root@<vps> 'docker logs --since 30m erppreflight-api 2>&1 | tail -200'
 | analyses stuck in `QUEUED` / `RUNNING` | `QUEUE_BACKLOG.md` |
 | `postgres: down`, data loss or corruption | `DISASTER_RECOVERY.md` |
 | certificate / TLS errors in the browser | `CERTIFICATE_RENEWAL.md` |
+| `redis: down` | Queued jobs wait (`QUEUE_BACKLOG.md`). Rate limits: API log `Redis rate limiter unavailable` — with `RATE_LIMIT_REDIS_FAILURE_MODE=memory` (default) each API instance enforces the same limits in memory until Redis answers (limits then effectively multiply by the number of instances); with `closed` sign-in, password reset, 2FA, invitations, SSO and public tools answer 503. Restart `erppreflight-redis`; shared limits resume automatically (log `reachable again`). |
+| many HTTP 429 from one office / proxy IP | Shared per-IP budgets (`modules/rate-limit`). Check `TRUST_PROXY` so `req.ip` is the client, not the proxy; the budget resets after its window (`Retry-After`). Emergency only: `docker exec erppreflight-redis redis-cli --scan --pattern 'erppreflight:rl:login:*'` and `DEL` the keys. |
 | leaked credential, suspicious admin activity | §2 below + `SECRET_ROTATION.md` |
 
 Open an incident record (time, reporter, symptom, severity SEV1–SEV3) before changing anything.

@@ -57,8 +57,48 @@ describe('localizeNotification (server-rendered notifications in German)', () =>
     expect(many.body).not.toMatch(/Gap closed|not listed/);
   });
 
-  it('leaves unknown event types untouched', () => {
-    const n = { eventType: 'finding.assigned', title: 'Finding assigned to you', body: 'x' };
+  it('leaves unknown event types and unrecognized texts untouched', () => {
+    const n = { eventType: 'finding.unknown_event', title: 'Something happened', body: 'x' };
     expect(localizeNotification(n, tDe)).toEqual({ title: n.title, body: n.body });
+    const odd = { eventType: 'finding.assigned', title: 'Finding assigned to you', body: 'x' };
+    expect(localizeNotification(odd, tDe)).toEqual({ title: odd.title, body: odd.body });
+  });
+});
+
+describe('finding.assigned (stored in the recipient notification language, users.preferred_locale)', () => {
+  const payload = {
+    assigneeId: '22222222-2222-4222-8222-222222222222',
+    projectId: P,
+    findingId: '33333333-3333-4333-8333-333333333333',
+    severity: 'CRITICAL',
+    ruleId: 'OPD_DETERMINATION_STEP_MISSING',
+    title: 'Output determination step missing',
+    projectName: 'S/4 Billing',
+    assignedByName: 'Dana Owner',
+    dueDate: '2026-10-15',
+    note: 'Please check before Friday',
+  };
+  function stored(locale: 'en' | 'de', extra: Record<string, unknown> = {}) {
+    const r = renderNotification('finding.assigned', P, { ...payload, ...extra }, locale);
+    if (!r) throw new Error('not rendered');
+    return { eventType: 'finding.assigned', title: r.title, body: r.body };
+  }
+
+  it('renders an English-stored assignment in the German UI and vice versa', () => {
+    const en = stored('en');
+    const de = stored('de');
+    expect(localizeNotification(en, tDe)).toEqual({ title: de.title, body: de.body });
+    expect(localizeNotification(de, tEn)).toEqual({ title: en.title, body: en.body });
+    expect(localizeNotification(en, tEn)).toEqual({ title: en.title, body: en.body });
+    expect(localizeNotification(de, tDe)).toEqual({ title: de.title, body: de.body });
+    expect(localizeNotification(en, tDe).body).toContain('Fällig am 15.10.2026.');
+  });
+
+  it('handles the optional parts (no project, due date, note, assigner)', () => {
+    const minimal = { projectName: null, dueDate: null, note: null, assignedByName: null };
+    const en = stored('en', minimal);
+    const de = stored('de', minimal);
+    expect(localizeNotification(en, tDe)).toEqual({ title: de.title, body: de.body });
+    expect(localizeNotification(de, tEn)).toEqual({ title: en.title, body: en.body });
   });
 });

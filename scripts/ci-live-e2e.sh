@@ -19,6 +19,8 @@
 #   -> scripts/e2e-tenant-admin-smoke.cjs (suspension, trial extension, impersonation, IP allowlist,
 #      support ticket e-mails; API + Chromium; dev mailbox and a bootstrapped super admin)
 #   -> scripts/e2e-admin-governance-smoke.cjs (Rule/AI/Knowledge/Source Sync Admin, publish gate, kill switch)
+#   -> scripts/e2e-platform-hardening-smoke.cjs (second API process: shared Redis rate limits, upload
+#      metering exactly once, assignment notification e-mail + deep link, FormDoctor file names)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -30,7 +32,7 @@
 #   E2E_START_INFRA   1 = start postgres/redis/minio/clamav from docker-compose.coolify.yml
 #                     + tests/ci/compose.ci.yml and wait for health [0]
 #   E2E_SKIP_BUILD    1 = reuse existing builds (dist/, .next/standalone) [0]
-#   E2E_API_PORT [3001]  E2E_WEB_PORT [3000]  E2E_PY_PORT [8000]
+#   E2E_API_PORT [3001]  E2E_WEB_PORT [3000]  E2E_PY_PORT [8000]  E2E_API2_PORT [API port + 2]
 #   PG_ADMIN_URL      postgres://user:pass@host:port (role that can create databases) [required]
 #   E2E_DB_NAME       database to (re)create for this run [erppreflight_e2e]
 #   E2E_REDIS_URL     [redis://localhost:6379/0]   (use a dedicated logical DB when sharing Redis)
@@ -169,12 +171,9 @@ wait_http "http://127.0.0.1:$PY_PORT/health" 60 analysis-python
 
 # ---------------------------------------------------------------- API (production mode)
 API_PID=""
-start_api() { # $1 = log file suffix
-  log "starting API on :$API_PORT (NODE_ENV=production, DB_RUNTIME_ROLE=erppreflight_app)"
-  (
-    cd apps/api
-    export NODE_ENV=production PORT="$API_PORT" API_PORT="$API_PORT" \
-      AUTO_MIGRATE=true STRICT_MIGRATIONS=true MIGRATIONS_DIR="$ROOT/packages/database/migrations" \
+api_env() { # $1 = port, $2 = AUTO_MIGRATE (the environment every API process of this run shares)
+    export NODE_ENV=production PORT="$1" API_PORT="$1" \
+      AUTO_MIGRATE="$2" STRICT_MIGRATIONS=true MIGRATIONS_DIR="$ROOT/packages/database/migrations" \
       DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" DB_RUNTIME_ROLE=erppreflight_app \
       REDIS_URL="$REDIS_URL_E2E" \
       ANALYSIS_SERVICE_URL="http://127.0.0.1:$PY_PORT" \
@@ -187,6 +186,12 @@ start_api() { # $1 = log file suffix
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
       AUTH_RATE_LIMIT_SCALE=20 SUPPORT_INBOX_EMAIL=support-inbox@e2e.local \
       ADMIN_BOOTSTRAP_EMAIL="$E2E_ADMIN_EMAIL" ADMIN_BOOTSTRAP_PASSWORD="$E2E_ADMIN_PASSWORD"
+}
+start_api() { # $1 = log file suffix
+  log "starting API on :$API_PORT (NODE_ENV=production, DB_RUNTIME_ROLE=erppreflight_app)"
+  (
+    cd apps/api
+    api_env "$API_PORT" true
     exec node dist/src/main.js
   ) > "$ART/api$1.log" 2>&1 &
   API_PID=$!
@@ -276,6 +281,26 @@ WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" \
   SUPER_ADMIN_EMAIL="$E2E_ADMIN_EMAIL" SUPER_ADMIN_PASSWORD="$E2E_ADMIN_PASSWORD" \
   node scripts/e2e-admin-governance-smoke.cjs "$ART/screenshots-governance" 2>&1 | tee "$ART/smoke-governance.log"
 GOVERNANCE=${PIPESTATUS[0]}
+# Platform hardening (distributed rate limits, exactly-once upload metering, assignment
+# notifications, FormDoctor file names): a SECOND API process with the same environment proves
+# that both processes enforce ONE rate-limit budget through Redis.
+API2_PORT="${E2E_API2_PORT:-$((API_PORT + 2))}"
+HARDENING=1
+if port_free "$API2_PORT"; then
+  log "starting second API process on :$API2_PORT (same environment, shared Redis limits)"
+  (cd apps/api && api_env "$API2_PORT" false && exec node dist/src/main.js) > "$ART/api2.log" 2>&1 &
+  API2_PID=$!
+  PIDS+=("$API2_PID")
+  if wait_http "http://127.0.0.1:$API2_PORT/health/liveness" 90 api2; then
+    log "running platform hardening smoke (scripts/e2e-platform-hardening-smoke.cjs)"
+    WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" API_URL_2="http://localhost:$API2_PORT" \
+      node scripts/e2e-platform-hardening-smoke.cjs "$ART/screenshots-hardening" 2>&1 | tee "$ART/smoke-hardening.log"
+    HARDENING=${PIPESTATUS[0]}
+  fi
+  kill "$API2_PID" 2>/dev/null || true
+else
+  log "port $API2_PORT is in use — cannot start the second API process for the hardening smoke"
+fi
 # Real-stack Playwright suite (spec §50): runs when a live config exists. It receives the URLs
 # of this stack and must not start its own web server.
 PW=0
@@ -291,8 +316,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tenant-admin-smoke exit=$TENANT_ADMIN governance-smoke exit=$GOVERNANCE engines-smoke exit=$ENGINES tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TENANT_ADMIN" -eq 0 ] && [ "$GOVERNANCE" -eq 0 ] && [ "$ENGINES" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION lifecycle-smoke exit=$LIFECYCLE tenant-admin-smoke exit=$TENANT_ADMIN governance-smoke exit=$GOVERNANCE engines-smoke exit=$ENGINES hardening-smoke exit=$HARDENING tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$LIFECYCLE" -eq 0 ] && [ "$TENANT_ADMIN" -eq 0 ] && [ "$GOVERNANCE" -eq 0 ] && [ "$ENGINES" -eq 0 ] && [ "$HARDENING" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up
