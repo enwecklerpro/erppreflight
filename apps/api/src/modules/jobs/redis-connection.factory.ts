@@ -13,6 +13,7 @@ export function createRedisConnection(config: ConfigService): Redis {
     host,
     port,
     password: password || undefined,
+    db: Number(config.get<number>('REDIS_DB', 0)),
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     retryStrategy(times) {
