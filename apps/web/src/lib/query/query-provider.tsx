@@ -10,6 +10,9 @@
  * - Cross-tab cache synchronization via storage event listener
  * - AbortController integration: cancels in-flight queries before wiping cache
  * - Reusable useTenantSwitch() and useLogout() coordination hooks
+ * - Cookie-only sessions: deletes bearer tokens left in browser storage by older
+ *   releases on app start; logout revokes the server session (clears the HttpOnly
+ *   cookie) before the local state is wiped
  * - Development environment ReactQueryDevtools integration
  */
 
@@ -23,10 +26,12 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useRouter } from 'next/navigation';
 import { getQueryClient } from './query-client';
 import {
+  SESSION_EPOCH_KEY,
   TENANT_ID_KEY,
-  AUTH_TOKEN_KEY,
+  clearClientSession,
+  customInstance,
+  purgeLegacyAuthToken,
   setStoredTenantId,
-  setStoredAuthToken,
 } from '../api/custom-instance';
 
 /**
@@ -84,6 +89,11 @@ export function QueryProvider({ children, tenantId }: QueryProviderProps) {
     prevTenantRef.current = tenantId;
   }, [tenantId, queryClient]);
 
+  // Sessions are cookie-only: remove bearer tokens stored by earlier releases.
+  useEffect(() => {
+    purgeLegacyAuthToken();
+  }, []);
+
   // Register browser listeners for cross-tab and in-app tenant/auth events
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -98,9 +108,9 @@ export function QueryProvider({ children, tenantId }: QueryProviderProps) {
       evictTenantQueryCache(queryClient);
     };
 
-    // 3. Cross-tab synchronization: Storage event
+    // 3. Cross-tab synchronization: organization switch or sign-in/sign-out in another tab
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === TENANT_ID_KEY || event.key === AUTH_TOKEN_KEY) {
+      if (event.key === TENANT_ID_KEY || event.key === SESSION_EPOCH_KEY) {
         evictTenantQueryCache(queryClient);
       }
     };
@@ -161,26 +171,37 @@ export function useTenantSwitch() {
 
 /**
  * Reusable hook to programmatically log out with complete cache and credential eviction.
+ * `revokeServerSession: false` skips the API call when the server already ended the
+ * session (account deletion, "sign out everywhere").
  */
 export function useLogout() {
   const queryClient = useQueryClient();
   const router = useRouter();
 
   return useCallback(
-    async (redirectTo = '/login') => {
-      // 1. Cancel in-flight queries and wipe cache
+    async (redirectTo = '/login', options: { revokeServerSession?: boolean } = {}) => {
+      // 1. Revoke the server-side session and clear the HttpOnly cookie (best effort:
+      //    local eviction runs regardless, e.g. when the API is unreachable).
+      if (options.revokeServerSession !== false) {
+        try {
+          await customInstance('/auth/logout', { method: 'POST' });
+        } catch {
+          // already signed out / network failure
+        }
+      }
+
+      // 2. Cancel in-flight queries and wipe cache
       await evictTenantQueryCache(queryClient);
 
-      // 2. Wipe tokens and tenant identifiers
-      setStoredAuthToken(null);
-      setStoredTenantId(null);
+      // 3. Wipe tenant identifier, CSRF token and navigation marker
+      clearClientSession();
 
-      // 3. Dispatch logout broadcast event
+      // 4. Dispatch logout broadcast event
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT));
       }
 
-      // 4. Redirect to login
+      // 5. Redirect to login
       router.push(redirectTo);
     },
     [queryClient, router]

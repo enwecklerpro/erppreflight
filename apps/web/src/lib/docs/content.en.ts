@@ -117,6 +117,13 @@ If an input does not match the contract, the engine reports one of its input-val
         body: `Every organization is a tenant. Projects, artifacts, analyses, findings and reports carry the organization id, and PostgreSQL row-level security enforces that a request only ever sees rows of the signed-in organization. Stored files live under a per-organization, per-project path in object storage; download links are pre-signed and expire after at most 15 minutes.`,
       },
       {
+        id: 'sessions',
+        title: 'Sign-in and sessions',
+        body: `You sign in with your password, with a **single-use e-mail link** (*Send me a sign-in link* on the [sign-in page](/login); the link expires after 15 minutes) or, where your organization configured it, with single sign-on. Organizations that enforce single sign-on block password and e-mail-link sign-in for their members. With two-factor authentication enabled, every method still asks for your authenticator or recovery code.
+
+In the browser the session exists only as an HTTP-only cookie that page scripts cannot read; no session token is kept in browser storage. Changing requests additionally carry an anti-forgery token and are only accepted from the ERP Preflight web origin. Signing out ends the session on the server. Active sessions are listed, and can be ended individually or all at once, under **Settings → Security**.`,
+      },
+      {
         id: 'ingestion',
         title: 'Upload pipeline',
         body: `Uploads are type-checked by content, archive-checked (ratio, size, nesting, path traversal), malware-scanned and secret-redacted before an engine can read them. Files that fail a check stay in quarantine and are never analysed.`,

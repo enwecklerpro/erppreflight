@@ -5,7 +5,9 @@
  * Implements:
  * - Intelligent base URL normalization (prevents duplicate /api/v1 prefixes)
  * - Multi-tenant isolation: Automatic X-Tenant-Id header injection
- * - Authentication: Automatic Bearer JWT injection
+ * - Authentication: HttpOnly session cookie only (credentials: 'include'); no token
+ *   is ever stored in or read from localStorage / sessionStorage / script cookies
+ * - CSRF: X-CSRF-Token on POST/PUT/PATCH/DELETE (signed double-submit token)
  * - Query cancellation: AbortSignal forwarding from TanStack Query
  * - SSR safety: Safe execution in both browser and Next.js App Router SSR
  * - Structured ApiError parsing matching NestJS HttpExceptionFilter
@@ -52,18 +54,31 @@ export class ApiError extends Error {
   }
 }
 
-export const AUTH_TOKEN_KEY = 'erppreflight_token';
 export const TENANT_ID_KEY = 'erppreflight_tenant_id';
 
 /**
- * Browser-side storage helpers for auth and tenant context.
+ * Legacy storage key of the bearer token. Browser sessions are cookie-only
+ * (HttpOnly `erppreflight_session`, spec C §8.2 / §68): the web app never stores,
+ * reads or sends a session token itself. The key is only kept to delete tokens
+ * left behind by older releases (purgeLegacyAuthToken, run on app start).
  */
-export const getStoredAuthToken = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    return localStorage.getItem(AUTH_TOKEN_KEY);
-  } catch {
-    return null;
+export const LEGACY_AUTH_TOKEN_KEY = 'erppreflight_token';
+
+/**
+ * Non-sensitive cross-tab signal (a random nonce, no credential): written on sign-in
+ * and sign-out so other tabs evict their query cache (storage event).
+ */
+export const SESSION_EPOCH_KEY = 'erppreflight_session_epoch';
+
+/** Removes bearer tokens stored by releases before cookie-only sessions. */
+export const purgeLegacyAuthToken = (): void => {
+  if (typeof window === 'undefined') return;
+  for (const storage of [() => window.localStorage, () => window.sessionStorage]) {
+    try {
+      storage().removeItem(LEGACY_AUTH_TOKEN_KEY);
+    } catch {
+      // storage disabled
+    }
   }
 };
 
@@ -78,26 +93,44 @@ const AUTH_HINT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 export const setAuthHintCookie = (present: boolean): void => {
   if (typeof document === 'undefined') return;
   try {
+    const secure = window.location.protocol === 'https:' ? '; secure' : '';
     document.cookie = present
-      ? `${AUTH_HINT_COOKIE}=1; path=/; max-age=${AUTH_HINT_MAX_AGE_SECONDS}; samesite=lax`
-      : `${AUTH_HINT_COOKIE}=; path=/; max-age=0; samesite=lax`;
+      ? `${AUTH_HINT_COOKIE}=1; path=/; max-age=${AUTH_HINT_MAX_AGE_SECONDS}; samesite=lax${secure}`
+      : `${AUTH_HINT_COOKIE}=; path=/; max-age=0; samesite=lax${secure}`;
   } catch {
     // cookies disabled
   }
 };
 
-export const setStoredAuthToken = (token: string | null): void => {
-  if (typeof window === 'undefined') return;
+const readDocumentCookie = (name: string): string | null => {
+  if (typeof document === 'undefined') return null;
   try {
-    if (token) {
-      localStorage.setItem(AUTH_TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+    for (const part of document.cookie.split(';')) {
+      const idx = part.indexOf('=');
+      if (idx === -1 || part.slice(0, idx).trim() !== name) continue;
+      const value = part.slice(idx + 1).trim();
+      return value ? decodeURIComponent(value) : null;
     }
   } catch {
-    // Ignore storage quota / private browsing exceptions
+    // cookies disabled / malformed value
   }
-  setAuthHintCookie(Boolean(token));
+  return null;
+};
+
+/** True when this browser believes a sign-in exists (marker cookie; the API decides). */
+export const hasAuthHint = (): boolean => readDocumentCookie(AUTH_HINT_COOKIE) === '1';
+
+const broadcastSessionChange = (): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const nonce =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`;
+    window.localStorage.setItem(SESSION_EPOCH_KEY, nonce);
+  } catch {
+    // storage disabled
+  }
 };
 
 export const getStoredTenantId = (): string | null => {
@@ -120,6 +153,76 @@ export const setStoredTenantId = (tenantId: string | null): void => {
   } catch {
     // Ignore storage quota / private browsing exceptions
   }
+};
+
+// ------------------------------------------------------------------ CSRF (double-submit)
+
+/** Non-HttpOnly cookie the API issues with every session (signed double-submit token). */
+export const CSRF_COOKIE_NAME = 'erp_csrf';
+export const CSRF_HEADER_NAME = 'X-CSRF-Token';
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** In-memory copy (never persisted) for deployments where the API cookie is not readable here. */
+let csrfTokenMemory: string | null = null;
+let csrfRefresh: Promise<string | null> | null = null;
+
+export const setCsrfToken = (token: string | null | undefined): void => {
+  csrfTokenMemory = typeof token === 'string' && token ? token : null;
+};
+
+/** Fetches the CSRF token of the current cookie session (null when signed out). */
+export const refreshCsrfToken = (): Promise<string | null> => {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (!csrfRefresh) {
+    csrfRefresh = (async () => {
+      try {
+        const res = await fetch(resolveApiUrl('/auth/csrf'), { credentials: 'include', cache: 'no-store' });
+        if (!res.ok) return null;
+        const data = (await res.json()) as { csrfToken?: unknown };
+        setCsrfToken(typeof data?.csrfToken === 'string' ? data.csrfToken : null);
+        return csrfTokenMemory;
+      } catch {
+        return null;
+      } finally {
+        csrfRefresh = null;
+      }
+    })();
+  }
+  return csrfRefresh;
+};
+
+/**
+ * CSRF token for an unsafe request: the API-set cookie when this origin can read it
+ * (same host or shared SESSION_COOKIE_DOMAIN), else the in-memory copy, else
+ * GET /auth/csrf when a sign-in exists.
+ */
+export const getCsrfToken = async (): Promise<string | null> => {
+  const fromCookie = readDocumentCookie(CSRF_COOKIE_NAME);
+  if (fromCookie) return fromCookie;
+  if (csrfTokenMemory) return csrfTokenMemory;
+  return hasAuthHint() ? refreshCsrfToken() : null;
+};
+
+/**
+ * Records a new browser session: marker cookie for the navigation guard, active
+ * organization, CSRF token from the response body, cross-tab broadcast. The session
+ * credential itself is only in the API's HttpOnly cookie.
+ */
+export const markSignedIn = (session?: { organizationId?: string | null; csrfToken?: string | null }): void => {
+  purgeLegacyAuthToken();
+  setAuthHintCookie(true);
+  if (session?.organizationId) setStoredTenantId(session.organizationId);
+  if (session?.csrfToken) setCsrfToken(session.csrfToken);
+  broadcastSessionChange();
+};
+
+/** Forgets every client-side trace of the session (the API clears its cookies on logout). */
+export const clearClientSession = (): void => {
+  purgeLegacyAuthToken();
+  setAuthHintCookie(false);
+  setStoredTenantId(null);
+  setCsrfToken(null);
+  broadcastSessionChange();
 };
 
 /**
@@ -207,18 +310,58 @@ export const resolveApiRootUrl = (path: string): string => {
 };
 
 /**
- * Attaches Bearer JWT and X-Tenant-Id headers from browser storage.
+ * Attaches the active organization (X-Tenant-Id) and, for unsafe methods, the CSRF
+ * token. Authentication itself is the HttpOnly session cookie (credentials: 'include').
  */
-const applyAuthHeaders = (headers: Headers): void => {
+const applyBrowserHeaders = async (headers: Headers, method: string): Promise<void> => {
   if (typeof window === 'undefined') return;
-  const token = getStoredAuthToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
   const tenantId = getStoredTenantId();
   if (tenantId && !headers.has('X-Tenant-Id')) {
     headers.set('X-Tenant-Id', tenantId);
   }
+  if (UNSAFE_METHODS.has(method) && !headers.has(CSRF_HEADER_NAME) && !headers.has('Authorization')) {
+    const csrf = await getCsrfToken();
+    if (csrf) headers.set(CSRF_HEADER_NAME, csrf);
+  }
+};
+
+const isReplayableBody = (body: unknown): boolean =>
+  body === undefined ||
+  body === null ||
+  typeof body === 'string' ||
+  (typeof FormData !== 'undefined' && body instanceof FormData) ||
+  (typeof Blob !== 'undefined' && body instanceof Blob) ||
+  (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams);
+
+/** Sends a browser request with cookie credentials; retries once after a CSRF token refresh. */
+const browserFetch = async (url: string, options: RequestInit | undefined, headers: Headers): Promise<Response> => {
+  const method = String(options?.method || 'GET').toUpperCase();
+  await applyBrowserHeaders(headers, method);
+  const send = () => fetch(url, { ...options, headers, credentials: 'include' });
+  const response = await send();
+  if (
+    response.status === 403 &&
+    UNSAFE_METHODS.has(method) &&
+    typeof window !== 'undefined' &&
+    isReplayableBody(options?.body)
+  ) {
+    const code = await response
+      .clone()
+      .json()
+      .then((b: { code?: unknown }) => b?.code)
+      .catch(() => undefined);
+    if (code === 'CSRF_REJECTED') {
+      // Session rotated (sign-in in another tab, organization switch, password change):
+      // fetch the token of the current cookie session and retry once.
+      setCsrfToken(null);
+      const fresh = await refreshCsrfToken();
+      if (fresh && fresh !== headers.get(CSRF_HEADER_NAME)) {
+        headers.set(CSRF_HEADER_NAME, fresh);
+        return send();
+      }
+    }
+  }
+  return response;
 };
 
 const toApiError = async (response: Response): Promise<ApiError> => {
@@ -265,12 +408,7 @@ export const fetchApiBlob = async (
   options?: RequestInit
 ): Promise<DownloadedFile> => {
   const headers = new Headers(options?.headers);
-  applyAuthHeaders(headers);
-  const response = await fetch(resolveApiUrl(url), {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  const response = await browserFetch(resolveApiUrl(url), options, headers);
   if (!response.ok) {
     throw await toApiError(response);
   }
@@ -332,14 +470,8 @@ export const customInstance = async <T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  // Multi-tenant & Auth headers in browser environment
-  applyAuthHeaders(headers);
-
-  const response = await fetch(fullUrl, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  // Tenant + CSRF headers in the browser; the session is the HttpOnly cookie.
+  const response = await browserFetch(fullUrl, options, headers);
 
   if (!response.ok) {
     throw await toApiError(response);
@@ -356,11 +488,17 @@ export const customInstance = async <T>(
     return undefined as unknown as T;
   }
 
+  let parsed: unknown;
   try {
-    return JSON.parse(text) as T;
+    parsed = JSON.parse(text);
   } catch {
     return text as unknown as T;
   }
+  // Session-issuing endpoints return the CSRF token of the new session.
+  if (parsed && typeof parsed === 'object' && typeof (parsed as { csrfToken?: unknown }).csrfToken === 'string') {
+    setCsrfToken((parsed as { csrfToken: string }).csrfToken);
+  }
+  return parsed as T;
 };
 
 export default customInstance;

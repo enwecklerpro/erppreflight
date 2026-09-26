@@ -75,7 +75,8 @@ export function SessionsPanel() {
   });
   const revokeAll = useMutation({
     mutationFn: logoutAll,
-    onSuccess: () => logout('/login'),
+    // The API already revoked every session and cleared the cookie.
+    onSuccess: () => logout('/login', { revokeServerSession: false }),
   });
 
   return (

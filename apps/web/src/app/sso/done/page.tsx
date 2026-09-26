@@ -4,14 +4,15 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
-import { setStoredAuthToken, setStoredTenantId } from '@/lib/api/custom-instance';
+import { markSignedIn, refreshCsrfToken, setStoredTenantId } from '@/lib/api/custom-instance';
+import { fetchMe, safeNextPath } from '@/lib/account-api';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
 import { useT } from '@/i18n/client';
 
 /**
- * Landing page of the OIDC flow. The API redirects here with the session token
- * in the URL fragment (never sent to any server); it is moved into storage and
- * removed from the address bar immediately.
+ * Landing page of the OIDC flow. The API has already set the HttpOnly session
+ * cookie on its callback response; the URL carries only the post-login path. The
+ * session (and its organization, the one the IdP belongs to) is confirmed with /auth/me.
  */
 export default function SsoDonePage() {
   const t = useT();
@@ -20,20 +21,20 @@ export default function SsoDonePage() {
   const [error, setError] = React.useState(false);
 
   React.useEffect(() => {
-    const frag = new URLSearchParams(window.location.hash.slice(1));
-    const token = frag.get('token');
-    const org = frag.get('org');
-    const next = frag.get('next') || '/projects';
+    const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
     window.history.replaceState(null, '', window.location.pathname);
-    if (!token || !org) {
-      setError(true);
-      return;
-    }
     (async () => {
       await evictTenantQueryCache(queryClient);
-      setStoredAuthToken(token);
-      setStoredTenantId(org);
-      router.replace(next.startsWith('/') && !next.startsWith('//') ? next : '/projects');
+      // A new identity: never send the previous user's active organization.
+      setStoredTenantId(null);
+      try {
+        const me = await fetchMe();
+        markSignedIn({ organizationId: me.organizationId });
+        await refreshCsrfToken();
+        router.replace(next);
+      } catch {
+        setError(true);
+      }
     })();
   }, [router, queryClient]);
 

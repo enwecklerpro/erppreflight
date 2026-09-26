@@ -39,6 +39,11 @@ export const security = {
       INVITATION: 'invitation',
       REGISTRATION: 'registration',
       PASSWORD_RESET: 'password reset',
+      PASSWORD_2FA: 'password + 2FA',
+      MAGIC_LINK: 'e-mail sign-in link',
+      MAGIC_LINK_2FA: 'e-mail sign-in link + 2FA',
+      SIGNUP: 'registration',
+      SSO: 'single sign-on',
     },
   },
   org: {
