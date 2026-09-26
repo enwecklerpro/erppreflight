@@ -13,6 +13,7 @@ import { PinoNestLogger, getRootLogger } from './observability/logger';
 import { getErrorReporter } from './observability/error-reporter';
 import { getTracingHandle } from './observability/tracing';
 import { registerApiReference } from './observability/api-reference';
+import { resolveCorsOrigins } from './modules/auth/csrf.guard';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -71,11 +72,8 @@ async function bootstrap() {
     })
   );
 
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
-    : isProduction
-      ? ['https://erppreflight.com', 'https://www.erppreflight.com']
-      : ['http://localhost:3000', 'https://erppreflight.com'];
+  // Credentialed CORS only for the configured web origins (session cookie auth).
+  const allowedOrigins = resolveCorsOrigins(process.env);
 
   app.enableCors({
     origin: allowedOrigins,
@@ -88,6 +86,7 @@ async function bootstrap() {
       'Idempotency-Key',
       'X-Correlation-Id',
       'Last-Event-ID',
+      'X-CSRF-Token',
     ],
   });
 
@@ -104,7 +103,10 @@ async function bootstrap() {
       .setTitle('ERP Preflight Core API')
       .setDescription(
         'Enterprise multi-tenant preflight analysis and clean core auditing API. ' +
-          'Authenticate with `Authorization: Bearer <JWT>` (interactive sessions) or `X-Api-Key: <key>` ' +
+          'Browsers authenticate with the HttpOnly `erppreflight_session` cookie; cookie-authenticated ' +
+          'POST/PUT/PATCH/DELETE requests must send `X-CSRF-Token` (from `GET /api/v1/auth/csrf`) and come from a ' +
+          'trusted Origin (403 `CSRF_REJECTED` otherwise). Non-browser clients use `Authorization: Bearer <JWT>` ' +
+          '(the token is returned by `POST /auth/login` only to non-browser callers) or `X-Api-Key: <key>` ' +
           '(organization API keys, scope-limited). Webhook deliveries are signed with `X-Hub-Signature-256` ' +
           '(HMAC-SHA256 of the raw body with the endpoint secret).'
       )

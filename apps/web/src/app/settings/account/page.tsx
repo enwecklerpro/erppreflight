@@ -128,7 +128,8 @@ function DeleteAccountForm({ impact, mfaEnabled }: { impact: DeletionImpact; mfa
         confirmation: v.confirmation,
         confirmOrganizationDeletion: impact.soleOwnerOrganizations.map((o) => o.id),
       }),
-    onSuccess: () => logout('/login'),
+    // Account deletion ends every session server-side and clears the cookie.
+    onSuccess: () => logout('/login', { revokeServerSession: false }),
   });
   const form = useForm({
     defaultValues: { password: '', code: '', confirmation: '', acknowledgeOrgDeletion: false },

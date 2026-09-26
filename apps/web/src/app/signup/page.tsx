@@ -8,11 +8,7 @@ import { z } from 'zod';
 import { PASSWORD_MIN_LENGTH, PasswordSchema, passwordPolicyViolations } from '@erppreflight/schemas';
 import { FormField } from '@/components/form/form-field';
 import { FormInput, FormSummaryErrors } from '@/components/form/form-inputs';
-import {
-  customInstance,
-  setStoredAuthToken,
-  setStoredTenantId,
-} from '@/lib/api/custom-instance';
+import { customInstance, markSignedIn } from '@/lib/api/custom-instance';
 import {
   Building2,
   Lock,
@@ -55,8 +51,9 @@ const signupSchema = z
 
 type SignupFormData = z.infer<typeof signupSchema>;
 
+/** The session itself is the API's HttpOnly cookie; the body carries no token for browsers. */
 interface AuthResponse {
-  accessToken: string;
+  csrfToken?: string;
   user: {
     id: string;
     email: string;
@@ -92,12 +89,7 @@ export default function SignupPage() {
     onSuccess: async (res) => {
       // New identity: drop anything cached while signed out (e.g. a 401 for /auth/me).
       await evictTenantQueryCache(queryClient);
-      if (res?.accessToken) {
-        setStoredAuthToken(res.accessToken);
-      }
-      if (res?.user?.organizationId) {
-        setStoredTenantId(res.user.organizationId);
-      }
+      markSignedIn({ organizationId: res?.user?.organizationId ?? null, csrfToken: res?.csrfToken ?? null });
       router.push('/projects');
     },
     onError: (err: unknown) => {

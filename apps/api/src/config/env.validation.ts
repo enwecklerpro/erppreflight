@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { resolveMailConfig } from '../modules/mail/mail.config';
+import { isValidCookieDomain } from '../modules/auth/session-cookie';
 
 const booleanFlag = z.preprocess(
   (val) => (val === undefined || val === null || val === '' ? undefined : val === 'true' || val === true),
@@ -30,6 +31,13 @@ export const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   ANALYSIS_SERVICE_URL: z.string().default('http://localhost:8000'),
   CORS_ORIGIN: z.string().optional(),
+  // Browser session cookie (modules/auth/session-cookie.ts). Unset domain = host-only cookie on the API host.
+  SESSION_COOKIE_DOMAIN: z.string().optional(),
+  SESSION_COOKIE_SAMESITE: z.preprocess(
+    (val) => (typeof val === 'string' && val.trim() !== '' ? val.trim().toLowerCase() : undefined),
+    z.enum(['lax', 'strict', 'none']).optional()
+  ),
+  SESSION_COOKIE_SECURE: booleanFlag,
   S3_ENDPOINT: z.string().default('http://localhost:9000'),
   S3_REGION: z.string().default('us-east-1'),
   S3_ACCESS_KEY: z.string().optional(),
@@ -148,6 +156,16 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
   }
 
   errors.push(...resolveMailConfig(env).errors);
+
+  if (!isValidCookieDomain(env.SESSION_COOKIE_DOMAIN)) {
+    errors.push('SESSION_COOKIE_DOMAIN must be a bare domain such as erppreflight.com (no scheme, port or path)');
+  }
+  if (env.SESSION_COOKIE_SAMESITE === 'none' && env.SESSION_COOKIE_SECURE === false) {
+    errors.push('SESSION_COOKIE_SAMESITE=none requires SESSION_COOKIE_SECURE=true (browsers reject insecure SameSite=None cookies)');
+  }
+  if (isProduction && env.SESSION_COOKIE_SECURE === false) {
+    errors.push('SESSION_COOKIE_SECURE=false is not allowed when NODE_ENV=production');
+  }
 
   if (errors.length > 0) {
     console.error(`Environment validation error:\n - ${errors.join('\n - ')}`);

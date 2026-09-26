@@ -300,14 +300,18 @@ async function pg(sql, params = []) {
     const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
     r = await fetch(r.headers.get('location'), { redirect: 'manual' }); // IdP authorize
     r = await fetch(r.headers.get('location'), { redirect: 'manual', headers: { cookie } }); // callback
-    return r.headers.get('location');
+    // The session is issued only as the HttpOnly cookie on the callback response.
+    const session = (r.headers.getSetCookie?.() || [])
+      .map((c) => c.split(';')[0])
+      .find((c) => c.startsWith('erppreflight_session='));
+    return { location: r.headers.get('location'), token: session ? decodeURIComponent(session.split('=')[1]) : null };
   };
   await fetch(`${D.oidc.issuer}/__control/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ssoUser, user: { sub: `idp|dana-${R}`, name: 'Dana Delivery', email_verified: true } }) });
   const done = await doLogin();
-  const frag = new URLSearchParams(done.split('#')[1] || '');
-  const ssoToken = frag.get('token');
+  check('SSO completion redirect carries no credential (session only in the HttpOnly cookie)', !!done.token && !/token=|#/.test(done.location) && /\/sso\/done\?next=/.test(done.location), done.location);
+  const ssoToken = done.token;
   const me = await call('GET', '/auth/me', { token: ssoToken });
-  check('OIDC code+PKCE login issues the regular session JWT (JIT user, VIEWER)', me.status === 200 && me.json.user.organizationId === alice.orgId && me.json.user.role === 'VIEWER', done.split('#')[0]);
+  check('OIDC code+PKCE login issues the regular session JWT (JIT user, VIEWER)', me.status === 200 && me.json.user.organizationId === alice.orgId && me.json.user.role === 'VIEWER', done.location);
   const viewerWrite = await call('POST', '/connectors', { token: ssoToken, body: { type: 'FILE', name: 'x' } });
   check('JIT-provisioned VIEWER is still bound by RolesGuard', viewerWrite.status === 403);
   const [ssoSession] = await pg(
@@ -320,10 +324,10 @@ async function pg(sql, params = []) {
   const afterLogout = await call('GET', '/auth/me', { token: ssoToken });
   check('logging out revokes the SSO session like any password session', afterLogout.status === 401);
   await fetch(`${D.oidc.issuer}/__control/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ssoUser, tamper: 'nonce' }) });
-  const bad = await doLogin();
+  const bad = (await doLogin()).location;
   check('ID token with a wrong nonce is rejected', /sso_error=SSO_LOGIN_FAILED/.test(bad));
   await fetch(`${D.oidc.issuer}/__control/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `eve.${R}@evil-${R}.test`, tamper: null }) });
-  const evil = await doLogin().catch(() => 'error');
+  const evil = await doLogin().then((r) => r.location).catch(() => 'error');
   check('IdP cannot log in e-mails from unverified domains', /sso_error/.test(evil));
   const scimTok = await call('POST', '/sso/admin/scim-tokens', { token: alice.token, body: { name: 'Okta' } });
   const S = (m, p, body) => call(m, `/scim/v2${p}`, { headers: { Authorization: `Bearer ${scimTok.json.token}`, 'Content-Type': 'application/scim+json' }, body });

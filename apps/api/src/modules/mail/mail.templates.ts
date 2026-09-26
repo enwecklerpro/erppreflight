@@ -80,6 +80,16 @@ export function renderPasswordReset(p: { name?: string | null; url: string; expi
   );
 }
 
+export function renderMagicLink(p: { name?: string | null; url: string; expiresMinutes: number }): RenderedMail {
+  return render(
+    'MAGIC_LINK',
+    `Your ${PRODUCT} sign-in link`,
+    [greeting(p.name), 'Use the button below to sign in to your account. No password is needed.'],
+    { label: 'Sign in to ERP Preflight', url: p.url },
+    `The link expires in ${p.expiresMinutes} minutes and can be used once. If two-factor authentication is enabled, you will still be asked for your code. If you did not request this link, ignore this message — nobody can sign in without it.`
+  );
+}
+
 export function renderPasswordChanged(p: { name?: string | null; when: string; resetUrl: string }): RenderedMail {
   return render(
     'PASSWORD_CHANGED',

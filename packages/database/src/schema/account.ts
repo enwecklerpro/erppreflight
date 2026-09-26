@@ -8,6 +8,7 @@ import { organizations, users } from './core';
 export const userActionTokens = pgTable('user_action_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // EMAIL_VERIFICATION | PASSWORD_RESET | MAGIC_LINK (CHECK constraint, migration 025)
   purpose: varchar('purpose', { length: 40 }).notNull(),
   tokenHash: char('token_hash', { length: 64 }).notNull().unique(),
   email: varchar('email', { length: 255 }).notNull(),

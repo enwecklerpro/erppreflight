@@ -8,8 +8,7 @@ import {
   ApiError,
   customInstance,
   downloadApiFile,
-  setStoredAuthToken,
-  setStoredTenantId,
+  markSignedIn,
   type DownloadedFile,
 } from './api/custom-instance';
 
@@ -39,9 +38,14 @@ export const SessionUserSchema = z
   })
   .passthrough();
 
+/**
+ * Session-issuing responses. Browsers receive the user and the CSRF token; the
+ * session itself is the API's HttpOnly cookie (the API omits `accessToken` for
+ * browser requests, and the web app never stores one).
+ */
 export const SessionResponseSchema = z.object({
-  accessToken: z.string().min(1),
   user: SessionUserSchema,
+  csrfToken: z.string().optional(),
   mfaEnrollmentRequired: z.boolean().optional(),
   recoveryCodes: z.array(z.string()).optional(),
 });
@@ -171,10 +175,12 @@ export type DeletionImpact = z.infer<typeof DeletionImpactSchema>;
 const post = (url: string, body?: unknown, method = 'POST') =>
   customInstance<unknown>(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
-/** Stores a freshly issued session (token + active organization). */
+/**
+ * Records a freshly issued session on the client: navigation marker, active
+ * organization and CSRF token. No credential is stored (HttpOnly cookie only).
+ */
 export function storeSession(session: SessionResponse): void {
-  setStoredAuthToken(session.accessToken);
-  setStoredTenantId(session.user.organizationId);
+  markSignedIn({ organizationId: session.user.organizationId, csrfToken: session.csrfToken ?? null });
 }
 
 /** Returns the machine-readable API error code (e.g. EMAIL_NOT_VERIFIED), if any. */
@@ -206,6 +212,43 @@ export async function login(email: string, password: string) {
 
 export async function completeSecondFactor(challengeToken: string, factor: { code?: string; recoveryCode?: string }) {
   return SessionResponseSchema.parse(await post('/auth/login/2fa', { challengeToken, ...factor }));
+}
+
+/** Revokes the server-side session and clears the session cookies (best effort). */
+export async function logoutSession(): Promise<void> {
+  await customInstance('/auth/logout', { method: 'POST' });
+}
+
+// ------------------------------------------------------------------ magic link (spec 10.2)
+
+export const MagicLinkRequestResponseSchema = z.object({
+  accepted: z.literal(true),
+  message: z.string(),
+  expiresInMinutes: z.number(),
+});
+
+export const MagicLinkPreviewSchema = z.object({
+  valid: z.boolean(),
+  email: z.string().optional(),
+  expiresAt: z.string().optional(),
+});
+export type MagicLinkPreview = z.infer<typeof MagicLinkPreviewSchema>;
+
+/** Same response whether or not the account exists (no enumeration). */
+export async function requestMagicLink(email: string, next?: string | null) {
+  return MagicLinkRequestResponseSchema.parse(
+    await post('/auth/magic-link', { email, ...(next && next !== '/projects' ? { next } : {}) })
+  );
+}
+
+/** Checks a sign-in link without consuming it. */
+export async function previewMagicLink(token: string): Promise<MagicLinkPreview> {
+  return MagicLinkPreviewSchema.parse(await post('/auth/magic-link/preview', { token }));
+}
+
+/** Consumes the link: a session (cookie) or, with 2FA, a challenge for completeSecondFactor. */
+export async function verifyMagicLink(token: string) {
+  return LoginResponseSchema.parse(await post('/auth/magic-link/verify', { token }));
 }
 
 export async function fetchMe(): Promise<Me> {

@@ -16,7 +16,7 @@ import {
 } from '../lib/api-client';
 import {
   ApiError,
-  AUTH_TOKEN_KEY,
+  LEGACY_AUTH_TOKEN_KEY,
   parseContentDispositionFileName,
   resolveApiRootUrl,
 } from '../lib/api/custom-instance';
@@ -248,8 +248,8 @@ describe('api-client contract', () => {
   });
 
   describe('downloads', () => {
-    it('downloads the reproducibility bundle as an authenticated blob', async () => {
-      localStorage.setItem(AUTH_TOKEN_KEY, 'tok-123');
+    it('downloads the reproducibility bundle with the session cookie (never a stored bearer token)', async () => {
+      localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, 'tok-123');
       fetchMock.mockResolvedValue(
         new Response(new Blob(['PK']), {
           status: 200,
@@ -261,7 +261,8 @@ describe('api-client contract', () => {
       expect(file.fileName).toBe('bundle-a1.zip');
       const { url, init } = lastCall();
       expect(url).toBe(`${BASE}/api/v1/analyses/a1/reproducibility-bundle`);
-      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer tok-123');
+      expect(new Headers(init.headers).get('Authorization')).toBeNull();
+      expect(init.credentials).toBe('include');
       expect(clickSpy).toHaveBeenCalledTimes(1);
       clickSpy.mockRestore();
     });

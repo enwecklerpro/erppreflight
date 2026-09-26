@@ -21,7 +21,7 @@ import {
   storeSession,
   type SessionResponse,
 } from '@/lib/account-api';
-import { getStoredAuthToken } from '@/lib/api/custom-instance';
+import { hasAuthHint } from '@/lib/api/custom-instance';
 import { evictTenantQueryCache } from '@/lib/query/query-provider';
 import { useErrorText, useFmt, useRichT, useT } from '@/i18n/client';
 import { vmsg } from '@/i18n/validation';
@@ -48,7 +48,8 @@ function AcceptInvite() {
   const queryClient = useQueryClient();
   const valid = TOKEN_RE.test(token);
   const [hasToken, setHasToken] = React.useState(false);
-  React.useEffect(() => setHasToken(!!getStoredAuthToken()), []);
+  // A sign-in may exist (HttpOnly cookie): confirm it with /auth/me.
+  React.useEffect(() => setHasToken(hasAuthHint()), []);
 
   const preview = useQuery({
     queryKey: ['invitation', 'preview', token],

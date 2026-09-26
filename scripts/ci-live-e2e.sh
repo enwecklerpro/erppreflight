@@ -13,6 +13,7 @@
 #   -> scripts/e2e-findings-smoke.cjs (finding lifecycle, carry-over, regression Test Lab)
 #   -> scripts/e2e-i18n-smoke.cjs (EN/DE app localization, no raw keys, 375 px layout)
 #   -> scripts/e2e-tools-smoke.cjs (free tools, SEO object pages, sitemaps, docs; after a knowledge sync)
+#   -> scripts/e2e-session-security-smoke.cjs (HttpOnly cookie session, CSRF, logout, magic link)
 #   -> backup/restore drill: scripts/backup.sh -> drop DB + empty buckets -> scripts/restore.sh
 #      (checksum + row-count verification) -> API restarted on restored data -> login + file
 #      download byte-identical to the pre-backup object
@@ -65,6 +66,10 @@ mkdir -p "$ART/screenshots"
 # Test-only secrets: random per run unless the workflow provides them. Never production values.
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+# Dev mail transport (production-mode API requires MAIL_TRANSPORT); suites read links from the
+# token-protected dev mailbox (verification, invitations, magic-link sign-in).
+MAIL_DEV_OUTBOX_TOKEN="${MAIL_DEV_OUTBOX_TOKEN:-$(openssl rand -hex 24)}"
+export MAIL_DEV_OUTBOX_TOKEN
 
 PIDS=()
 log() { echo "[live-e2e] $(date -u +%H:%M:%S) $*"; }
@@ -166,7 +171,8 @@ start_api() { # $1 = log file suffix
       S3_BUCKET_QUARANTINE="$BUCKET_PREFIX-quarantine" S3_BUCKET_CLEAN="$BUCKET_PREFIX-clean" \
       S3_BUCKET_REPORTS="$BUCKET_PREFIX-reports" \
       JWT_SECRET="$JWT_SECRET" JWT_EXPIRES_IN=1h MASTER_ENCRYPTION_KEY="$MASTER_ENCRYPTION_KEY" \
-      CORS_ORIGIN="http://localhost:$WEB_PORT" \
+      CORS_ORIGIN="http://localhost:$WEB_PORT" APP_PUBLIC_URL="http://localhost:$WEB_PORT" \
+      MAIL_TRANSPORT=dev MAIL_FROM="ERP Preflight <no-reply@e2e.local>" MAIL_DEV_OUTBOX_TOKEN="$MAIL_DEV_OUTBOX_TOKEN" \
       CLAMAV_HOST="$CLAMAV_HOST" CLAMAV_PORT="$CLAMAV_PORT" CLAMAV_MOCK_MODE=false \
       AUTH_RATE_LIMIT_SCALE=20
     exec node dist/src/main.js
@@ -216,6 +222,10 @@ log "running EN/DE localization smoke (scripts/e2e-i18n-smoke.cjs)"
 WEB_URL="http://localhost:$WEB_PORT" API_URL="http://localhost:$API_PORT" \
   node scripts/e2e-i18n-smoke.cjs "$ART/screenshots-i18n" 2>&1 | tee "$ART/smoke-i18n.log"
 I18N=${PIPESTATUS[0]}
+log "running session security smoke (scripts/e2e-session-security-smoke.cjs)"
+WEB_URL="http://localhost:$WEB_PORT" API_BASE_URL="http://localhost:$API_PORT" DATABASE_URL="$PG_ADMIN_URL/$DB_NAME" \
+  node scripts/e2e-session-security-smoke.cjs "$ART/screenshots-session" 2>&1 | tee "$ART/smoke-session.log"
+SESSION=${PIPESTATUS[0]}
 # Free tools / programmatic SEO / docs smoke (needs a published knowledge snapshot: the
 # Cloudification Repository sync reads the public SAP GitHub repository). E2E_TOOLS_SMOKE=0 skips it.
 TOOLS=0
@@ -244,8 +254,8 @@ else
 fi
 set -e
 
-log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
-[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
+log "results: api-smoke exit=$LIVE ui-smoke exit=$UI analyze-smoke exit=$ANALYZE findings-smoke exit=$FINDINGS i18n-smoke exit=$I18N session-smoke exit=$SESSION tools-smoke exit=$TOOLS playwright exit=$PW (artifacts in $ART)"
+[ "$LIVE" -eq 0 ] && [ "$UI" -eq 0 ] && [ "$ANALYZE" -eq 0 ] && [ "$FINDINGS" -eq 0 ] && [ "$I18N" -eq 0 ] && [ "$SESSION" -eq 0 ] && [ "$TOOLS" -eq 0 ] && [ "$PW" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------- backup / restore drill
 # Spec 12.7 / 13.11 "working backups" / 20.30: create known data through the API, back up

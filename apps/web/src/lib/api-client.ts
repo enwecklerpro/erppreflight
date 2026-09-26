@@ -956,7 +956,7 @@ export async function fetchProjectDrift(
 
 // -----------------------------------------------------------------------------
 // Report & Bundle Downloads (Part 14.11)
-// Downloads go through the authenticated fetch (Bearer + tenant headers) and are
+// Downloads go through the authenticated fetch (session cookie + tenant header) and are
 // handed to the browser as a Blob, never as a bare <a href> to the API.
 // -----------------------------------------------------------------------------
 export function downloadReproducibilityBundle(analysisId: string): Promise<DownloadedFile> {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,6 +16,10 @@ import { AccountSecurityService } from './account-security.service';
 import { TwoFactorService } from './two-factor.service';
 import { SecurityAuditService } from './security-audit.service';
 import { SessionService } from './session.service';
+import { SessionCookieService } from './session-cookie';
+import { CsrfGuard } from './csrf.guard';
+import { MagicLinkService } from './magic-link.service';
+import { MagicLinkController } from './magic-link.controller';
 
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { MailModule } from '../mail/mail.module';
@@ -38,7 +43,7 @@ import { AuditModule } from '../audit/audit.module';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, MagicLinkController],
   providers: [
     AuthService,
     JwtStrategy,
@@ -52,6 +57,10 @@ import { AuditModule } from '../audit/audit.module';
     TwoFactorService,
     SecurityAuditService,
     SessionService,
+    SessionCookieService,
+    MagicLinkService,
+    // CSRF protection for every cookie-authenticated unsafe request (csrf.guard.ts).
+    { provide: APP_GUARD, useClass: CsrfGuard },
   ],
   exports: [
     AuthService,
@@ -64,6 +73,7 @@ import { AuditModule } from '../audit/audit.module';
     TwoFactorService,
     SecurityAuditService,
     SessionService,
+    SessionCookieService,
     MailModule,
   ],
 })

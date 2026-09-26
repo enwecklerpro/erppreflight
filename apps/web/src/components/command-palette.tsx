@@ -20,7 +20,7 @@ import {
   Network,
 } from 'lucide-react';
 import { CANONICAL_ENGINES, fetchProjects } from '@/lib/api-client';
-import { getStoredAuthToken } from '@/lib/api/custom-instance';
+import { hasAuthHint } from '@/lib/api/custom-instance';
 import { useMessages, useT } from '@/i18n/client';
 import type { MessageKey } from '@/i18n/translate';
 
@@ -61,7 +61,7 @@ export function CommandPalette() {
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
-    enabled: isOpen && !!getStoredAuthToken(),
+    enabled: isOpen && hasAuthHint(),
     staleTime: 60_000,
     retry: false,
   });

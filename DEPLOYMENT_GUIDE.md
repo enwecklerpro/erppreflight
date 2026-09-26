@@ -74,6 +74,28 @@ behind your own reverse proxy (the file joins the external `coolify` network).
 `.env.coolify.example` documents every variable read by the compose file; the API validates them in
 `apps/api/src/config/env.validation.ts`. Secret rotation: `docs/runbooks/SECRET_ROTATION.md`.
 
+### 4.1 Browser sessions, cookies and CSRF (web and API on different hosts)
+
+Browsers authenticate only with the HttpOnly cookie `erppreflight_session` issued by the API; the web
+app never stores a token (spec C §8.2/§68). The production topology puts the web app on
+`erppreflight.com` and the API on `api.erppreflight.com`. Both belong to the same site
+(`erppreflight.com`), so the default cookie — host-only on the API host, `SameSite=Lax`, `Secure` —
+is sent with the web app's credentialed `fetch` calls without further configuration. Requirements:
+
+- `CORS_ORIGIN` lists exactly the web origins (https). CORS allows credentials only for them, and the
+  CSRF guard accepts cookie-authenticated `POST/PUT/PATCH/DELETE` only from these origins (plus
+  `APP_PUBLIC_URL`) and only with a valid `X-CSRF-Token` (signed double-submit token bound to the
+  session; the web app reads it from the `erp_csrf` cookie, the login response or `GET /api/v1/auth/csrf`).
+  Violations return 403 `CSRF_REJECTED`.
+- `TRUST_PROXY` stays at its production default so `Secure` cookies and client IPs work behind Traefik.
+- Optional `SESSION_COOKIE_DOMAIN=erppreflight.com` scopes both cookies to the parent domain (the web
+  server then sees the real session cookie; script can read `erp_csrf` directly). Leave it empty unless
+  needed. A web app on a *different* site (e.g. an `sslip.io` test host) would need
+  `SESSION_COOKIE_SAMESITE=none` and still fails in browsers that block third-party cookies — use a
+  subdomain of the same registrable domain instead.
+- CLI, local agent and scripts keep using `Authorization: Bearer` (the login response contains
+  `accessToken` only for non-browser callers) or `X-Api-Key`; they are exempt from the CSRF check.
+
 ## 5. Post-deploy verification
 
 ```bash
@@ -82,6 +104,8 @@ curl -s https://api.erppreflight.com/health/readiness | jq .   # postgres, redis
 curl -s -o /dev/null -w '%{http_code}\n' https://erppreflight.com/api/health
 API_BASE_URL=https://api.erppreflight.com bash scripts/e2e-live-smoke.sh      # 21 checks, 2 throwaway tenants
 WEB_URL=https://erppreflight.com node scripts/e2e-ui-smoke.cjs                # Chromium journey (needs `pnpm install`)
+WEB_URL=https://erppreflight.com API_BASE_URL=https://api.erppreflight.com \
+  node scripts/e2e-session-security-smoke.cjs   # cookie session + CSRF + magic link (needs the dev mailbox, i.e. staging only)
 ```
 
 The smoke tests create tenants named `Org A <n>` / `Org B <n>` with `@e2e.local` addresses; delete
