@@ -1428,7 +1428,7 @@ export default function ProjectWorkspacePage() {
       {activeTab === 'preflight' && <FullPreflightPanel projectId={projectId} />}
 
       {/* Tab: Project mode context (Part 01 §1.5) */}
-      {activeTab === 'context' && <ProjectContextForm key={project.updatedAt ?? project.id} project={project} />}
+      {activeTab === 'context' && <ProjectContextForm key={project.id} project={project} />}
     </div>
   );
 }
