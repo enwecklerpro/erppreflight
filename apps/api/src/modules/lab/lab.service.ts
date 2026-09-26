@@ -949,9 +949,6 @@ export class LabService {
       `Executing Test Lab live run ${runId} for domain ${dto.domain} across engine ${engineType}`
     );
 
-    const lab = await this.beginScenarioAnalysis(dto, tenantId, projectId || dto.projectId, engineType, targetRelease, options);
-    const startedAt = Date.now();
-
     // 2. Prepare standardized Wire Request
     const wireRequest = toWireJobRequest({
       jobId: runId,
@@ -963,6 +960,30 @@ export class LabService {
       configuration,
       rawContent,
     });
+
+    // Run-history record (kind LAB_SCENARIO) once the request is valid; its poller stops with it.
+    const lab = await this.beginScenarioAnalysis(dto, tenantId, projectId || dto.projectId, engineType, targetRelease, options);
+    const startedAt = Date.now();
+    try {
+      return await this.executeScenario(dto, tenantId, lab, startedAt, runId, executedAt, payloadHash, effectiveTenantId, effectiveProjectId, engineType, wireRequest);
+    } finally {
+      lab?.cancellation.stop();
+    }
+  }
+
+  private async executeScenario(
+    dto: RunScenarioDto,
+    tenantId: string | undefined,
+    lab: LabAnalysisHandle | null,
+    startedAt: number,
+    runId: string,
+    executedAt: string,
+    payloadHash: string,
+    effectiveTenantId: string,
+    effectiveProjectId: string,
+    engineType: EngineType,
+    wireRequest: unknown
+  ): Promise<LabRunAssertionResult> {
 
     let rawPythonResponse: any;
     try {

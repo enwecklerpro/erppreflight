@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 
+const FINISHED_STATUSES = new Set(['COMPLETED', 'PARTIAL', 'FAILED']);
+
 /** Thrown inside a run when a cancellation request was observed. */
 export class AnalysisCancelledError extends Error {
   constructor(analysisId: string) {
@@ -64,6 +66,9 @@ export class RunCancellation {
     const state = await this.readState();
     if (state && (state.cancelRequestedAt || state.status === 'CANCELLED')) {
       this.abort('db');
+    } else if (state && FINISHED_STATUSES.has(state.status ?? '')) {
+      // The run finished (possibly through another code path): nothing left to watch.
+      this.stop();
     }
     return this.cancelled;
   }

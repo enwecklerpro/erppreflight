@@ -529,6 +529,38 @@ describe('AnalysisExecutor cooperative cancellation', () => {
   });
 });
 
+describe('RunCancellation', () => {
+  function stateDb(row: { status: string; cancel_requested_at: Date | null }) {
+    return { query: vi.fn(async () => ({ rows: [row] })) } as any;
+  }
+
+  it('aborts on a persisted request and via the in-process signal; unregisters on stop', async () => {
+    const row = { status: 'RUNNING', cancel_requested_at: null as Date | null };
+    const c = new RunCancellation(stateDb(row), ORG, A1, undefined, 0).start();
+    expect(await c.check()).toBe(false);
+    expect(RunCancellation.signalLocal(A1)).toBe(1);
+    expect(c.cancelled).toBe(true);
+    expect(c.signal.aborted).toBe(true);
+    expect(() => c.throwIfCancelled()).toThrow(/cancelled/);
+    c.stop();
+    expect(RunCancellation.signalLocal(A1)).toBe(0);
+
+    row.cancel_requested_at = NOW;
+    const d = new RunCancellation(stateDb(row), ORG, A1, undefined, 0);
+    expect(await d.check()).toBe(true);
+  });
+
+  it('stops watching (no leaked poller) once the run reached a finished status', async () => {
+    const c = new RunCancellation(stateDb({ status: 'COMPLETED', cancel_requested_at: null }), ORG, A1, undefined, 60_000).start();
+    expect(RunCancellation.signalLocal(A1)).toBe(1);
+    // signalLocal aborted it; a fresh watcher on a finished run unregisters itself on the first check
+    const d = new RunCancellation(stateDb({ status: 'COMPLETED', cancel_requested_at: null }), ORG, A1, undefined, 60_000).start();
+    expect(await d.check()).toBe(false);
+    c.stop();
+    expect(RunCancellation.signalLocal(A1)).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // Generated tests ↔ Test Lab
 // ---------------------------------------------------------------------------------------------

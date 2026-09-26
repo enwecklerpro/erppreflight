@@ -437,20 +437,24 @@ export class RegressionLabService {
       testCaseIds: [testCaseId],
       rerunOfAnalysisId: options.rerunOfAnalysisId ?? null,
     });
-    const result = await this.executeRun(tenantId, actor, t, dto, 'MANUAL', null, lab).catch(async (err: any) => {
-      await this.recorder.fail(lab, String(err?.message ?? err));
-      throw err;
-    });
-    if (!result) {
-      await this.recorder.cancelled(lab, summarizeLab([], 1, 'MANUAL', null));
-      throw new ConflictException({ code: 'ANALYSIS_CANCELLED', message: 'The Test Lab run was cancelled before the test finished.' });
+    try {
+      const result = await this.executeRun(tenantId, actor, t, dto, 'MANUAL', null, lab).catch(async (err: any) => {
+        await this.recorder.fail(lab, String(err?.message ?? err));
+        throw err;
+      });
+      if (!result) {
+        await this.recorder.cancelled(lab, summarizeLab([], 1, 'MANUAL', null));
+        throw new ConflictException({ code: 'ANALYSIS_CANCELLED', message: 'The Test Lab run was cancelled before the test finished.' });
+      }
+      const analysisStatus = await this.recorder.finish(
+        lab,
+        summarizeLab([result], 1, 'MANUAL', null),
+        result.status === 'ERROR' ? result.errorMessage : null
+      );
+      return { ...result, analysisId: lab.analysisId, analysisStatus };
+    } finally {
+      lab.cancellation.stop();
     }
-    const analysisStatus = await this.recorder.finish(
-      lab,
-      summarizeLab([result], 1, 'MANUAL', null),
-      result.status === 'ERROR' ? result.errorMessage : null
-    );
-    return { ...result, analysisId: lab.analysisId, analysisStatus };
   }
 
   /**
@@ -683,26 +687,33 @@ export class RegressionLabService {
         })
       : null;
     let cancelled = false;
-    for (const r of rows) {
-      if (lab && (lab.cancellation.cancelled || (await lab.cancellation.check()))) {
-        cancelled = true;
-        break;
+    try {
+      for (const r of rows) {
+        if (lab && (lab.cancellation.cancelled || (await lab.cancellation.check()))) {
+          cancelled = true;
+          break;
+        }
+        const run = await this.executeRun(tenantId, null, r, {}, trigger, batchId, lab).then(
+          (value) => value,
+          (err: any) => ({ testCaseId: r.id, status: 'ERROR', errorMessage: err?.message ?? String(err) })
+        );
+        if (run === null) {
+          cancelled = true;
+          break;
+        }
+        runs.push(run);
+        // Batch runs are attributed to the caller (actor already authorized above).
+        if (actor && runs[runs.length - 1]?.id) {
+          await this.db.query(`UPDATE regression_test_runs SET triggered_by = $2 WHERE id = $1`, [runs[runs.length - 1].id, actor.id], {
+            tenantId,
+          });
+        }
       }
-      const run = await this.executeRun(tenantId, null, r, {}, trigger, batchId, lab).then(
-        (value) => value,
-        (err: any) => ({ testCaseId: r.id, status: 'ERROR', errorMessage: err?.message ?? String(err) })
-      );
-      if (run === null) {
-        cancelled = true;
-        break;
-      }
-      runs.push(run);
-      // Batch runs are attributed to the caller (actor already authorized above).
-      if (actor && runs[runs.length - 1]?.id) {
-        await this.db.query(`UPDATE regression_test_runs SET triggered_by = $2 WHERE id = $1`, [runs[runs.length - 1].id, actor.id], {
-          tenantId,
-        });
-      }
+    } catch (err: any) {
+      if (lab) await this.recorder.fail(lab, String(err?.message ?? err));
+      throw err;
+    } finally {
+      lab?.cancellation.stop();
     }
     let analysisStatus: string | null = null;
     if (lab) {
